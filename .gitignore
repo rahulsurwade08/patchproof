@@ -1,0 +1,20 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+
+# Node
+node_modules/
+
+# Local-only strategy docs (never publish)
+docs/hackathon-checklist.md
+docs/blog-draft.md
+
+# Demo state
+data/inbox/
+scenarios/*/verdict.json
+scenarios/*/state.json
