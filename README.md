@@ -93,6 +93,8 @@ scripts/run_poc_local.sh s01-pyyaml-rce   # → verdict.json + PoC exit code
 ```
 
 Ideal for open-source users and CI: same PoC contract, same isolation, no cloud.
+This path is for **human- and CI-run verification only** — the autonomous
+agentic pipeline always executes through the TrueForge + Daytona sandbox above.
 
 ## Scenario contract
 

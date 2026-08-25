@@ -14,7 +14,12 @@ SCENARIO=${1:?usage: run_poc_local.sh <scenario-id>}
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$ROOT/scenarios/$SCENARIO/app"
 IMAGE="patchproof-$SCENARIO"
-CONTAINER="patchproof-$SCENARIO-poc"
+# Unique per-invocation container so concurrent runs can't clobber each other.
+CONTAINER="patchproof-$SCENARIO-poc-$$"
+
+# Exit codes: 0 exploitable · 1 not affected · 2 usage/setup · 3 service
+# failed to start · 4 PoC timed out (>60s). Never let infra failures look
+# like NOT_AFFECTED verdicts.
 
 [ -d "$APP_DIR" ] || { echo "unknown scenario: $SCENARIO" >&2; exit 2; }
 
@@ -32,18 +37,32 @@ docker run --rm -d --name "$CONTAINER" --network none \
   >/dev/null
 
 echo "waiting for service..."
+healthy=0
 for _ in $(seq 1 30); do
   if docker exec "$CONTAINER" python3 -c "
 import urllib.request, sys
 sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status == 200 else 1)
-" >/dev/null 2>&1; then break; fi
+" >/dev/null 2>&1; then healthy=1; break; fi
   sleep 1
 done
+if [ "$healthy" -ne 1 ]; then
+  echo "service failed to start — not a verdict (infra failure)" >&2
+  docker logs "$CONTAINER" >&2 || true
+  exit 3
+fi
 
 docker cp "$POC_PATH" "$CONTAINER":/srv/poc.py >/dev/null
 
-echo "running PoC inside isolated container..."
-if docker exec -w /srv "$CONTAINER" python3 poc.py; then poc_exit=0; else poc_exit=$?; fi
+echo "running PoC inside isolated container (60s deadline)..."
+if timeout 60 docker exec -w /srv "$CONTAINER" python3 poc.py; then
+  poc_exit=0
+else
+  poc_exit=$?
+fi
+if [ "$poc_exit" -eq 124 ]; then
+  echo "PoC exceeded the 60s deadline — not a verdict" >&2
+  poc_exit=4
+fi
 
 docker cp "$CONTAINER":/srv/verdict.json "$ROOT/scenarios/$SCENARIO/verdict.json" 2>/dev/null || true
 
