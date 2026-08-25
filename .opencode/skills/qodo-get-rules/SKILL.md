@@ -110,6 +110,10 @@ Check that the required Qodo configuration is present. The default location is `
 Example config parsing:
 ```bash
 API_KEY=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('API_KEY',''))")
+if [ -z "$API_KEY" ]; then
+  echo "Missing Qodo API_KEY: set QODO_API_KEY or add API_KEY to ~/.qodo/config.json" >&2
+  exit 1
+fi
 ENV_NAME=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('ENVIRONMENT_NAME',''))")
 QODO_API_URL=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('QODO_API_URL',''))")
 REQUEST_ID=$(uuidgen || python3 -c "import uuid; print(uuid.uuid4())")

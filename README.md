@@ -36,8 +36,10 @@ CVE advisory ──► orchestrator matches it to a repo (GitHub MCP)
 
 ## Quickstart
 
-Prerequisites: Python 3.11+, Docker, Node 20+, a TrueForge install
-(`npx @truefoundry/trueforge`), an OpenRouter API key.
+Prerequisites: Python 3.11+ (or Docker), Node 20+, a TrueForge install
+(`npx @truefoundry/trueforge`), and API keys for OpenRouter, GitHub, and
+Daytona — configured via TrueForge Settings, see
+[docs/trueforge-setup.md](docs/trueforge-setup.md).
 
 ```bash
 # 1. Configure
