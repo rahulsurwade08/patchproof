@@ -22,13 +22,16 @@ docker compose -f infra/docker-compose.yml up --build
 
 # Reset all demo state between runs
 scripts/reset_demo.sh
+
+# Keyless sandbox: service+PoC in one network-isolated container (no API keys)
+scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
 ```
 
 ## Hard rules
 
 - **Prioritize security on every change**: no secrets in code or git history; never weaken the sandbox or approval model; scenario services are live-exploit targets — run them only on localhost/sandbox, never exposed.
 - **Never display secrets in the session**: don't read/print `.env`, API keys, or tokens into tool output, commands, diffs, or replies; refer to keys by name only. Never use `gh auth status --show-token` or `gh auth token` in-session; treat any command output as potentially token-bearing and redact token lines if present.
-- **Exploits and patch tests run in the TrueForge sandbox only — never on the host.** Service and PoC must run in the same sandbox instance (PoC relies on a shared `/tmp` marker file).
+- **Exploits and patch tests run in the TrueForge sandbox only — never on the host.** Service and PoC must run in the same sandbox instance (PoC relies on a shared `/tmp` marker file). The keyless alternative `scripts/run_poc_local.sh` satisfies this via one network-isolated container.
 - **Deploy-to-staging pauses for explicit human approval** (irreversible step); this gate is never cut even when scope shrinks.
 - **Never commit `.env`.** Never bump versions in any `requirements.lock` *except the patcher's deliberate CVE-remediation bump* (which goes through PR + sandbox test suite) — pins reproduce vulnerable versions, so casual edits destroy the scenarios.
 - **PoC contract** (every scenario): exit 0 iff exploitable, exit 1 = not affected; write `verdict.json` with `{cve_id, exploitable, evidence}`; deterministic, <60s. Breaking this breaks the whole verification loop. Note s05-negative-case uses the *same* generic PoC but must self-conclude NOT AFFECTED — don't special-case its verdict.

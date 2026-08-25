@@ -72,6 +72,28 @@ scripts/                 demo helpers
 dashboard/               thin live-status UI (built after the core loop)
 ```
 
+## Sandbox options
+
+PatchProof runs exploits in an isolated sandbox — never on your host. Two supported modes:
+
+### 1. TrueForge + Daytona (recommended)
+
+The full agentic loop: TrueForge provisions an isolated [Daytona](https://www.daytona.io)
+sandbox on demand, reuses it across the investigation (service and PoC share it),
+and enforces the human-approval gate before any deploy. Requires a Daytona API key
+plus model/GitHub keys — see [docs/trueforge-setup.md](docs/trueforge-setup.md).
+
+### 2. Keyless local Docker
+
+Verify any scenario with zero accounts or API keys — one disposable container
+runs both the service and the PoC, with networking disabled:
+
+```bash
+scripts/run_poc_local.sh s01-pyyaml-rce   # → verdict.json + PoC exit code
+```
+
+Ideal for open-source users and CI: same PoC contract, same isolation, no cloud.
+
 ## Scenario contract
 
 Every scenario ships `cve-meta.json` and follows one PoC contract:
