@@ -25,8 +25,8 @@ Settings → Models → add a **custom OpenAI-compatible** endpoint:
 
 Settings → Connectors → **GitHub** from the shipped catalog:
 
-- Auth type: header auth
-- Header: `Authorization: Bearer <GITHUB_TOKEN>` (repo-scope PAT)
+- Preferred: **OAuth** — authorize in the browser; no static token anywhere
+- Fallback: header auth with `Authorization: Bearer <GITHUB_TOKEN>` (repo-scope PAT from `.env`)
 
 Used by the orchestrator (advisory → repo matching) and the patcher (evidence PRs).
 

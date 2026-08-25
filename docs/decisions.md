@@ -35,12 +35,12 @@ low confidence triggers at most one more reproduction attempt (cap 3).
 Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
 (e.g. HTTP 500 mistaken for "payload rejected") get caught before patching.
 
-## ADR-007 — gh CLI token as the default GitHub credential
-**Status:** accepted
-`GITHUB_TOKEN` should be derived from the user's existing `gh auth login`,
-written directly into `.env` without ever being displayed
-(`{ printf 'GITHUB_TOKEN='; gh auth token; } >> .env`, run by the human
-outside agent sessions). Static PATs remain a documented fallback; agent
-sessions must never invoke token-printing commands themselves.
-Rationale: most contributors already have `gh` authenticated — one less setup
-step — while keeping the no-secrets-in-session rule intact.
+## ADR-007 — OAuth-first GitHub credential, PAT fallback
+**Status:** accepted (supersedes earlier gh-token draft)
+The GitHub connector authenticates via TrueForge's OAuth flow
+(Settings → Connectors → GitHub; browser authorization, no static token
+handled by the user or agents). For API-only use outside the harness, a classic
+PAT placed in `.env` remains a documented fallback. Agent sessions never invoke
+token-printing commands, and docs never endorse them.
+Rationale: zero static credentials is the strongest security posture and keeps
+setup to one browser click for contributors who already have a GitHub account.
