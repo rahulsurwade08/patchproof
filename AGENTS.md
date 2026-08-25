@@ -32,9 +32,21 @@ scripts/reset_demo.sh
 - `agent/trueforge.json` is an **unverified draft** — its field names must be checked against TrueForge docs on first run of `npx @truefoundry/trueforge`; don't trust the shape.
 - Gitignored but real: `docs/hackathon-checklist.md`, `docs/blog-draft.md` (local-only strategy docs), `data/inbox/` (advisory drop dir), `scenarios/*/verdict.json`.
 
+## Keeping this file current
+
+Whenever a change adds or alters any of the following, update this file **in the same change**:
+- new tools, skills, or MCP servers (incl. install quirks)
+- commands or verification steps
+- architecture decisions (cross-check `docs/decisions.md`)
+- hard rules or workflow conventions
+
 ## Layout
 
 - `scenarios/<id>/` — self-contained vulnerable FastAPI service (`app/`) + `poc.py` + `cve-meta.json`
 - `agent/` — TrueForge config (`trueforge.json`), subagent prompts in `agent/prompts/`, local NVD MCP server (`agent/mcp/nvd-server/index.mjs`)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
 - `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S4 → S5 automation → dashboard; approval gate never)
+
+## Environment notes
+
+- `rg` (ripgrep) is required by the repo's Qodo skills (`rg` execution fails in skill loader until opencode is restarted after install).
