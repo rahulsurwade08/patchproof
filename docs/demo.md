@@ -33,13 +33,19 @@ The reproducer starts the service at pinned deps
 - evidence: marker file created by code-executed payload
 - subagent returns a ≤15-line summary
 
-## 4. The patch
+## 4. The judge
+
+The judge subagent reviews the evidence (marker-file proof vs inconclusive
+errors, OSV-range consistency) and writes `assessment.json`. It never flips
+the verdict; a disagreement or low confidence triggers one bounded retry.
+
+## 5. The patch
 
 The patcher bumps `pyyaml` in `requirements.lock`, re-runs the PoC plus the
 service's test suite in the sandbox, and opens a PR whose body quotes the
 original exploit output.
 
-## 5. The approval gate
+## 6. The approval gate
 
 Merging and deploying to staging is irreversible. The agent stops and asks.
 Approve only after reviewing the PR.
@@ -48,13 +54,13 @@ Approve only after reviewing the PR.
 docker compose -f infra/docker-compose.yml up --build   # staging now patched
 ```
 
-## 6. Verification loop
+## 7. Verification loop
 
 The verifier re-runs the same PoC against staging:
 
 - payload no longer executes → `exploitable: false` → case closed ✓
 
-## 7. Persistence beat
+## 8. Persistence beat
 
 Refresh the browser or restart TrueForge mid-run: sessions resume from
 `state.json`; the investigation continues where it left off.
