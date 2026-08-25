@@ -65,7 +65,7 @@ Whenever a change adds or alters any of the following, update this file **in the
 ## Layout
 
 - `scenarios/<id>/` — self-contained vulnerable FastAPI service (`app/`) + `poc.py` + `cve-meta.json`
-- `agent/` — subagent prompts in `agent/prompts/`, local dual-source CVE feed MCP server (`agent/mcp/cve-feed-server/index.mjs`: CVE.org + OSV.dev legitimacy cross-check; needs HTTP wrapper — see `docs/trueforge-setup.md`)
+- `agent/` — subagent prompts in `agent/prompts/` (orchestrator, reproducer, judge, patcher, verifier), local dual-source CVE feed MCP server (`agent/mcp/cve-feed-server/index.mjs`: CVE.org + OSV.dev legitimacy cross-check; needs HTTP wrapper — see `docs/trueforge-setup.md`)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
 - `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S4 → S5 automation → dashboard; approval gate never)
 

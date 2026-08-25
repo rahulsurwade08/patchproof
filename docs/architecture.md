@@ -30,6 +30,7 @@
 |---|---|---|
 | Orchestrator | `agent/prompts/orchestrator.md` | Matches advisories to repos, fans out reproducers, merges verdicts, owns the approval gate |
 | Reproducer | `agent/prompts/reproducer.md` | Sandbox contract: service @pinned deps + PoC execution |
+| Judge | `agent/prompts/judge.md` | LLM-as-a-judge: reviews verdict evidence quality/consistency, writes `assessment.json`, never flips outcomes |
 | Patcher | `agent/prompts/patcher.md` | Dependency bump + test suite in sandbox + evidence PR |
 | Verifier | `agent/prompts/verifier.md` | Post-approval re-verification against staging |
 | cve-feed | `agent/mcp/cve-feed-server/index.mjs` | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
@@ -41,7 +42,8 @@
 
 - Per-CVE investigation state lives in files, not chat history:
   - `scenarios/<id>/state.json` — status, attempt count, current stage
-  - `scenarios/<id>/verdict.json` — machine-readable outcome
+- `scenarios/<id>/verdict.json` — machine-readable outcome
+  - `scenarios/<id>/assessment.json` — LLM-judge review of the verdict
   - raw logs stay in sandbox files; agents read ≤15-line summaries
 - Any session resumes by reading one small state file.
 

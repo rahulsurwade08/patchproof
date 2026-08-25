@@ -25,3 +25,19 @@ and cache-stable prefixes; matches harness persistence features.
 **Status:** accepted
 Thin read-only event viewer first, approve-action second. Rationale: solo
 capacity; the gate must never be blocked by UI work.
+
+## ADR-006 — LLM-as-a-judge annotates, never decides
+**Status:** accepted
+A judge subagent reviews each verdict's evidence quality and OSV-range
+consistency into `assessment.json` (`agrees/confidence/rationale`). The PoC
+exit code remains the only source of truth for `exploitable`; disagreement or
+low confidence triggers at most one more reproduction attempt (cap 3).
+Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
+(e.g. HTTP 500 mistaken for "payload rejected") get caught before patching.
+
+## ADR-007 — gh CLI token as the default GitHub credential
+**Status:** accepted
+`GITHUB_TOKEN` should come from the user's existing `gh auth login`
+(`gh auth token`) rather than requiring a manually created PAT; static PATs
+remain a documented fallback. Rationale: most contributors already have `gh`
+authenticated — one less setup step.

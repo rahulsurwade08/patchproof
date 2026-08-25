@@ -25,13 +25,18 @@ investigation. You coordinate; subagents execute.
    Give each: scenario path, `TARGET_URL`, marker path.
 4. **Merge** — collect verdict summaries (≤15 lines each). Batch into ONE merge
    step; do not round-trip per agent.
-5. **Route** —
+5. **Judge** — for each verdict, spawn the judge subagent
+   (`agent/prompts/judge.md`) to review evidence quality and consistency.
+   It writes `assessment.json` and never changes the verdict. If it disagrees
+   or reports low confidence AND attempts remain (<3), re-run the reproducer
+   once; otherwise route on the original verdict, noting the disagreement.
+6. **Route** —
    - `exploitable: true` → hand to patcher.
    - `exploitable: false` → write state CLOSED as NOT AFFECTED with the
      evidence line. This is a first-class outcome, not a failure.
-6. **Gate** — after patcher opens its PR, STOP. Ask the human to approve merge
+7. **Gate** — after patcher opens its PR, STOP. Ask the human to approve merge
    + staging deploy. Do not proceed without an explicit yes.
-7. **Verify** — after approval and deploy, hand to verifier. Report final
+8. **Verify** — after approval and deploy, hand to verifier. Report final
    status in ≤10 lines.
 
 ## Hard rules
