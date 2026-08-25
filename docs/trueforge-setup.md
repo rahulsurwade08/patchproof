@@ -56,7 +56,8 @@ Tools it exposes:
 | `osv_get_vuln` | OSV.dev | full OSV record |
 | `cve_cross_check` | both | one-call legitimacy verdict: CONFIRMED / NOT_IN_SCOPE / UNKNOWN |
 
-Until the wrapper lands, advisories still arrive via `data/inbox/`
-(`scripts/fake_cve_injector.py`) and the orchestrator treats them as
-pre-confirmed; triage should run `cve_cross_check` once the server is
-registered.
+Until the wrapper lands, the legitimacy gate **fails closed**: only advisories
+explicitly marked `"demo": true` (via `scripts/fake_cve_injector.py`, trusted
+local demo) may proceed without a cross-check, recorded as
+`legitimacy: "demo-bypass"` in state.json. Once registered, triage runs
+`cve_cross_check` on every advisory.

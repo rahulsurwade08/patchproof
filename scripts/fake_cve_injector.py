@@ -24,6 +24,7 @@ def main() -> None:
 
     advisory = {
         "source": "patchproof-injector",
+        "demo": True,
         "cve_id": meta["cve_id"],
         "dependency": meta["dependency"]["name"],
         "affected_range": meta["affected_range"],
