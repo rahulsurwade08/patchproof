@@ -29,7 +29,8 @@ capacity; the gate must never be blocked by UI work.
 ## ADR-006 — LLM-as-a-judge annotates, never decides
 **Status:** accepted
 A judge subagent reviews each verdict's evidence quality and OSV-range
-consistency into `assessment.json` (`agrees/confidence/rationale`). The PoC
+consistency into `assessment.json`
+(`agrees_with_verdict`/`confidence`/`range_check`/`rationale`). The PoC
 exit code remains the only source of truth for `exploitable`; disagreement or
 low confidence triggers at most one more reproduction attempt (cap 3).
 Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases

@@ -43,7 +43,8 @@
 - Per-CVE investigation state lives in files, not chat history:
   - `scenarios/<id>/state.json` — status, attempt count, current stage
 - `scenarios/<id>/verdict.json` — machine-readable outcome
-  - `scenarios/<id>/assessment.json` — LLM-judge review of the verdict
+  - `scenarios/<id>/assessment.json` — LLM-judge review of the verdict:
+    `{cve_id, agrees_with_verdict, confidence, range_check, rationale}`
   - raw logs stay in sandbox files; agents read ≤15-line summaries
 - Any session resumes by reading one small state file.
 
