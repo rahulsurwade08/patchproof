@@ -27,6 +27,7 @@ scripts/reset_demo.sh
 ## Hard rules
 
 - **Prioritize security on every change**: no secrets in code or git history; never weaken the sandbox or approval model; scenario services are live-exploit targets — run them only on localhost/sandbox, never exposed.
+- **Never display secrets in the session**: don't read/print `.env`, API keys, or tokens into tool output, commands, diffs, or replies; rely on masked sources (`gh auth status` masks tokens itself) and refer to keys by name only.
 - **Exploits and patch tests run in the TrueForge sandbox only — never on the host.** Service and PoC must run in the same sandbox instance (PoC relies on a shared `/tmp` marker file).
 - **Deploy-to-staging pauses for explicit human approval** (irreversible step); this gate is never cut even when scope shrinks.
 - **Never commit `.env`.** Never bump versions in any `requirements.lock` *except the patcher's deliberate CVE-remediation bump* (which goes through PR + sandbox test suite) — pins reproduce vulnerable versions, so casual edits destroy the scenarios.
