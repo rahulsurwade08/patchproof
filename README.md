@@ -72,6 +72,30 @@ scripts/                 demo helpers
 dashboard/               thin live-status UI (built after the core loop)
 ```
 
+## Sandbox options
+
+PatchProof runs exploits in an isolated sandbox — never on your host. Two supported modes:
+
+### 1. TrueForge + Daytona (recommended)
+
+The full agentic loop: TrueForge provisions an isolated [Daytona](https://www.daytona.io)
+sandbox on demand, reuses it across the investigation (service and PoC share it),
+and enforces the human-approval gate before any deploy. Requires a Daytona API key
+plus model/GitHub keys — see [docs/trueforge-setup.md](docs/trueforge-setup.md).
+
+### 2. Keyless local Docker
+
+Verify any scenario with zero accounts or API keys — one disposable container
+runs both the service and the PoC, with networking disabled:
+
+```bash
+scripts/run_poc_local.sh s01-pyyaml-rce   # → verdict.json + PoC exit code
+```
+
+Ideal for open-source users and CI: same PoC contract, same isolation, no cloud.
+This path is for **human- and CI-run verification only** — the autonomous
+agentic pipeline always executes through the TrueForge + Daytona sandbox above.
+
 ## Scenario contract
 
 Every scenario ships `cve-meta.json` and follows one PoC contract:
@@ -91,4 +115,5 @@ Every pull request in this repo is reviewed by [Qodo](https://www.qodo.ai) from 
 - [#3 — TrueForge setup guide, README Qodo evidence, PR #1 finding fixes](https://github.com/rahulsurwade08/patchproof/pull/3): Qodo raised 3 findings — NVD-MCP docs inconsistency across demo/architecture, conflicting `.env.example` vs Settings setup paths for Daytona, and an API-key parse that could mask a missing key. Fixed in fbfa395: docs now route NVD through `data/inbox/` until the HTTP wrapper exists, `.env.example` is annotated as a reference for Settings-based config, and the snippet exits explicitly on a missing key. Resolution thread: [comment](https://github.com/rahulsurwade08/patchproof/pull/3#issuecomment-5409544317).
 - [#4 — AGENTS.md: never display secrets in the session](https://github.com/rahulsurwade08/patchproof/pull/4): Qodo raised 1 finding — the rule's parenthetical could be read as license to paste `gh auth status` output (which can leak tokens via `--show-token`). Fixed in f08da6b: rule now bans `gh auth status --show-token` / `gh auth token` outright and requires treating all command output as potentially token-bearing. Resolution thread: [comment](https://github.com/rahulsurwade08/patchproof/pull/4#issuecomment-5409797304).
 - [#5 — Dual-source CVE legitimacy server: CVE.org + OSV.dev](https://github.com/rahulsurwade08/patchproof/pull/5): Qodo raised 3 findings — OSV results truncated before the legitimacy match (risk of false NOT_IN_SCOPE), tool exceptions returned as successful MCP results, and an inbox fallback that bypassed the legitimacy gate. Fixed in cb1168e: pagination is followed before any verdict, execution failures return `isError: true` with protocol errors for unknown tools, and unverified advisories fail closed (only explicit `"demo": true` injections may bypass, recorded as `demo-bypass` in state).
+- [#6 — Keyless sandbox mode alongside TrueForge + Daytona](https://github.com/rahulsurwade08/patchproof/pull/6): Qodo raised 4 findings — readiness fall-through could mask startup failures as NOT_AFFECTED, shared container names broke concurrent runs, PoC had no deadline, and keyless mode needed explicit scoping against the TrueForge-sandbox rule. Fixed in 690d3f6: dedicated exit codes for service-start failure (3) and timeout (4), per-invocation container names (`$$` suffix), a 60s PoC deadline via `timeout`, and docs scoped so the agentic pipeline always uses the TrueForge + Daytona sandbox while keyless mode is human/CI-run verification only.
 - [#4 — AGENTS.md: never display secrets in the session](https://github.com/rahulsurwade08/patchproof/pull/4): Qodo raised 1 finding — the rule's parenthetical could be read as license to paste `gh auth status` output (which can leak tokens via `--show-token`). Fixed in f08da6b: rule now bans `gh auth status --show-token` / `gh auth token` outright and requires treating all command output as potentially token-bearing.
