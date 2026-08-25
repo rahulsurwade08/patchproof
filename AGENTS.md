@@ -40,6 +40,18 @@ scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
 - **TrueForge has no config file** (verified against v0.1.4 docs): models/connectors/skills/sandbox are configured via Settings — see `docs/trueforge-setup.md`. Sandbox provider is **Daytona only**; MCP servers are remote-URL only, so the local cve-feed stdio server needs an HTTP wrapper or must be bypassed via `data/inbox/` injection.
 - Gitignored but real: `docs/hackathon-checklist.md`, `docs/blog-draft.md` (local-only strategy docs), `data/inbox/` (advisory drop dir), `scenarios/*/verdict.json`.
 
+## Lessons learned (mistakes to never repeat)
+
+Maintained list — append a lesson whenever a real mistake is identified.
+
+- **Check BOTH comment surfaces on every PR review pass**: `gh pr view <n> --comments` AND inline review comments via `gh api repos/:owner/:repo/pulls/<n>/comments`. Inline Medium findings were missed once and the user caught them.
+- **Never commit without first switching to a feature branch.** A commit landed on main by accident because branching was skipped.
+- **Don't push follow-up commits to a branch whose PR is awaiting merge** — a pushed-after-open commit (`de93e49`) never reached main when the PR merged, silently losing content. Verify post-merge that every intended change actually landed on main.
+- **After any edit that removes or deduplicates lines, re-read the whole section** — a README row was accidentally deleted while removing an adjacent duplicate.
+- **Clean up test artifacts immediately** — a stray root-level `verdict.json` from a manual PoC run sat in the working tree; run tests from the right directory or remove artifacts in the same step.
+- **Cross-check new guidance against existing hard rules before writing it** — docs once endorsed a token-printing command that violated our own no-secrets-in-session rule; Qodo flagged it. Security rules always win over convenience features.
+- **Verify claims of "done/clean" against primary sources**, not memory: grep for placeholders/stale references after doc surgery, re-read files after rebases, and confirm merged content on origin/main.
+
 ## Demo & hackathon compliance
 
 **Parked by maintainer decision**: build the whole project first; do not let demo/video/presentation concerns drive any implementation decision. Revisit only when the core pipeline is proven end-to-end. (The README Qodo-evidence upkeep below is exempt — it's part of the normal PR loop.)
