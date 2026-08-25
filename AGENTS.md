@@ -26,6 +26,7 @@ scripts/reset_demo.sh
 
 ## Hard rules
 
+- **Prioritize security on every change**: no secrets in code or git history; never weaken the sandbox or approval model; scenario services are live-exploit targets — run them only on localhost/sandbox, never exposed.
 - **Exploits and patch tests run in the TrueForge sandbox only — never on the host.** Service and PoC must run in the same sandbox instance (PoC relies on a shared `/tmp` marker file).
 - **Deploy-to-staging pauses for explicit human approval** (irreversible step); this gate is never cut even when scope shrinks.
 - **Never commit `.env`.** Never bump versions in any `requirements.lock` *except the patcher's deliberate CVE-remediation bump* (which goes through PR + sandbox test suite) — pins reproduce vulnerable versions, so casual edits destroy the scenarios.
@@ -34,6 +35,12 @@ scripts/reset_demo.sh
 - **PRs: address every Qodo code-review comment** before a PR is considered done — after each raise/push, check `gh pr view <n> --comments` for Qodo findings, fix each one with commits to the same branch, and post a traceability comment mapping finding → resolution. Never merge over unresolved findings. Merging itself is always done by the human, never by the agent.
 - **TrueForge has no config file** (verified against v0.1.4 docs): models/connectors/skills/sandbox are configured via Settings — see `docs/trueforge-setup.md`. Sandbox provider is **Daytona only**; MCP servers are remote-URL only, so the local NVD stdio server needs an HTTP wrapper or must be bypassed via `data/inbox/` injection.
 - Gitignored but real: `docs/hackathon-checklist.md`, `docs/blog-draft.md` (local-only strategy docs), `data/inbox/` (advisory drop dir), `scenarios/*/verdict.json`.
+
+## Demo & hackathon compliance
+
+- Demo video must show the harness visibly working: a real MCP tool call, code execution in the sandbox, and the pause before the irreversible step.
+- README keeps a **"Qodo Code Review Evidence"** section linking at least one Qodo-reviewed PR — update it as reviewed PRs land.
+- Only connect tools/data/accounts that are yours; keys and personal data stay out of the repo **and** out of the demo video (never show `.env` or TrueForge Settings screens on camera).
 
 ## Working loop
 
