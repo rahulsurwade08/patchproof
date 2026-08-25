@@ -19,5 +19,5 @@ data/inbox/
 scenarios/*/verdict.json
 scenarios/*/state.json
 
-# Harness session artifacts
-session-*
+# Harness session artifacts (repo root only)
+/session-*
