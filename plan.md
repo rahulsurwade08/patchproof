@@ -12,14 +12,18 @@ The result is alert fatigue and unfixed vulnerabilities. PatchProof closes the
 loop empirically:
 
 1. A CVE lands for a library a scenario service depends on.
-2. A reproducer subagent exploits the exact pinned versions inside the
+2. Legitimacy check: the advisory must be confirmed in BOTH public databases
+   (CVE.org canonical record + OSV.dev affected ranges) before any sandbox time.
+3. A reproducer subagent exploits the exact pinned versions inside the
    TrueForge sandbox — never on the host.
    - Exploit fails → case closed as **NOT AFFECTED**, alert dismissed.
    - Exploit succeeds → patcher bumps the dependency, runs the test suite in
      the sandbox, opens a PR with the exploit output attached as evidence.
-3. Deploying the fix to staging is irreversible → the agent pauses for human
+4. An LLM-judge reviews every verdict's evidence quality and range consistency;
+   it annotates (`assessment.json`) but never flips the outcome.
+5. Deploying the fix to staging is irreversible → the agent pauses for human
    approval.
-4. After approval, the verifier re-runs the original PoC against staging to
+6. After approval, the verifier re-runs the original PoC against staging to
    confirm the vulnerability is dead.
 
 ## 2. Decisions
@@ -34,6 +38,11 @@ loop empirically:
 | UI | Thin live dashboard, built after the core loop works; TrueForge chat UI is the fallback surface |
 | Models | OpenRouter free models via BYOK; assume ~50 req/day ceiling until tested |
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
+| CVE legitimacy | Dual-source gate: CVE.org + OSV.dev must both confirm; fail closed (demo injections excepted, audited as `demo-bypass`) |
+| Verdict review | LLM-as-a-judge annotates evidence quality (ADR-006); PoC exit code stays the only truth |
+| Sandbox modes | TrueForge + Daytona (recommended) and keyless network-isolated local Docker for human/CI verification |
+| GitHub credentials | OAuth connector first — no static tokens; PAT documented fallback only (ADR-007) |
+| Demo/presentation | Parked until the core project is complete (maintainer decision) |
 
 ## 3. Sponsor tools
 
@@ -75,7 +84,7 @@ Capability map:
 | MCP tools | `github` (repos/PRs) + custom `cve-feed` server (CVE.org + OSV.dev cross-check, `agent/mcp/cve-feed-server`) |
 | Sandbox execution | PoC exploit code and patch test suites — never run on host |
 | Human approval | Merge-and-deploy-to-staging step pauses until approved |
-| Subagents | One reproducer per CVE candidate, parallel fan-out |
+| Subagents | One reproducer per CVE candidate (parallel fan-out) + a judge reviewing every verdict |
 | Session persistence | Scans span hours; sessions survive refresh/reconnect |
 | Skills | `cve-triage` instruction pack loaded when a task matches |
 
@@ -106,5 +115,6 @@ Capability map:
 ## 8. Pointers
 
 - `docs/architecture.md` — diagrams + capability map
+- `docs/trueforge-setup.md` — verified harness setup (Settings-based config)
 - `docs/demo.md` — end-to-end walkthrough of a demo run
 - `docs/decisions.md` — ADR log
