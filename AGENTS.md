@@ -35,6 +35,10 @@ scripts/reset_demo.sh
 - `agent/trueforge.json` is an **unverified draft** — its field names must be checked against TrueForge docs on first run of `npx @truefoundry/trueforge`; don't trust the shape.
 - Gitignored but real: `docs/hackathon-checklist.md`, `docs/blog-draft.md` (local-only strategy docs), `data/inbox/` (advisory drop dir), `scenarios/*/verdict.json`.
 
+## Working loop
+
+Work autonomously: pick the next step (see plan.md cut-order), implement, verify, raise/push PRs, and resolve Qodo findings — then continue to the next item. **Only stop for human input** when genuinely required: the deploy-approval gate, missing credentials/keys, ambiguity that changes scope, or an explicit user decision. Do not pause for confirmation on routine steps.
+
 ## Keeping this file current
 
 Whenever a change adds or alters any of the following, update this file **in the same change**:
