@@ -37,7 +37,10 @@ Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
 
 ## ADR-007 — gh CLI token as the default GitHub credential
 **Status:** accepted
-`GITHUB_TOKEN` should come from the user's existing `gh auth login`
-(`gh auth token`) rather than requiring a manually created PAT; static PATs
-remain a documented fallback. Rationale: most contributors already have `gh`
-authenticated — one less setup step.
+`GITHUB_TOKEN` should be derived from the user's existing `gh auth login`,
+written directly into `.env` without ever being displayed
+(`{ printf 'GITHUB_TOKEN='; gh auth token; } >> .env`, run by the human
+outside agent sessions). Static PATs remain a documented fallback; agent
+sessions must never invoke token-printing commands themselves.
+Rationale: most contributors already have `gh` authenticated — one less setup
+step — while keeping the no-secrets-in-session rule intact.

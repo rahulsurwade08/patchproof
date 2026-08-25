@@ -29,7 +29,9 @@ investigation. You coordinate; subagents execute.
    (`agent/prompts/judge.md`) to review evidence quality and consistency.
    It writes `assessment.json` and never changes the verdict. If it disagrees
    or reports low confidence AND attempts remain (<3), re-run the reproducer
-   once; otherwise route on the original verdict, noting the disagreement.
+   ONCE, then re-run the judge against the new verdict — the fresh assessment
+   overwrites the old one, and you route on the LATEST machine verdict while
+   preserving the total cap of 3 attempts.
 6. **Route** —
    - `exploitable: true` → hand to patcher.
    - `exploitable: false` → write state CLOSED as NOT AFFECTED with the
