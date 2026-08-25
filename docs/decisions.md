@@ -25,3 +25,23 @@ and cache-stable prefixes; matches harness persistence features.
 **Status:** accepted
 Thin read-only event viewer first, approve-action second. Rationale: solo
 capacity; the gate must never be blocked by UI work.
+
+## ADR-006 — LLM-as-a-judge annotates, never decides
+**Status:** accepted
+A judge subagent reviews each verdict's evidence quality and OSV-range
+consistency into `assessment.json`
+(`agrees_with_verdict`/`confidence`/`range_check`/`rationale`). The PoC
+exit code remains the only source of truth for `exploitable`; disagreement or
+low confidence triggers at most one more reproduction attempt (cap 3).
+Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
+(e.g. HTTP 500 mistaken for "payload rejected") get caught before patching.
+
+## ADR-007 — OAuth-first GitHub credential, PAT fallback
+**Status:** accepted (supersedes earlier gh-token draft)
+The GitHub connector authenticates via TrueForge's OAuth flow
+(Settings → Connectors → GitHub; browser authorization, no static token
+handled by the user or agents). For API-only use outside the harness, a classic
+PAT placed in `.env` remains a documented fallback. Agent sessions never invoke
+token-printing commands, and docs never endorse them.
+Rationale: zero static credentials is the strongest security posture and keeps
+setup to one browser click for contributors who already have a GitHub account.
