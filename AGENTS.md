@@ -38,6 +38,8 @@ scripts/reset_demo.sh
 
 ## Demo & hackathon compliance
 
+**Parked by maintainer decision**: build the whole project first; do not let demo/video/presentation concerns drive any implementation decision. Revisit only when the core pipeline is proven end-to-end. (The README Qodo-evidence upkeep below is exempt — it's part of the normal PR loop.)
+
 - Demo video must show the harness visibly working: a real MCP tool call, code execution in the sandbox, and the pause before the irreversible step.
 - README keeps a **"Qodo Code Review Evidence"** section — every Qodo finding on any PR must be listed there with its resolution, kept current as PRs land; if a PR merges before its findings are fixed, record them as fixed-forward once resolved.
 - Only connect tools/data/accounts that are yours; keys and personal data stay out of the repo **and** out of the demo video (never show `.env` or TrueForge Settings screens on camera).
