@@ -40,15 +40,23 @@ Enable the sandbox per agent (`config.sandbox.enabled` in the agent spec).
 The sandbox is provisioned on demand and reused across turns within a session,
 which is what the PoC/service shared-`/tmp` contract relies on.
 
-## 5. NVD MCP server — open item
+## 5. CVE feed MCP server — dual-source legitimacy check
 
 MCP servers in TrueForge are remote-URL only (header auth / OAuth); local stdio
-servers are not supported. Our custom NVD feed server
-(`agent/mcp/nvd-server/index.mjs`) speaks stdio and therefore cannot be
-registered as-is. Options:
+servers are not supported. Our dual-source feed server
+(`agent/mcp/cve-feed-server/index.mjs`) speaks stdio and therefore needs an
+HTTP (streamable) transport wrapper before it can be registered.
 
-1. Wrap it behind an HTTP (streamable) transport and register its URL.
-2. Skip live-NVD for now: advisories arrive via `data/inbox/`
-   (`scripts/fake_cve_injector.py`), which the orchestrator reads directly.
+Tools it exposes:
 
-Decision pending; option 2 unblocks the first end-to-end run.
+| Tool | Source | Purpose |
+|---|---|---|
+| `cve_get_cve` | CVE.org (`cveawg.mitre.org`) | canonical record: exists, state, description |
+| `osv_query_package` | OSV.dev | vulns for ecosystem/package[/version] |
+| `osv_get_vuln` | OSV.dev | full OSV record |
+| `cve_cross_check` | both | one-call legitimacy verdict: CONFIRMED / NOT_IN_SCOPE / UNKNOWN |
+
+Until the wrapper lands, advisories still arrive via `data/inbox/`
+(`scripts/fake_cve_injector.py`) and the orchestrator treats them as
+pre-confirmed; triage should run `cve_cross_check` once the server is
+registered.

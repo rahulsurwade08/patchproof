@@ -47,7 +47,7 @@ loop empirically:
                  ┌───────────────────────────────────────────────────┐
                  │        TrueForge session (one per CVE)            │
   CVE advisory ─►│  ORCHESTRATOR                                     │
-  (nvd-mcp /     │  • match advisory → scenario repo (github MCP)    │
+  (cve-feed /    │  • match advisory → scenario repo (github MCP)    │
    data/inbox)   │  • spawn reproducer subagent per candidate        │
                  │        │                                          │
                  │  ┌────▼─────┬──────────┐                           │
@@ -69,7 +69,7 @@ Capability map:
 
 | Harness capability | Where PatchProof uses it |
 |---|---|
-| MCP tools | `github` (repos/PRs) + custom `nvd` feed server (`agent/mcp/nvd-server`) |
+| MCP tools | `github` (repos/PRs) + custom `cve-feed` server (CVE.org + OSV.dev cross-check, `agent/mcp/cve-feed-server`) |
 | Sandbox execution | PoC exploit code and patch test suites — never run on host |
 | Human approval | Merge-and-deploy-to-staging step pauses until approved |
 | Subagents | One reproducer per CVE candidate, parallel fan-out |

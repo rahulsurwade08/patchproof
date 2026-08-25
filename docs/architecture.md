@@ -6,7 +6,7 @@
                  ┌───────────────────────────────────────────────────┐
                  │        TrueForge session (one per CVE)            │
   CVE advisory ─►│  ORCHESTRATOR                                     │
-  (nvd-mcp /     │  • match advisory → scenario repo (github MCP)    │
+  (cve-feed /    │  • match advisory → scenario repo (github MCP)    │
    data/inbox)   │  • spawn reproducer subagent per candidate        │
                  │        │                                          │
                  │  ┌────▼─────┬──────────┐                           │
@@ -32,7 +32,7 @@
 | Reproducer | `agent/prompts/reproducer.md` | Sandbox contract: service @pinned deps + PoC execution |
 | Patcher | `agent/prompts/patcher.md` | Dependency bump + test suite in sandbox + evidence PR |
 | Verifier | `agent/prompts/verifier.md` | Post-approval re-verification against staging |
-| nvd-mcp | `agent/mcp/nvd-server/index.mjs` | Custom MCP server over the NVD REST API (`nvd_list_recent`, `nvd_get_cve`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
+| cve-feed | `agent/mcp/cve-feed-server/index.mjs` | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
 | github-mcp | GitHub connector from the TrueForge catalog (`docs/trueforge-setup.md`) | Repos, PRs, evidence comments |
 | Scenario services | `scenarios/` | Deliberately vulnerable demo services with deterministic PoCs |
 | Staging target | `infra/docker-compose.yml` | Local deploy destination behind the approval gate |
@@ -49,7 +49,7 @@
 
 | Capability | Where PatchProof uses it |
 |---|---|
-| MCP tools | `github` + custom `nvd` servers |
+| MCP tools | `github` + custom `cve-feed` (CVE.org + OSV.dev) servers |
 | Sandbox execution | PoC exploit code and patch test suites |
 | Human approval | Merge & deploy-to-staging pause |
 | Subagents | Parallel reproducer fan-out per CVE |

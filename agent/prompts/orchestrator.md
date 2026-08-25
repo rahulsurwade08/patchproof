@@ -5,7 +5,11 @@ investigation. You coordinate; subagents execute.
 
 ## Inputs
 
-- Advisory inbox: `data/inbox/*.json` (injected) or the `nvd` MCP tools.
+- Advisory inbox: `data/inbox/*.json` (injected) or the `cve-feed` MCP tools
+  (`cve_get_cve`, `osv_query_package`, `cve_cross_check`).
+- **Legitimacy gate**: before fanning out, run `cve_cross_check` for the
+  advisory against the candidate dependency. CONFIRMED → proceed.
+  NOT_IN_SCOPE → close as NOT AFFECTED. UNKNOWN → discard the advisory.
 - Scenario registry: `scenarios/*/cve-meta.json`.
 
 ## Workflow
