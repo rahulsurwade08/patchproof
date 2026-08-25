@@ -45,7 +45,7 @@ scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
 
 Maintained list — append a lesson whenever a real mistake is identified.
 
-- **Check BOTH comment surfaces on every PR review pass**: `gh pr view <n> --comments` AND inline review comments via `gh api repos/:owner/:repo/pulls/<n>/comments`. Inline Medium findings were missed once and the user caught them.
+- **Check BOTH comment surfaces on every PR review pass**: `gh pr view <n> --comments` AND inline review comments via `gh api repos/:owner/:repo/pulls/<n>/comments`. Inline Medium findings were missed once and the user caught them. After fixing an inline finding, reply **on that thread** and resolve it (GraphQL `resolveReviewThread`) — a separate PR-level comment leaves the thread showing open.
 - **Never commit without first switching to a feature branch.** A commit landed on main by accident because branching was skipped.
 - **Don't push follow-up commits to a branch whose PR is awaiting merge** — a pushed-after-open commit (`de93e49`) never reached main when the PR merged, silently losing content. Verify post-merge that every intended change actually landed on main.
 - **After any edit that removes or deduplicates lines, re-read the whole section** — a README row was accidentally deleted while removing an adjacent duplicate.
