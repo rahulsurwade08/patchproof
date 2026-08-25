@@ -39,6 +39,8 @@ scripts/reset_demo.sh
 
 Work autonomously: pick the next step (see plan.md cut-order), implement, verify, raise/push PRs, and resolve Qodo findings — then continue to the next item. **Only stop for human input** when genuinely required: the deploy-approval gate, missing credentials/keys, ambiguity that changes scope, or an explicit user decision. Do not pause for confirmation on routine steps.
 
+**PR gate:** after a PR is open, keep working only on that PR (Qodo findings etc.). Once it is clean, **stop and wait for the human to review/approve/merge** — never start the next work item while a PR is pending, and never merge it yourself.
+
 ## Keeping this file current
 
 Whenever a change adds or alters any of the following, update this file **in the same change**:
