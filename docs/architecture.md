@@ -3,17 +3,19 @@
 ## Pipeline
 
 ```
-                 ┌───────────────────────────────────────────────────[PERSON_NAME] session (one per CVE)            │
+                 ┌───────────────────────────────────────────────────┐
+                 │        TrueForge session (one per CVE)            │
   CVE advisory ─►│  ORCHESTRATOR                                     │
   (nvd-mcp /     │  • match advisory → scenario repo (github MCP)    │
    data/inbox)   │  • spawn reproducer subagent per candidate        │
                  │        │                                          │
-                 │  ┌────▼─────┬──────────[PERSON_NAME]│  [PERSON_NAME] …  (parallel)              │
-                 │  [ADDRESS]: start service @pinned deps,           │
+                 │  ┌────▼─────┬──────────┐                           │
+                 │  Reproducer Reproducer …  (parallel)              │
+                 │  REPRODUCER: start service @pinned deps,          │
                  │  run PoC, write verdict.json                      │
                  │        │ verdict summaries merged                 │
                  │        ▼                                          │
-                 │  PATCHER: bump dep → test suite in [ADDRESS] →      │
+                 │  PATCHER: bump dep → test suite in sandbox →      │
                  │  open PR with evidence                            │
                  │        ▼                                          │
                  │  ■ APPROVAL GATE: merge & deploy staging          │
@@ -48,7 +50,7 @@
 | Capability | Where PatchProof uses it |
 |---|---|
 | MCP tools | `github` + custom `nvd` servers |
-| [PERSON_NAME] | PoC exploit code and patch test suites |
+| Sandbox execution | PoC exploit code and patch test suites |
 | Human approval | Merge & deploy-to-staging pause |
 | Subagents | Parallel reproducer fan-out per CVE |
 | Session persistence | Long-running scans survive refresh/reconnect |

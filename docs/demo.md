@@ -24,7 +24,9 @@ orchestrator:
 2. Matches the advisory to `scenarios/s01-pyyaml-rce` via GitHub MCP.
 3. Spawns a reproducer subagent.
 
-## 3. Watch the [PERSON_NAME] starts the service at pinned deps
+## 3. Watch the reproducer
+
+The reproducer starts the service at pinned deps
 (`pyyaml==5.3.1`) inside the sandbox, parameterizes `poc.py`, runs it:
 
 - `verdict.json` appears with `exploitable: true`

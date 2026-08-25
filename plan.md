@@ -52,7 +52,7 @@ loop empirically:
                  │        │                                          │
                  │  ┌────▼─────┬──────────┐                           │
                  │  Reproducer Reproducer …  (parallel)              │
-                 │  [ADDRESS]: start service @pinned deps,           │
+                 │  REPRODUCER: start service @pinned deps,          │
                  │  run PoC, write verdict.json                      │
                  │        │ verdict summaries merged                 │
                  │        ▼                                          │

@@ -18,3 +18,6 @@ docs/blog-draft.md
 data/inbox/
 scenarios/*/verdict.json
 scenarios/*/state.json
+
+# Harness session artifacts (repo root only)
+/session-*
