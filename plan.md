@@ -56,6 +56,9 @@ loop empirically:
                  │  run PoC, write verdict.json                      │
                  │        │ verdict summaries merged                 │
                  │        ▼                                          │
+                 │  JUDGE: review evidence quality + ranges          │
+                 │  (assessment.json; never flips the verdict)       │
+                 │        ▼                                          │
                  │  PATCHER: bump dep → test suite in sandbox →      │
                  │  open PR with evidence                            │
                  │        ▼                                          │

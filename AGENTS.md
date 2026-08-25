@@ -35,6 +35,7 @@ scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
 - **Deploy-to-staging pauses for explicit human approval** (irreversible step); this gate is never cut even when scope shrinks.
 - **Never commit `.env`.** Never bump versions in any `requirements.lock` *except the patcher's deliberate CVE-remediation bump* (which goes through PR + sandbox test suite) — pins reproduce vulnerable versions, so casual edits destroy the scenarios.
 - **PoC contract** (every scenario): exit 0 iff exploitable, exit 1 = not affected; write `verdict.json` with `{cve_id, exploitable, evidence}`; deterministic, <60s. Breaking this breaks the whole verification loop. Note s05-negative-case uses the *same* generic PoC but must self-conclude NOT AFFECTED — don't special-case its verdict.
+- **LLM-judge annotates, never decides** (`agent/prompts/judge.md`): every verdict gets a judge review written to `scenarios/<id>/assessment.json` (`agrees_with_verdict/confidence/range_check/rationale`). The PoC exit code stays ground truth; disagreement or low confidence triggers at most one more reproduction attempt within the cap of 3.
 - **Adding a scenario**: copy `scenarios/_template/`, follow its comments, fill `cve-meta.json`. Do not build `s04-jinja2-escape` until s01 + s05 pass acceptance (it's a marked stub).
 - **PRs: address every Qodo code-review comment** before a PR is considered done — after each raise/push, **wait ~5 minutes for Qodo's review to post**, then check `gh pr view <n> --comments` for findings, fix each one with commits to the same branch, post a traceability comment mapping finding → resolution, **and update the README "Qodo Code Review Evidence" section** (finding + resolution for that PR). Never merge over unresolved findings. Merging itself is always done by the human, never by the agent.
 - **TrueForge has no config file** (verified against v0.1.4 docs): models/connectors/skills/sandbox are configured via Settings — see `docs/trueforge-setup.md`. Sandbox provider is **Daytona only**; MCP servers are remote-URL only, so the local cve-feed stdio server needs an HTTP wrapper or must be bypassed via `data/inbox/` injection.
@@ -44,7 +45,7 @@ scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
 
 Maintained list — append a lesson whenever a real mistake is identified.
 
-- **Check BOTH comment surfaces on every PR review pass**: `gh pr view <n> --comments` AND inline review comments via `gh api repos/:owner/:repo/pulls/<n>/comments`. Inline Medium findings were missed once and the user caught them.
+- **Check BOTH comment surfaces on every PR review pass**: `gh pr view <n> --comments` AND inline review comments via `gh api repos/:owner/:repo/pulls/<n>/comments`. Inline Medium findings were missed once and the user caught them. After fixing an inline finding, reply **on that thread** and resolve it (GraphQL `resolveReviewThread`) — a separate PR-level comment leaves the thread showing open.
 - **Never commit without first switching to a feature branch.** A commit landed on main by accident because branching was skipped.
 - **Don't push follow-up commits to a branch whose PR is awaiting merge** — a pushed-after-open commit (`de93e49`) never reached main when the PR merged, silently losing content. Verify post-merge that every intended change actually landed on main.
 - **After any edit that removes or deduplicates lines, re-read the whole section** — a README row was accidentally deleted while removing an adjacent duplicate.
@@ -59,6 +60,11 @@ Maintained list — append a lesson whenever a real mistake is identified.
 - Demo video must show the harness visibly working: a real MCP tool call, code execution in the sandbox, and the pause before the irreversible step.
 - README keeps a **"Qodo Code Review Evidence"** section — every Qodo finding on any PR must be listed there with its resolution, kept current as PRs land; if a PR merges before its findings are fixed, record them as fixed-forward once resolved.
 - Only connect tools/data/accounts that are yours; keys and personal data stay out of the repo **and** out of the demo video (never show `.env` or TrueForge Settings screens on camera).
+
+## Maintenance & verification policy
+
+- **Decadal audit**: after every 10 merged PRs (10, 20, 30, …), run a full-repo audit — stale references (grep for retired names/paths), docs-vs-code consistency, AGENTS.md accuracy against reality, secrets scan of history and working tree — and fix or file anything found.
+- **Subagent test gate (post-completion)**: once the project is complete, every code change must be verified by local test-case runs executed through a dedicated test-runner subagent (spawn it per change; report pass/fail in the PR) before the change is pushed.
 
 ## Working loop
 
