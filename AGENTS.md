@@ -32,7 +32,7 @@ scripts/reset_demo.sh
 - **PoC contract** (every scenario): exit 0 iff exploitable, exit 1 = not affected; write `verdict.json` with `{cve_id, exploitable, evidence}`; deterministic, <60s. Breaking this breaks the whole verification loop. Note s05-negative-case uses the *same* generic PoC but must self-conclude NOT AFFECTED — don't special-case its verdict.
 - **Adding a scenario**: copy `scenarios/_template/`, follow its comments, fill `cve-meta.json`. Do not build `s04-jinja2-escape` until s01 + s05 pass acceptance (it's a marked stub).
 - **PRs: address every Qodo code-review comment** before a PR is considered done — after each raise/push, check `gh pr view <n> --comments` for Qodo findings, fix each one with commits to the same branch, and post a traceability comment mapping finding → resolution. Never merge over unresolved findings. Merging itself is always done by the human, never by the agent.
-- `agent/trueforge.json` is an **unverified draft** — its field names must be checked against TrueForge docs on first run of `npx @truefoundry/trueforge`; don't trust the shape.
+- **TrueForge has no config file** (verified against v0.1.4 docs): models/connectors/skills/sandbox are configured via Settings — see `docs/trueforge-setup.md`. Sandbox provider is **Daytona only**; MCP servers are remote-URL only, so the local NVD stdio server needs an HTTP wrapper or must be bypassed via `data/inbox/` injection.
 - Gitignored but real: `docs/hackathon-checklist.md`, `docs/blog-draft.md` (local-only strategy docs), `data/inbox/` (advisory drop dir), `scenarios/*/verdict.json`.
 
 ## Working loop
@@ -52,7 +52,7 @@ Whenever a change adds or alters any of the following, update this file **in the
 ## Layout
 
 - `scenarios/<id>/` — self-contained vulnerable FastAPI service (`app/`) + `poc.py` + `cve-meta.json`
-- `agent/` — TrueForge config (`trueforge.json`), subagent prompts in `agent/prompts/`, local NVD MCP server (`agent/mcp/nvd-server/index.mjs`)
+- `agent/` — subagent prompts in `agent/prompts/`, local NVD MCP server (`agent/mcp/nvd-server/index.mjs`, needs HTTP wrapper — see `docs/trueforge-setup.md`)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
 - `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S4 → S5 automation → dashboard; approval gate never)
 

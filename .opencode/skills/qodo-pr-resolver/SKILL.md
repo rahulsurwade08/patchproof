@@ -1,18 +1,6 @@
 ---
 name: qodo-pr-resolver
 description: "Use when the user wants to review Qodo PR feedback or fix code review comments. Capabilities: view issues by severity, apply fixes interactively or in batch, reply to inline comments, post fix summaries (GitHub, GitLab, Bitbucket, Azure DevOps, Gerrit)"
-triggers:
-  - qodo.?pr.?resolver
-  - pr.?resolver
-  - resolve.?pr
-  - qodo.?fix
-  - fix.?qodo
-  - qodo.?review
-  - review.?qodo
-  - qodo.?issues?
-  - show.?qodo
-  - get.?qodo
-  - qodo.?resolve
 ---
 
 # Qodo PR Resolver

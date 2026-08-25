@@ -2,30 +2,6 @@
 name: qodo-get-rules
 description: "Loads coding rules from Qodo most relevant to the current coding task by generating a semantic search query from the assignment. Use when Qodo is configured and the user asks to write, edit, refactor, or review code, or when starting implementation planning. Skip if rules are already loaded."
 allowed-tools: "Bash"
-triggers:
-  - "get.?qodo.?rules"
-  - "get.?rules"
-  - "load.?qodo.?rules"
-  - "load.?rules"
-  - "fetch.?qodo.?rules"
-  - "fetch.?rules"
-  - "qodo.?rules"
-  - "get.?relevant.?rules"
-  - "relevant.?rules"
-  - "search.?rules"
-  - "coding.?rules"
-  - "code.?rules"
-  - "before.?cod"
-  - "start.?coding"
-  - "write.?code"
-  - "implement"
-  - "create.*code"
-  - "build.*feature"
-  - "add.*feature"
-  - "fix.*bug"
-  - "refactor"
-  - "modify.*code"
-  - "update.*code"
 ---
 
 # Get Qodo Rules Skill
@@ -133,7 +109,7 @@ Check that the required Qodo configuration is present. The default location is `
 
 Example config parsing:
 ```bash
-API_KEY=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c['API_KEY'])")
+API_KEY=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('API_KEY',''))")
 ENV_NAME=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('ENVIRONMENT_NAME',''))")
 QODO_API_URL=$(python3 -c "import json,os; c=json.load(open(os.path.expanduser('~/.qodo/config.json'))); print(c.get('QODO_API_URL',''))")
 REQUEST_ID=$(uuidgen || python3 -c "import uuid; print(uuid.uuid4())")

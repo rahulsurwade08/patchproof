@@ -6,7 +6,7 @@
 # and the entire remote URL became the scope path — halving retrieval quality with no
 # error. Run this on macOS *and* Linux; POSIX sh only, no frameworks.
 #
-# Usage: sh skills/qodo-get-rules/tests/scope-parse.sh
+# Usage: sh .opencode/skills/qodo-get-rules/tests/scope-parse.sh
 
 set -eu
 

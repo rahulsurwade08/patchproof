@@ -33,7 +33,7 @@
 | Patcher | `agent/prompts/patcher.md` | Dependency bump + test suite in sandbox + evidence PR |
 | Verifier | `agent/prompts/verifier.md` | Post-approval re-verification against staging |
 | nvd-mcp | `agent/mcp/nvd-server/index.mjs` | Custom MCP server over the NVD REST API (`nvd_list_recent`, `nvd_get_cve`) |
-| github-mcp | configured in `agent/trueforge.json` | Repos, PRs, evidence comments |
+| github-mcp | GitHub connector from the TrueForge catalog (`docs/trueforge-setup.md`) | Repos, PRs, evidence comments |
 | Scenario services | `scenarios/` | Deliberately vulnerable demo services with deterministic PoCs |
 | Staging target | `infra/docker-compose.yml` | Local deploy destination behind the approval gate |
 

@@ -78,4 +78,10 @@ Every scenario ships `cve-meta.json` and follows one PoC contract:
 - It writes `verdict.json`: `{cve_id, exploitable, evidence}`.
 - Deterministic, <60 s, safe to run in an isolated sandbox.
 
-Adding a scenario: copy `scenarios/_template/` and follow its comments.
+Adding a scenario: copy `scenarios/_template/` and follow its comments, then fill `cve-meta.json`.
+
+## Qodo Code Review Evidence
+
+Every pull request in this repo is reviewed by [Qodo](https://www.qodo.ai) from day 1, and all findings are resolved before merge.
+
+- [#2 — Add AGENTS.md and repair doc redaction placeholders](https://github.com/rahulsurwade08/patchproof/pull/2): Qodo raised 3 findings (host commands conflicting with the sandbox-only rule, a `requirements.lock` rule contradicting the patcher workflow, an overly broad `.gitignore` pattern). All three were fixed on the same branch with a finding → resolution traceability comment: [review + resolution thread](https://github.com/rahulsurwade08/patchproof/pull/2#issuecomment-5409113173).
