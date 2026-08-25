@@ -80,6 +80,11 @@ Whenever a change adds or alters any of the following, update this file **in the
 - architecture decisions (cross-check `docs/decisions.md`)
 - hard rules or workflow conventions
 
+The same applies to sibling sources of truth, updated **in the same change**:
+- `plan.md` — whenever the plan changes: mission flow, decisions table, scope/cut-order
+- `docs/decisions.md` — every accepted/rejected/superseded decision gets an ADR
+- `docs/architecture.md` — whenever components or pipeline stages change
+
 ## Layout
 
 - `scenarios/<id>/` — self-contained vulnerable FastAPI service (`app/`) + `poc.py` + `cve-meta.json`
