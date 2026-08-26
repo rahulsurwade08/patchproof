@@ -37,8 +37,8 @@ CVE advisory ──► orchestrator matches it to a repo (GitHub MCP)
 ## Quickstart
 
 Prerequisites: Python 3.11+ (or Docker), Node 20+, a TrueForge install
-(`npx @truefoundry/trueforge`), and API keys for OpenRouter, GitHub, and
-Daytona — configured via TrueForge Settings, see
+(`npx @truefoundry/trueforge`), and API keys for OpenRouter and GitHub —
+configured via TrueForge Settings, see
 [docs/trueforge-setup.md](docs/trueforge-setup.md).
 
 ```bash
@@ -76,25 +76,32 @@ dashboard/               thin live-status UI (built after the core loop)
 
 PatchProof runs exploits in an isolated sandbox — never on your host. Two supported modes:
 
-### 1. TrueForge + Daytona (recommended)
+### 1. Local Docker sandbox via TrueForge (recommended, keyless)
 
-The full agentic loop: TrueForge provisions an isolated [Daytona](https://www.daytona.io)
-sandbox on demand, reuses it across the investigation (service and PoC share it),
-and enforces the human-approval gate before any deploy. Requires a Daytona API key
-plus model/GitHub keys — see [docs/trueforge-setup.md](docs/trueforge-setup.md).
+The agentic loop executes through our own `local-sandbox` MCP server: disposable
+Docker containers with networking disabled, one per investigation (service and
+PoC share it). Zero cloud accounts. Start it before a harness run:
 
-### 2. Keyless local Docker
+```bash
+node agent/mcp/local-sandbox-server/index.mjs &
+```
 
-Verify any scenario with zero accounts or API keys — one disposable container
-runs both the service and the PoC, with networking disabled:
+Requires only Docker. See [docs/trueforge-setup.md](docs/trueforge-setup.md).
+
+### 2. Keyless local Docker without the harness
+
+Verify any scenario with zero accounts and without running the harness:
 
 ```bash
 scripts/run_poc_local.sh s01-pyyaml-rce   # → verdict.json + PoC exit code
 ```
 
-Ideal for open-source users and CI: same PoC contract, same isolation, no cloud.
 This path is for **human- and CI-run verification only** — the autonomous
-agentic pipeline always executes through the TrueForge + Daytona sandbox above.
+agentic pipeline goes through the `local-sandbox` server above.
+
+No cloud sandbox providers are used anywhere in this project. See ADR-008
+(`docs/decisions.md`) for the evaluated open-source alternatives
+(Microsandbox, Nightona, beta9, E2B infra).
 
 ## Scenario contract
 
@@ -120,3 +127,4 @@ Every pull request in this repo is reviewed by [Qodo](https://www.qodo.ai) from 
 - [#8 — LLM-as-a-judge subagent + credential guidance](https://github.com/rahulsurwade08/patchproof/pull/8): Qodo raised 8 findings (3 PR-level + 5 inline) — judge depended on unregistrable cve-feed tools, a judge-triggered retry left a stale assessment, gh-token guidance violated the no-secrets-in-session compliance rule, the assessment schema mismatched ADR-006, a PAT in `.env` didn't actually configure the connector, and related gaps. Fixed across 5809971, 12d7f86 and 52e8de8: degraded-mode contract (`range_check: "skipped"`), re-judging of retried verdicts on the latest machine verdict, OAuth-first GitHub credentials (no static token), canonical `agrees_with_verdict/confidence/range_check/rationale` schema, and explicit connector-config instructions for the PAT fallback.
 - [#9 — Lessons-learned register](https://github.com/rahulsurwade08/patchproof/pull/9): Qodo found no issues.
 - [#10 — Pre-flight consistency fixes](https://github.com/rahulsurwade08/patchproof/pull/10): Qodo raised 1 finding — the new JUDGE pipeline stage wasn't reflected in AGENTS.md per the keep-current policy. Fixed in b1f448e: judge role, `assessment.json` output, and its never-decides rule are now documented in AGENTS.md hard rules, alongside a decadal audit policy (full audit every 10 merged PRs) and a post-completion subagent test gate.
+- [#12 — Local Docker sandbox MCP server (drop paid Daytona)](https://github.com/rahulsurwade08/patchproof/pull/12): Qodo raised 11 findings (6 bugs + 5 rule violations) — session-label container collisions, container-creation races, leaked containers on shutdown, unbounded request bodies, unknown tools reported as tool errors, unredacted sandbox output, forbidden `gh auth token` command in docs, and three stale-doc gaps. Fixed across 24797f2 and f786f5c: SHA-256 hashed container names with per-container locks, ownership-labeled containers with startup crash-recovery and full crash/graceful shutdown cleanup, 1 MiB body cap, `-32602` for unknown tools, credential redaction in all sandbox output, OAuth-command-free credential guidance, and full docs sync (architecture components, plan decisions, ADR-007 correction).

@@ -36,12 +36,42 @@ low confidence triggers at most one more reproduction attempt (cap 3).
 Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
 (e.g. HTTP 500 mistaken for "payload rejected") get caught before patching.
 
-## ADR-007 — OAuth-first GitHub credential, PAT fallback
-**Status:** accepted (supersedes earlier gh-token draft)
-The GitHub connector authenticates via TrueForge's OAuth flow
-(Settings → Connectors → GitHub; browser authorization, no static token
-handled by the user or agents). For API-only use outside the harness, a classic
-PAT placed in `.env` remains a documented fallback. Agent sessions never invoke
-token-printing commands, and docs never endorse them.
-Rationale: zero static credentials is the strongest security posture and keeps
-setup to one browser click for contributors who already have a GitHub account.
+## ADR-008 — Keyless local Docker sandbox MCP server (cloud providers removed)
+**Status:** accepted (supersedes the Daytona-based sandbox setup)
+TrueForge's only built-in sandbox provider is a paid cloud service, which is
+incompatible with an open-source project (and, as of June 2026, Daytona's core
+went closed-source). PatchProof therefore ships its own `local-sandbox` MCP
+server (Streamable HTTP, `127.0.0.1:8081/mcp`): disposable `--network none`
+Docker containers — one per investigation so service and PoC share `/tmp` —
+with resource limits, credential redaction, ownership labels, crash-recovery
+startup cleanup, and full shutdown cleanup. This is the default and only
+execution path for open-source users and CI.
+
+**Evaluated open-source alternatives** (2026 survey):
+- **Microsandbox** (Apache-2.0): local libkrun/KVM microVMs, own-kernel
+  isolation (stronger than Docker), no daemon or account, official MCP server,
+  OCI-image compatible. Recommended future upgrade for stronger isolation;
+  requires KVM on Linux / Apple Silicon on macOS, currently beta.
+- **Nightona** (AGPL-3.0): community fork of the last open Daytona release,
+  self-hosted via Docker Compose/Helm. API-compatible with Daytona v0.190.0,
+  but TrueForge's built-in provider hardcodes the cloud endpoint, so it cannot
+  be used through the native integration anyway.
+- **Beam/beta9** (AGPL-3.0) and **E2B infra** (Apache-2.0): capable but require
+  Kubernetes/Nomad operations far beyond this project's scope.
+
+Rationale: zero cost, zero accounts, same isolation contract, verified
+end-to-end against TrueForge v0.1.4 tool listing.
+
+## ADR-007 — GitHub connector via header-auth token derived from gh CLI
+**Status:** accepted (corrected after implementation; supersedes earlier
+OAuth-first and gh-token-display drafts)
+Reality check against TrueForge v0.1.4: the shipped GitHub MCP catalog entry
+points at GitHub's hosted server with **header auth**, and that server exposes
+**no DCR registration endpoint**, so TrueForge-side OAuth is impossible
+(422 "has no DCR support"). The working setup: a repo-scope token taken from
+the user's existing gh CLI credential store, written by the human directly
+into `.env` without being displayed, then pasted into the connector's
+header-auth field — never shown, never handled by agent sessions, and no
+token-printing command is endorsed in committed docs. Rationale: one step for
+anyone already using `gh`; no new secret creation; complies with the
+no-secrets-in-session rule.

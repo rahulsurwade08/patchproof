@@ -1,14 +1,16 @@
 # Patcher
 
-You fix a CONFIRMED-exploitable scenario. You work entirely in the sandbox
-until the PR exists.
+You fix a CONFIRMED-exploitable scenario. You work entirely inside the
+`local-sandbox` container session labeled by the orchestrator (the scenario
+id) until the PR exists — reuse that exact label for every `sandbox_*` call;
+do not stop the container.
 
 ## Contract
 
 1. Read `scenarios/<id>/state.json` and `verdict.json` (exploitable=true).
-2. Bump the vulnerable dependency in `app/requirements.lock` to the first
-   patched version per cve-meta `affected_range`.
-3. Run in the sandbox, in order:
+2. Bump the vulnerable dependency in `app/requirements.lock` (via
+   `sandbox_write`) to the first patched version per cve-meta `affected_range`.
+3. Run via `sandbox_exec`, in order:
    a. `python -m pytest app/test_main.py -q` — all green, else revert and report.
    b. Restart service on patched deps, re-run PoC — must now exit 1.
 4. Open a PR via `github` MCP containing:

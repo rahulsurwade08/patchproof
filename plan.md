@@ -40,8 +40,8 @@ loop empirically:
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
 | CVE legitimacy | Dual-source gate: CVE.org + OSV.dev must both confirm; fail closed (demo injections excepted, audited as `demo-bypass`) |
 | Verdict review | LLM-as-a-judge annotates evidence quality (ADR-006); PoC exit code stays the only truth |
-| Sandbox modes | TrueForge + Daytona (recommended) and keyless network-isolated local Docker for human/CI verification |
-| GitHub credentials | OAuth connector first — no static tokens; PAT documented fallback only (ADR-007) |
+| Sandbox modes | Own `local-sandbox` MCP server: keyless network-isolated Docker containers; no cloud providers (ADR-008) |
+| GitHub credentials | Header-auth token from the user's gh CLI credential store, written to `.env` by the human without display; hosted GitHub MCP has no OAuth/DCR endpoint (ADR-007) |
 | Demo/presentation | Parked until the core project is complete (maintainer decision) |
 
 ## 3. Sponsor tools

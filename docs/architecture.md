@@ -38,6 +38,7 @@
 | Verifier | `agent/prompts/verifier.md` | Post-approval re-verification against staging |
 | cve-feed | `agent/mcp/cve-feed-server/index.mjs` | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
 | github-mcp | GitHub connector from the TrueForge catalog (`docs/trueforge-setup.md`) | Repos, PRs, evidence comments |
+| local-sandbox | `agent/mcp/local-sandbox-server/index.mjs` (Streamable HTTP, `127.0.0.1:8081/mcp`) | Keyless execution sandbox: disposable `--network none` Docker containers per session; tools `sandbox_exec/write/read/stop` — replaces the paid built-in Daytona provider |
 | Scenario services | `scenarios/` | Deliberately vulnerable demo services with deterministic PoCs |
 | Staging target | `infra/docker-compose.yml` | Local deploy destination behind the approval gate |
 
@@ -55,8 +56,8 @@
 
 | Capability | Where PatchProof uses it |
 |---|---|
-| MCP tools | `github` + custom `cve-feed` (CVE.org + OSV.dev) servers |
-| Sandbox execution | PoC exploit code and patch test suites |
+| MCP tools | `github` + custom `cve-feed` (CVE.org + OSV.dev) + `local-sandbox` (keyless Docker execution) servers |
+| Sandbox execution | PoC exploit code and patch test suites — via the `local-sandbox` MCP server, never on the host |
 | Human approval | Merge & deploy-to-staging pause |
 | Subagents | Parallel reproducer fan-out per CVE |
 | Session persistence | Long-running scans survive refresh/reconnect |

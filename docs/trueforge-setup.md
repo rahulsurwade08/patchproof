@@ -32,15 +32,33 @@ Settings → Connectors → **GitHub** from the shipped catalog:
 
 Used by the orchestrator (advisory → repo matching) and the patcher (evidence PRs).
 
-## 4. Sandbox provider — Daytona
+## 4. Sandbox — local Docker MCP server
 
-Daytona is the **only** supported sandbox provider today.
+Code execution runs through our own keyless sandbox MCP server (no cloud
+providers, no accounts):
 
-Settings → Sandbox providers → Daytona preset → paste `DAYTONA_API_KEY`.
+```bash
+node agent/mcp/local-sandbox-server/index.mjs &   # serves http://127.0.0.1:8081/mcp
+```
 
-Enable the sandbox per agent (`config.sandbox.enabled` in the agent spec).
-The sandbox is provisioned on demand and reused across turns within a session,
-which is what the PoC/service shared-`/tmp` contract relies on.
+Register it once (remote-URL server, no auth):
+
+```json
+{"manifest": {"type": "remote", "name": "local-sandbox",
+  "description": "Keyless local Docker sandbox.",
+  "url": "http://127.0.0.1:8081/mcp"}}
+```
+
+Tools: `sandbox_exec`, `sandbox_write`, `sandbox_read`, `sandbox_stop` — each
+runs inside disposable Docker containers with `--network none`, one container
+per session label so the service and PoC share `/tmp` and localhost. Requires
+only Docker. Leave Settings → Sandbox providers unconfigured and keep
+`sandbox.enabled: false` on agents. Evaluated alternatives are recorded in
+ADR-008 (`docs/decisions.md`).
+
+Attach the `local-sandbox` server to **every agent that executes code**
+(reproducer, patcher, verifier) and give each investigation one session label
+(the scenario id) that all subagents share; see `agent/prompts/*`.
 
 ## 5. CVE feed MCP server — dual-source legitimacy check
 
