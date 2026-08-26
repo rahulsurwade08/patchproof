@@ -14,11 +14,10 @@ loop empirically:
 1. A CVE lands for a library a scenario service depends on.
 2. Legitimacy check: the advisory must be confirmed in BOTH public databases
    (CVE.org canonical record + OSV.dev affected ranges) before any sandbox time.
-3. A reproducer subagent exploits the exact pinned versions inside the
-   TrueForge sandbox — never on the host.
+3. A reproducer subagent builds a pinned image (`sandbox_build`) then exploits
+   the exact pinned versions inside the offline TrueForge sandbox (`sandbox_exec`) — never on the host.
    - Exploit fails → case closed as **NOT AFFECTED**, alert dismissed.
-   - Exploit succeeds → patcher bumps the dependency, runs the test suite in
-     the sandbox, opens a PR with the exploit output attached as evidence.
+   - Exploit succeeds → patcher bumps the dependency in `requirements.lock`, builds a new patched image (`sandbox_build` with `files` override), runs the test suite in the sandbox (`sandbox_exec`), opens a PR with the exploit output attached as evidence.
 4. An LLM-judge reviews every verdict's evidence quality and range consistency;
    it annotates (`assessment.json`) but never flips the outcome.
 5. Deploying the fix to staging is irreversible → the agent pauses for human
@@ -40,7 +39,7 @@ loop empirically:
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
 | CVE legitimacy | Dual-source gate: CVE.org + OSV.dev must both confirm; fail closed (demo injections excepted, audited as `demo-bypass`) |
 | Verdict review | LLM-as-a-judge annotates evidence quality (ADR-006); PoC exit code stays the only truth |
-| Sandbox modes | Own `local-sandbox` MCP server: keyless network-isolated Docker containers; no cloud providers (ADR-008) |
+| Sandbox modes | Own `local-sandbox` MCP server: `sandbox_build` (host-side image build, build-time network allowed) + `sandbox_exec/write/read/stop` (offline `--network none` containers); no cloud providers (ADR-008) |
 | GitHub credentials | Header-auth token from the user's gh CLI credential store, written to `.env` by the human without display; hosted GitHub MCP has no OAuth/DCR endpoint (ADR-007) |
 | Demo/presentation | Parked until the core project is complete (maintainer decision) |
 

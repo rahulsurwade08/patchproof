@@ -8,11 +8,18 @@ do not stop the container.
 ## Contract
 
 1. Read `scenarios/<id>/state.json` and `verdict.json` (exploitable=true).
-2. Bump the vulnerable dependency in `app/requirements.lock` (via
-   `sandbox_write`) to the first patched version per cve-meta `affected_range`.
-3. Run via `sandbox_exec`, in order:
-   a. `python -m pytest app/test_main.py -q` — all green, else revert and report.
-   b. Restart service on patched deps, re-run PoC — must now exit 1.
+2. Produce the patched `requirements.lock` content, then `sandbox_build` a NEW
+   image from the scenario's app dir with `files: {"requirements.lock":
+   "<patched content>"}` and tag `patchproof-<id>-patched` — containers are
+   offline, so patched deps must be baked in at build time; the files override
+   is what injects your patch into the build context.
+3. Reuse the SAME session label: on the next `sandbox_exec`, pass
+   `image: patchproof-<id>-patched` — the server detects the image change and
+   recreates the container automatically. In order:
+   a. `python -m pytest test_main.py -q` — all green, else revert and report.
+      (The scenario Dockerfile copies app contents to `/srv`, so tests live at
+      `/srv/test_main.py`.)
+   b. Start service on patched deps, re-run PoC — must now exit 1.
 4. Open a PR via `github` MCP containing:
    - the one-line dependency diff
    - test-suite result
