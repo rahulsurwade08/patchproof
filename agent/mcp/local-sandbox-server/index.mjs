@@ -26,6 +26,9 @@ const PORT = Number(process.env.LOCAL_SANDBOX_PORT || 8081);
 const IMAGE = process.env.LOCAL_SANDBOX_IMAGE || "python:3.11-slim";
 const MAX_OUTPUT = 20000;
 const MAX_BODY_BYTES = 1024 * 1024;
+// Ownership labels: every container we create carries these, so crash
+// recovery on startup can reclaim leftovers from ANY previous instance.
+const LABELS = ["--label", "patchproof-sbx=1"];
 
 // Best-effort redaction of credential-looking strings in tool output.
 function redact(text) {
@@ -90,6 +93,7 @@ async function startContainer(name, network = "none") {
       "run", "--rm", "-d",
       "--name", name,
       ...netArgs,
+      ...LABELS,
       "--pids-limit", "512",
       "--memory", "1g",
       "--cpus", "1",
@@ -116,22 +120,33 @@ async function ensureContainer(session, network = "none") {
 }
 
 async function cleanupAllContainers() {
-  const listed = await docker(["ps", "-aq", "--filter", "name=patchproof-sbx-"]);
+  // Label-filtered: removes every container ever created by this server
+  // (including orphans from crashed instances), touches nothing else.
+  const listed = await docker(["ps", "-aq", "--filter", "label=patchproof-sbx=1"]);
   const ids = listed.stdout.trim().split("\n").filter(Boolean);
   for (const id of ids) await docker(["rm", "-f", id]);
   return ids.length;
 }
 
+let shuttingDown = false;
+function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try { cleanupAllContainers(); } catch { /* best effort */ }
+  process.exit(code);
+}
+
 function registerShutdownCleanup() {
-  let done = false;
-  const handler = () => {
-    if (done) return;
-    done = true;
-    try { cleanupAllContainers(); } catch { /* best effort */ }
-    process.exit(0);
-  };
-  process.on("SIGINT", handler);
-  process.on("SIGTERM", handler);
+  process.on("SIGINT", () => shutdown(0));
+  process.on("SIGTERM", () => shutdown(0));
+  process.on("uncaughtException", (err) => {
+    console.error("uncaught exception:", err);
+    shutdown(1);
+  });
+  process.on("unhandledRejection", (err) => {
+    console.error("unhandled rejection:", err);
+    shutdown(1);
+  });
 }
 
 const TOOLS = [
@@ -309,6 +324,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 registerShutdownCleanup();
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`local-sandbox MCP listening on http://127.0.0.1:${PORT}/mcp (image: ${IMAGE}, request-id: ${randomUUID().slice(0, 8)})`);
+// Crash-recovery: reclaim containers orphaned by a previous instance before
+// accepting new work.
+cleanupAllContainers().then((n) => {
+  if (n > 0) console.log(`startup cleanup: removed ${n} leftover container(s)`);
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`local-sandbox MCP listening on http://127.0.0.1:${PORT}/mcp (image: ${IMAGE}, request-id: ${randomUUID().slice(0, 8)})`);
+  });
 });
