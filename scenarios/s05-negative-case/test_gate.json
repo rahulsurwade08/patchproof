@@ -1,0 +1,1 @@
+{"scenario":"s05-negative-case","passed":true,"exit_code":0,"poc_exit":1,"poc_verdict":"exploitable=false","summary":"negative case verified — NOT AFFECTED (same CVE, safe loader)"}
