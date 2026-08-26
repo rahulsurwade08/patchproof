@@ -29,6 +29,10 @@ scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
 # Mandatory pre-push test gate (routes through local-sandbox MCP)
 bash scripts/run_gate_before_push.sh <scenario-id>  # sandbox_build + sandbox_exec via MCP
 scripts/install-hooks.sh                             # install git pre-push hook (run once per clone)
+
+# Dashboard (live-status UI)
+cd dashboard && pip install -r requirements.txt
+uvicorn app:app --port 8080
 ```
 
 ## Hard rules
@@ -97,6 +101,7 @@ The same applies to sibling sources of truth, updated **in the same change**:
 - `agent/` — subagent prompts (`agent/prompts/`: orchestrator, reproducer, judge, patcher, verifier, test-runner), local dual-source CVE feed MCP server (`agent/mcp/cve-feed-server/index.mjs`), local Docker sandbox MCP server (`agent/mcp/local-sandbox-server/index.mjs`, Streamable HTTP on `127.0.0.1:8081/mcp`)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
 - `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S5 automation → dashboard; approval gate never)
+- `dashboard/` — thin live-status UI (FastAPI + SSE + vanilla JS), reads scenario verdicts/events
 
 ## Environment notes
 

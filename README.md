@@ -55,6 +55,10 @@ python poc.py                 # writes verdict.json, exits 0 if exploitable
 
 # 4. Or run everything through staging
 docker compose -f infra/docker-compose.yml up --build
+
+# 5. Launch the dashboard
+cd dashboard && pip install -r requirements.txt
+uvicorn app:app --port 8080   # open http://localhost:8080
 ```
 
 Full walkthrough including harness wiring and the approval flow:
@@ -66,10 +70,15 @@ Full walkthrough including harness wiring and the approval flow:
 plan.md                  project plan
 docs/                    architecture, demo walkthrough, decision log
 scenarios/               vulnerable demo services + their PoC contracts
+  _template/             scaffold for new scenarios
+  s01-pyyaml-rce/        PyYAML FullLoader RCE (CVE-2020-14343)
+  s04-jinja2-escape/     Jinja2 sandbox escape (CVE-2024-56326)
+  s05-negative-case/     same CVE, safe loader (NOT_AFFECTED)
+  s06-dvpwa-sqli/        DVPWA-style SQL injection pattern
 agent/                   TrueForge config, MCP servers, prompts, skills
 infra/                   local staging (docker compose)
-scripts/                 demo helpers
-dashboard/               thin live-status UI (built after the core loop)
+scripts/                 demo helpers, pre-push gate
+dashboard/               thin live-status UI (FastAPI + SSE)
 ```
 
 ## Sandbox options

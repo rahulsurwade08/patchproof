@@ -4,7 +4,17 @@ services:
     ports:
       - "8001:8000"
 
+  staging-s04:
+    build: ../scenarios/s04-jinja2-escape/app
+    ports:
+      - "8004:8000"
+
   staging-s05:
     build: ../scenarios/s05-negative-case/app
     ports:
       - "8002:8000"
+
+  staging-s06:
+    build: ../scenarios/s06-dvpwa-sqli/app
+    ports:
+      - "8006:8000"

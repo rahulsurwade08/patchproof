@@ -1,1 +1,1 @@
-{"scenario":"s01-pyyaml-rce","pass":true,"exit_code":0,"summary":"tests pass on pinned service"}
+{"scenario":"s01-pyyaml-rce","passed":true,"exit_code":0,"poc_exit":0,"poc_verdict":"exploitable=true","summary":"tests pass, PoC exploit confirmed (PyYAML FullLoader RCE)"}

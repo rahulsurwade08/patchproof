@@ -1,15 +1,36 @@
-# Dashboard — deferred
+# PatchProof Dashboard
 
-Thin live-status UI for PatchProof. Build ONLY after the core agent loop is
-solid (see plan.md §7 and docs/decisions.md ADR-005).
+Thin live-status UI for PatchProof harness runs.
 
-## Scope (in build order)
+## Features
 
-1. Read-only event viewer: tool calls, sandbox job status, verdicts — fed by
-   TrueForge's HTTP API / session events.
-2. "Waiting on" panel surfacing the approval gate with an approve action.
+- **Scenario cards**: real-time status (exploitable / not affected / tests pass / tests fail)
+- **Live event log**: SSE-streamed harness events (tool calls, sandbox activity, verdicts)
+- **Approval queue**: pending staging deploy approvals
+- **Connection indicator**: green/red dot for SSE connection status
 
-## Non-goals
+## Quickstart
 
-- No custom chat surface (TrueForge's own UI covers it).
-- No persistence beyond the harness's own session storage.
+```bash
+cd dashboard
+pip install -r requirements.txt
+uvicorn app:app --port 8080
+# Open http://localhost:8080
+```
+
+## Architecture
+
+- **Backend**: FastAPI with Server-Sent Events (SSE) for real-time updates
+- **Frontend**: Vanilla JS single-page app (no framework dependencies)
+- **Data source**: Reads scenario directories (`scenarios/*/`) for verdicts, test gates, assessments
+- **Streaming**: Polls every 2s, pushes state via SSE
+
+## API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | Dashboard UI |
+| `GET /api/scenarios` | All scenario statuses |
+| `GET /api/events` | Recent harness events |
+| `GET /api/approvals` | Pending approval queue |
+| `GET /api/stream` | SSE event stream |
