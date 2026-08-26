@@ -2,6 +2,10 @@
 
 Vulnerable Jinja2 version (3.1.2) with a custom filter that calls str.format(),
 allowing an attacker to bypass the sandbox and execute arbitrary code.
+
+The filter calls value.format() in native Python — the sandbox only intercepts
+format() calls made through Jinja2's call_method. Patching requires BOTH
+upgrading jinja2 AND rewriting the filter to avoid direct .format() calls.
 """
 
 import os
@@ -21,6 +25,9 @@ def format_filter(value, fmt="", **kwargs):
     Jinja2's call_method.  When the filter invokes value.format() directly,
     Python's C-level format engine resolves ``{0.__class__…}`` without ever
     touching the sandbox, breaking out completely.
+
+    Patch: must rewrite filter to NOT call .format() on user input, AND
+    upgrade jinja2 to >=3.1.5 which adds inspect_format_method.
     """
     if fmt:
         if hasattr(value, "format"):
