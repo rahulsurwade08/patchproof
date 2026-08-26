@@ -26,7 +26,7 @@ fi
 # Mandatory sandbox-only path (no direct host pytest)
 echo "Running mandatory sandbox-only gate for $SCENARIO..."
 # Note: this is the pre-push entry point (post-completion gate). The agentic execution pipeline routes through sandbox_build + sandbox_exec (local-sandbox MCP). This script validates preconditions; full sandbox execution is delegated to the subagent/test-runner contract (agent/prompts/test-runner.md). No direct host-side exploit/patch execution occurs; sandbox isolation preserved (AGENTS.md rules 2896680 / 2904706 / 2897321).
-# For CI/human direct verification, the containerized path is documented.
+# For agentic verification: this entry point validates preconditions; full sandbox execution (sandbox_build + sandbox_exec + pytest + poc) is handled by the subagent contract (agent/prompts/test-runner.md) and scripts/run_poc_local.sh. The PoC script (resolved from cve-meta.json) runs in isolation; its result is recorded separately from pytest status.
 # The gate verifies the scenario image builds and the service starts.
 if timeout $TIMEOUT docker build --no-cache -t patchproof-test-$SCENARIO "$SCENARIO_DIR" > /dev/null 2>&1; then
   RESULT_FILE=$(mktemp)
