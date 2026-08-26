@@ -1,21 +1,22 @@
 """Jinja2 sandbox escape scenario (CVE-2024-56326).
 
-Vulnerable Jinja2 version (3.1.2) with a custom filter that calls str.format(),
-allowing an attacker to bypass the sandbox and execute arbitrary code.
+Vulnerable Jinja2 version (3.1.2) with a custom filter that calls
+str.format() on user input.
 
-The filter calls value.format() in native Python — the sandbox only intercepts
-format() calls made through Jinja2's call_method. Patching requires BOTH
-upgrading jinja2 AND rewriting the filter to avoid direct .format() calls.
+CVE-2024-56326: the sandbox's ``call_method`` has ``inspect_format_method``
+which blocks format-spec attribute access when ``.format()`` is called through
+the sandbox.  But a custom filter calling ``value.format()`` in native Python
+bypasses the sandbox entirely — the C-level format engine resolves
+``{0.__class__.__mro__}`` without any sandbox checks.
+
+Patch: upgrade jinja2>=3.1.5 (strengthens ``inspect_format_method``) AND
+rewrite the filter to not call ``.format()`` on user input.
 """
-
-import os
 
 from fastapi import FastAPI, Request
 from jinja2.sandbox import SandboxedEnvironment
 
 app = FastAPI(title="patchproof-scenario")
-
-MARKER = "/tmp/patchproof_pwned"
 
 
 def format_filter(value, fmt="", **kwargs):
@@ -27,7 +28,7 @@ def format_filter(value, fmt="", **kwargs):
     touching the sandbox, breaking out completely.
 
     Patch: must rewrite filter to NOT call .format() on user input, AND
-    upgrade jinja2 to >=3.1.5 which adds inspect_format_method.
+    upgrade jinja2 to >=3.1.5 which strengthens inspect_format_method.
     """
     if fmt:
         if hasattr(value, "format"):
