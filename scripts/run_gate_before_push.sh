@@ -1,5 +1,7 @@
 #!/bin/bash
 # Mandatory pre-push subagent test gate (post-completion)
+# Installed as .git/hooks/pre-push by scripts/install-hooks.sh.
+# A normal `git push` invokes this automatically via the pre-push hook.
 # Routes through the local-sandbox MCP server (127.0.0.1:8081/mcp).
 # Uses sandbox_build + sandbox_exec via JSON-RPC — never calls Docker directly.
 # Runs pytest AND the scenario PoC separately; records real results for each.
