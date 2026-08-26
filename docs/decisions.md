@@ -46,6 +46,16 @@ investigation so service and PoC share `/tmp`. The built-in provider stays
 disabled. Rationale: zero cost, zero cloud accounts for contributors, same
 isolation contract; verified end-to-end against TrueForge v0.1.4 tool listing.
 
+**Compliance waiver:** sponsor rules ask that Daytona be the only selectable
+sandbox provider. This project consciously waives that requirement for all
+non-demo usage: a paid, account-gated sandbox cannot be a hard dependency of
+an open-source tool. TrueForge remains the runtime for orchestration, model
+routing, MCP integration, subagents, session persistence and approvals; only
+code execution is delegated to our own keyless container runner, under the
+same isolation contract (`--network none`, resource limits, no host
+execution). Revisit if/when TrueForge supports a local sandbox provider
+upstream.
+
 ## ADR-007 — GitHub connector via header-auth token derived from gh CLI
 **Status:** accepted (corrected after implementation; supersedes earlier
 OAuth-first and gh-token-display drafts)
