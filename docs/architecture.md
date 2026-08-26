@@ -38,7 +38,8 @@
 | Verifier | `agent/prompts/verifier.md` | Post-approval re-verification against staging |
 | cve-feed | `agent/mcp/cve-feed-server/index.mjs` | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
 | github-mcp | GitHub connector from the TrueForge catalog (`docs/trueforge-setup.md`) | Repos, PRs, evidence comments |
-| local-sandbox | `agent/mcp/local-sandbox-server/index.mjs` (Streamable HTTP, `127.0.0.1:8081/mcp`) | Keyless execution sandbox: `sandbox_build` (host-side image build with build-time network) + `sandbox_exec/write/read/stop` (offline `--network none` containers per session) — replaces the paid built-in Daytona provider |
+| local-sandbox | `agent/mcp/local-sandbox-server/index.mjs` (Streamable HTTP, `127.0.0.1:8081/mcp`) | Keyless execution sandbox: `sandbox_build` + `sandbox_exec/write/read/stop` (offline) |
+| Test-runner | `agent/prompts/test-runner.md` + `scripts/test_gate.sh` | Subagent gate: `sandbox_build` image + `sandbox_exec` pytest → `test_gate.json` |
 | Scenario services | `scenarios/` | Deliberately vulnerable demo services with deterministic PoCs |
 | Staging target | `infra/docker-compose.yml` | Local deploy destination behind the approval gate |
 

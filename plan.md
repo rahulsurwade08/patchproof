@@ -18,6 +18,7 @@ loop empirically:
    the exact pinned versions inside the offline TrueForge sandbox (`sandbox_exec`) — never on the host.
    - Exploit fails → case closed as **NOT AFFECTED**, alert dismissed.
    - Exploit succeeds → patcher bumps the dependency in `requirements.lock`, builds a new patched image (`sandbox_build` with `files` override), runs the test suite in the sandbox (`sandbox_exec`), opens a PR with the exploit output attached as evidence.
+3a. Subagent test-gate (`test-runner`) verifies the scenario test suite via `sandbox_build` + `sandbox_exec`, writes `test_gate.json` (`pass`/`fail` with exit code) — mandatory before any code change is pushed.
 4. An LLM-judge reviews every verdict's evidence quality and range consistency;
    it annotates (`assessment.json`) but never flips the outcome.
 5. Deploying the fix to staging is irreversible → the agent pauses for human

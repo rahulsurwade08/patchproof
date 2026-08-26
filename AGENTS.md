@@ -64,6 +64,7 @@ Maintained list — append a lesson whenever a real mistake is identified.
 ## Maintenance & verification policy
 
 - **Decadal audit**: after every 10 merged PRs (10, 20, 30, …), run a full-repo audit — stale references (grep for retired names/paths), docs-vs-code consistency, AGENTS.md accuracy against reality, secrets scan of history and working tree — and fix or file anything found.
+- **Subagent test gate** (post-completion): `agent/prompts/test-runner.md` verifies scenario tests via `sandbox_build` + `sandbox_exec`, writes `test_gate.json`. Every change must pass this gate before push.
 - **Subagent test gate (post-completion)**: once the project is complete, every code change must be verified by local test-case runs executed through a dedicated test-runner subagent (spawn it per change; report pass/fail in the PR) before the change is pushed.
 
 ## Working loop
@@ -88,7 +89,7 @@ The same applies to sibling sources of truth, updated **in the same change**:
 ## Layout
 
 - `scenarios/<id>/` — self-contained vulnerable FastAPI service (`app/`) + `poc.py` + `cve-meta.json`
-- `agent/` — subagent prompts in `agent/prompts/` (orchestrator, reproducer, judge, patcher, verifier), local dual-source CVE feed MCP server (`agent/mcp/cve-feed-server/index.mjs`: CVE.org + OSV.dev legitimacy cross-check; needs HTTP wrapper — see `docs/trueforge-setup.md`), local Docker sandbox MCP server (`agent/mcp/local-sandbox-server/index.mjs`, Streamable HTTP on `127.0.0.1:8081/mcp`)
+- `agent/` — subagent prompts (`agent/prompts/`: orchestrator, reproducer, judge, patcher, verifier, test-runner), local dual-source CVE feed MCP server (`agent/mcp/cve-feed-server/index.mjs`), local Docker sandbox MCP server (`agent/mcp/local-sandbox-server/index.mjs`, Streamable HTTP on `127.0.0.1:8081/mcp`)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
 - `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S4 → S5 automation → dashboard; approval gate never)
 
