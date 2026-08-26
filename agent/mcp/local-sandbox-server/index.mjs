@@ -84,7 +84,7 @@ function containerName(session) {
   return `patchproof-sbx-${h}`;
 }
 
-async function startContainer(name, network = "none") {
+async function startContainer(name, network = "none", image = IMAGE) {
   const netArgs =
     network === "none" ? ["--network", "none"] : ["--network", String(network)];
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -98,7 +98,7 @@ async function startContainer(name, network = "none") {
       "--memory", "1g",
       "--cpus", "1",
       "-w", "/srv",
-      IMAGE,
+      image,
       "sh", "-c", "sleep infinity",
     ]);
     if (started.code === 0) return;
@@ -109,12 +109,12 @@ async function startContainer(name, network = "none") {
   throw new Error(`failed to start container ${name} after 3 attempts`);
 }
 
-async function ensureContainer(session, network = "none") {
+async function ensureContainer(session, network = "none", image = IMAGE) {
   const name = containerName(session);
   await withLock(name, async () => {
     const running = await docker(["inspect", "-f", "{{.State.Running}}", name]);
     if (running.code === 0 && running.stdout.trim() === "true") return;
-    await startContainer(name, network);
+    await startContainer(name, network, image);
   });
   return name;
 }
@@ -151,12 +151,30 @@ function registerShutdownCleanup() {
 
 const TOOLS = [
   {
+    name: "sandbox_build",
+    description:
+      "Build a Docker image on the host from a directory containing a Dockerfile " +
+      "(build-time network is allowed; the resulting image is what runs offline). " +
+      "Use this to bake scenario dependencies (e.g. pinned requirements) into an " +
+      "image before starting an offline session with sandbox_exec(image=tag).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tag: { type: "string", description: "image tag to produce, e.g. patchproof-s01" },
+        context_path: { type: "string", description: "absolute host path containing the Dockerfile" },
+      },
+      required: ["tag", "context_path"],
+    },
+  },
+  {
     name: "sandbox_exec",
     description:
       "Run a shell command inside an isolated local Docker container for the given session. " +
       "The container has NO network access; services started inside it are reachable only at " +
       "127.0.0.1 within the same container. First call starts the container (may take a few " +
-      "seconds); later calls reuse it so files persist between calls.",
+      "seconds); later calls reuse it so files persist between calls. Pass `image` on the " +
+      "first call to start from a pre-built image (see sandbox_build) — needed when the " +
+      "command requires packages that cannot be installed offline.",
     inputSchema: {
       type: "object",
       properties: {
@@ -167,6 +185,10 @@ const TOOLS = [
           type: "string",
           description:
             "Docker network to attach (default 'none'). Only the verifier may set a named compose network to reach staging; reproduction and patching always use 'none'.",
+        },
+        image: {
+          type: "string",
+          description: "image used when creating the container (default python:3.11-slim). Only honored on first call / after sandbox_stop.",
         },
       },
       required: ["session", "command"],
@@ -207,8 +229,15 @@ const TOOLS = [
 
 async function toolCall(name, args = {}) {
   switch (name) {
+    case "sandbox_build": {
+      // Host-side build: Dockerfile RUN steps get network access; the built
+      // image is what later runs offline inside sandbox containers.
+      const res = await docker(["build", "-t", String(args.tag), String(args.context_path)],
+        { timeoutMs: 600000 });
+      return { exit_code: res.code, output: redact((res.stdout + res.stderr).slice(-MAX_OUTPUT)) };
+    }
     case "sandbox_exec": {
-      const name2 = await ensureContainer(args.session, args.network);
+      const name2 = await ensureContainer(args.session, args.network, args.image);
       const timeout = Math.min(Number(args.timeout_secs || 60), 600);
       const res = await docker(
         ["exec", "-w", "/srv", name2, "sh", "-c", String(args.command)],
@@ -222,7 +251,7 @@ async function toolCall(name, args = {}) {
       };
     }
     case "sandbox_write": {
-      const name2 = await ensureContainer(args.session, args.network);
+      const name2 = await ensureContainer(args.session, args.network, args.image);
       const res = await docker(["exec", "-i", name2, "sh", "-c",
         `mkdir -p "$(dirname '${args.path}')" && cat > '${args.path}'`],
         { input: String(args.content ?? "") });

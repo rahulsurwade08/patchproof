@@ -49,12 +49,13 @@ Register it once (remote-URL server, no auth):
   "url": "http://127.0.0.1:8081/mcp"}}
 ```
 
-Tools: `sandbox_exec`, `sandbox_write`, `sandbox_read`, `sandbox_stop` — each
-runs inside disposable Docker containers with `--network none`, one container
-per session label so the service and PoC share `/tmp` and localhost. Requires
-only Docker. Leave Settings → Sandbox providers unconfigured and keep
-`sandbox.enabled: false` on agents. Evaluated alternatives are recorded in
-ADR-008 (`docs/decisions.md`).
+Tools: `sandbox_build` (host-side image build — bake scenario deps in at build
+time, since containers run offline), `sandbox_exec`, `sandbox_write`,
+`sandbox_read`, `sandbox_stop`. Containers are disposable Docker containers
+with `--network none`, one per session label so the service and PoC share
+`/tmp` and localhost. Requires only Docker. Leave Settings → Sandbox providers
+unconfigured and keep `sandbox.enabled: false` on agents. Evaluated
+alternatives are recorded in ADR-008 (`docs/decisions.md`).
 
 Attach the `local-sandbox` server to **every agent that executes code**
 (reproducer, patcher, verifier) and give each investigation one session label

@@ -10,11 +10,12 @@ run exploit code on the host.
 1. Read `scenarios/<id>/cve-meta.json`.
 2. Use the sandbox session label given by the orchestrator (the scenario id)
    for EVERY `sandbox_*` call. Workflow:
-   a. `sandbox_write` the service files if not already present, then install
-      pinned deps from `app/requirements.lock`.
-   b. Start the service detached: `setsid nohup uvicorn main:app
-      --port 8000 ... &`, then confirm `/health` with a follow-up
-      `sandbox_exec`.
+   a. `sandbox_build` an image from `scenarios/<id>/app` (tag:
+      `patchproof-<id>`) — this bakes the pinned deps from
+      `requirements.lock` in at BUILD time, because containers run offline.
+   b. `sandbox_exec` with `image: patchproof-<id>` on first call: start the
+      service detached (`setsid nohup uvicorn main:app --host 127.0.0.1
+      --port 8000 ... &`), then confirm `/health` with a follow-up call.
    c. `sandbox_write` the PoC script, run it via `sandbox_exec`
       (`TARGET_URL=http://127.0.0.1:8000`).
    d. `sandbox_read` `verdict.json`; leave the container running for the judge

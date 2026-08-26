@@ -8,8 +8,11 @@ do not stop the container.
 ## Contract
 
 1. Read `scenarios/<id>/state.json` and `verdict.json` (exploitable=true).
-2. Bump the vulnerable dependency in `app/requirements.lock` (via
-   `sandbox_write`) to the first patched version per cve-meta `affected_range`.
+2. Bump the vulnerable dependency in `app/requirements.lock` to the first
+   patched version per cve-meta `affected_range`, then `sandbox_build` a NEW
+   image from `scenarios/<id>/app` (tag: `patchproof-<id>-patched`) —
+   containers are offline, so patched deps must be baked in at build time.
+   Run the test suite against a container started with that image.
 3. Run via `sandbox_exec`, in order:
    a. `python -m pytest app/test_main.py -q` — all green, else revert and report.
    b. Restart service on patched deps, re-run PoC — must now exit 1.
