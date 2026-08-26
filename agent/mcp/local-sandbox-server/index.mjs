@@ -21,6 +21,9 @@
 import http from "node:http";
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 const PORT = Number(process.env.LOCAL_SANDBOX_PORT || 8081);
 const IMAGE = process.env.LOCAL_SANDBOX_IMAGE || "python:3.11-slim";
@@ -113,7 +116,21 @@ async function ensureContainer(session, network = "none", image = IMAGE) {
   const name = containerName(session);
   await withLock(name, async () => {
     const running = await docker(["inspect", "-f", "{{.State.Running}}", name]);
-    if (running.code === 0 && running.stdout.trim() === "true") return;
+    if (running.code === 0 && running.stdout.trim() === "true") {
+      // Enforce requested creation parameters: a stale container built from a
+      // different image (e.g. vulnerable instead of patched) or attached to
+      // the wrong network must be recreated, never silently reused.
+      const cfg = await docker(["inspect",
+        "-f", "{{.Config.Image}}|{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}",
+        name]);
+      const [img, nets] = cfg.stdout.trim().split("|");
+      const wantNet = network === "none" ? "none" : network;
+      if (img !== image || !nets.split(",").includes(wantNet)) {
+        await docker(["rm", "-f", name]);
+        await startContainer(name, network, image);
+      }
+      return;
+    }
     await startContainer(name, network, image);
   });
   return name;
@@ -162,6 +179,13 @@ const TOOLS = [
       properties: {
         tag: { type: "string", description: "image tag to produce, e.g. patchproof-s01" },
         context_path: { type: "string", description: "absolute host path containing the Dockerfile" },
+        files: {
+          type: "object",
+          description:
+            "optional map of {relative path -> text content} applied over a temp copy of the context before building, e.g. {\"requirements.lock\": \"<patched content>\"}",
+          additionalProperties: { type: "string" },
+        },
+        no_cache: { type: "boolean", description: "force fresh build (bypass Docker layer cache)" },
       },
       required: ["tag", "context_path"],
     },
@@ -203,6 +227,8 @@ const TOOLS = [
         session: { type: "string" },
         path: { type: "string", description: "absolute path inside the container, e.g. /srv/poc.py" },
         content: { type: "string" },
+        network: { type: "string", description: "Docker network (default 'none'); only honored on container creation" },
+        image: { type: "string", description: "image used when creating the container; only honored on creation" },
       },
       required: ["session", "path", "content"],
     },
@@ -232,9 +258,31 @@ async function toolCall(name, args = {}) {
     case "sandbox_build": {
       // Host-side build: Dockerfile RUN steps get network access; the built
       // image is what later runs offline inside sandbox containers.
-      const res = await docker(["build", "-t", String(args.tag), String(args.context_path)],
-        { timeoutMs: 600000 });
-      return { exit_code: res.code, output: redact((res.stdout + res.stderr).slice(-MAX_OUTPUT)) };
+      // Optional `files` overrides are applied to a TEMP copy of the context,
+      // so callers can inject content (e.g. a patched requirements.lock that
+      // only exists inside the sandbox conversation) without host write access.
+      let context = String(args.context_path);
+      let tmpDir;
+      const files = args.files && typeof args.files === "object" ? args.files : null;
+      try {
+        if (files) {
+          tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "patchproof-ctx-"));
+          fs.cpSync(context, tmpDir, { recursive: true });
+          for (const [rel, content] of Object.entries(files)) {
+            const dest = path.join(tmpDir, rel);
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.writeFileSync(dest, String(content));
+          }
+          context = tmpDir;
+        }
+        const buildArgs = ["build", "-t", String(args.tag)];
+        if (args.no_cache) buildArgs.push("--no-cache");
+        buildArgs.push(context);
+        const res = await docker(buildArgs, { timeoutMs: 600000 });
+        return { exit_code: res.code, output: redact((res.stdout + res.stderr).slice(-MAX_OUTPUT)) };
+      } finally {
+        if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     }
     case "sandbox_exec": {
       const name2 = await ensureContainer(args.session, args.network, args.image);

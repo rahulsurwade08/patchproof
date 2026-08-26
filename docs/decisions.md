@@ -36,7 +36,8 @@ low confidence triggers at most one more reproduction attempt (cap 3).
 Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
 (e.g. HTTP 500 mistaken for "payload rejected") get caught before patching.
 
-## ADR-008 — Keyless local Docker sandbox MCP server (cloud providers removed)
+## ADR-008 — Keyless local Docker sandbox MCP server + host-side build boundary (updated)
+**Status:** accepted (updated PR #13)
 **Status:** accepted (supersedes the Daytona-based sandbox setup)
 TrueForge's only built-in sandbox provider is a paid cloud service, which is
 incompatible with an open-source project (and, as of June 2026, Daytona's core
@@ -61,6 +62,8 @@ execution path for open-source users and CI.
 
 Rationale: zero cost, zero accounts, same isolation contract, verified
 end-to-end against TrueForge v0.1.4 tool listing.
+
+**Build-time network boundary (added PR #13)**: containers run with `--network none`, so runtime `pip install` fails. A `sandbox_build` stage runs host-side `docker build` (temporary build-time network access) to bake pinned dependencies into images; `sandbox_exec`/`sandbox_write` then start from those pre-built images (`image=` param). The build context accepts a `files` override (e.g. patched `requirements.lock`) and uses `--no-cache` for patched builds. This preserves the offline execution contract while allowing dependency resolution at build time.
 
 ## ADR-007 — GitHub connector via header-auth token derived from gh CLI
 **Status:** accepted (corrected after implementation; supersedes earlier
