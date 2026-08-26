@@ -25,6 +25,10 @@ scripts/reset_demo.sh
 
 # Keyless sandbox: service+PoC in one network-isolated container (no API keys)
 scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
+
+# Mandatory pre-push test gate (routes through local-sandbox MCP)
+bash scripts/run_gate_before_push.sh <scenario-id>  # sandbox_build + sandbox_exec via MCP
+scripts/install-hooks.sh                             # install git pre-push hook (run once per clone)
 ```
 
 ## Hard rules
