@@ -25,6 +25,10 @@ scripts/reset_demo.sh
 
 # Keyless sandbox: service+PoC in one network-isolated container (no API keys)
 scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
+
+# Mandatory pre-push test gate (routes through local-sandbox MCP)
+bash scripts/run_gate_before_push.sh <scenario-id>  # sandbox_build + sandbox_exec via MCP
+scripts/install-hooks.sh                             # install git pre-push hook (run once per clone)
 ```
 
 ## Hard rules
@@ -64,7 +68,7 @@ Maintained list — append a lesson whenever a real mistake is identified.
 ## Maintenance & verification policy
 
 - **Decadal audit**: after every 10 merged PRs (10, 20, 30, …), run a full-repo audit — stale references (grep for retired names/paths), docs-vs-code consistency, AGENTS.md accuracy against reality, secrets scan of history and working tree — and fix or file anything found.
-- **Subagent test gate** (post-completion): `agent/prompts/test-runner.md` verifies scenario tests via `sandbox_build` + `sandbox_exec`, writes `test_gate.json`. Every change must pass this gate before push.
+- **Subagent test gate** (post-completion): `agent/prompts/test-runner.md` verifies scenario tests via `sandbox_build` + `sandbox_exec`, writes `test_gate.json`. Every change must pass this gate before push. **Enforcement**: `scripts/install-hooks.sh` installs `.git/hooks/pre-push` which calls `scripts/run_gate_before_push.sh` for each changed scenario — a normal `git push` invokes the gate automatically.
 - **Subagent test gate (post-completion)**: once the project is complete, every code change must be verified by local test-case runs executed through a dedicated test-runner subagent (spawn it per change; report pass/fail in the PR) before the change is pushed.
 
 ## Working loop
