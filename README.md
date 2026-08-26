@@ -76,25 +76,31 @@ dashboard/               thin live-status UI (built after the core loop)
 
 PatchProof runs exploits in an isolated sandbox — never on your host. Two supported modes:
 
-### 1. TrueForge + Daytona (recommended)
+### 1. Local Docker sandbox via TrueForge (recommended, keyless)
 
-The full agentic loop: TrueForge provisions an isolated [Daytona](https://www.daytona.io)
-sandbox on demand, reuses it across the investigation (service and PoC share it),
-and enforces the human-approval gate before any deploy. Requires a Daytona API key
-plus model/GitHub keys — see [docs/trueforge-setup.md](docs/trueforge-setup.md).
+The agentic loop executes through our own `local-sandbox` MCP server: disposable
+Docker containers with networking disabled, one per investigation (service and
+PoC share it). Zero cloud accounts. Start it before a harness run:
 
-### 2. Keyless local Docker
+```bash
+node agent/mcp/local-sandbox-server/index.mjs &
+```
 
-Verify any scenario with zero accounts or API keys — one disposable container
-runs both the service and the PoC, with networking disabled:
+Requires only Docker. See [docs/trueforge-setup.md](docs/trueforge-setup.md).
+
+### 2. Keyless local Docker without the harness
+
+Verify any scenario with zero accounts and without running the harness:
 
 ```bash
 scripts/run_poc_local.sh s01-pyyaml-rce   # → verdict.json + PoC exit code
 ```
 
-Ideal for open-source users and CI: same PoC contract, same isolation, no cloud.
 This path is for **human- and CI-run verification only** — the autonomous
-agentic pipeline always executes through the TrueForge + Daytona sandbox above.
+agentic pipeline goes through the `local-sandbox` server above.
+
+> Note: TrueForge's built-in sandbox provider is Daytona (paid) and is **not**
+> used by this project; our provider stays disabled.
 
 ## Scenario contract
 

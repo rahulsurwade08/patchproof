@@ -36,12 +36,25 @@ low confidence triggers at most one more reproduction attempt (cap 3).
 Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
 (e.g. HTTP 500 mistaken for "payload rejected") get caught before patching.
 
-## ADR-007 — OAuth-first GitHub credential, PAT fallback
-**Status:** accepted (supersedes earlier gh-token draft)
-The GitHub connector authenticates via TrueForge's OAuth flow
-(Settings → Connectors → GitHub; browser authorization, no static token
-handled by the user or agents). For API-only use outside the harness, a classic
-PAT placed in `.env` remains a documented fallback. Agent sessions never invoke
-token-printing commands, and docs never endorse them.
-Rationale: zero static credentials is the strongest security posture and keeps
-setup to one browser click for contributors who already have a GitHub account.
+## ADR-008 — Local Docker sandbox MCP server over Daytona
+**Status:** accepted (supersedes the Daytona-based sandbox setup)
+TrueForge's only built-in sandbox provider is Daytona (paid), which is
+incompatible with an open-source project. PatchProof instead ships its own
+`local-sandbox` MCP server (Streamable HTTP, `127.0.0.1:8081/mcp`) that runs
+commands in disposable `--network none` Docker containers — one per
+investigation so service and PoC share `/tmp`. The built-in provider stays
+disabled. Rationale: zero cost, zero cloud accounts for contributors, same
+isolation contract; verified end-to-end against TrueForge v0.1.4 tool listing.
+
+## ADR-007 — GitHub connector via header-auth token derived from gh CLI
+**Status:** accepted (corrected after implementation; supersedes earlier
+OAuth-first and gh-token-display drafts)
+Reality check against TrueForge v0.1.4: the shipped GitHub MCP catalog entry
+points at GitHub's hosted server with **header auth**, and that server exposes
+**no DCR registration endpoint**, so TrueForge-side OAuth is impossible
+(422 "has no DCR support"). The working setup: a repo-scope token derived from
+the user's existing `gh auth login`, written straight into `.env` by the human
+(`{ printf 'GITHUB_TOKEN='; gh auth token; } >> .env`) and pasted into the
+connector's header-auth field — never displayed, never handled by agent
+sessions. Rationale: one command for anyone already using `gh`; no new secret
+creation; complies with the no-secrets-in-session rule.

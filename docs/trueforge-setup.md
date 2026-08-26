@@ -32,15 +32,28 @@ Settings → Connectors → **GitHub** from the shipped catalog:
 
 Used by the orchestrator (advisory → repo matching) and the patcher (evidence PRs).
 
-## 4. Sandbox provider — Daytona
+## 4. Sandbox — local Docker MCP server (no Daytona)
 
-Daytona is the **only** supported sandbox provider today.
+TrueForge's only built-in sandbox provider is **Daytona (paid)**; this project
+does not use it. Instead, our own keyless sandbox runs as a local MCP server:
 
-Settings → Sandbox providers → Daytona preset → paste `DAYTONA_API_KEY`.
+```bash
+node agent/mcp/local-sandbox-server/index.mjs &   # serves http://127.0.0.1:8081/mcp
+```
 
-Enable the sandbox per agent (`config.sandbox.enabled` in the agent spec).
-The sandbox is provisioned on demand and reused across turns within a session,
-which is what the PoC/service shared-`/tmp` contract relies on.
+Register it once (remote-URL server, no auth):
+
+```json
+{"manifest": {"type": "remote", "name": "local-sandbox",
+  "description": "Keyless local Docker sandbox.",
+  "url": "http://127.0.0.1:8081/mcp"}}
+```
+
+Tools: `sandbox_exec`, `sandbox_write`, `sandbox_read`, `sandbox_stop` — each
+runs inside disposable Docker containers with `--network none`, one container
+per session label so the service and PoC share `/tmp` and localhost. Requires
+only Docker. Leave Settings → Sandbox providers unconfigured and keep
+`sandbox.enabled: false` on agents so nothing provisions Daytona.
 
 ## 5. CVE feed MCP server — dual-source legitimacy check
 

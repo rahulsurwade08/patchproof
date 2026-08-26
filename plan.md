@@ -40,7 +40,7 @@ loop empirically:
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
 | CVE legitimacy | Dual-source gate: CVE.org + OSV.dev must both confirm; fail closed (demo injections excepted, audited as `demo-bypass`) |
 | Verdict review | LLM-as-a-judge annotates evidence quality (ADR-006); PoC exit code stays the only truth |
-| Sandbox modes | TrueForge + Daytona (recommended) and keyless network-isolated local Docker for human/CI verification |
+| Sandbox modes | Own `local-sandbox` MCP server: keyless network-isolated Docker containers (Daytona, TrueForge's only built-in provider, is paid and stays disabled) |
 | GitHub credentials | OAuth connector first — no static tokens; PAT documented fallback only (ADR-007) |
 | Demo/presentation | Parked until the core project is complete (maintainer decision) |
 
