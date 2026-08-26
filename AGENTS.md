@@ -40,7 +40,7 @@ scripts/install-hooks.sh                             # install git pre-push hook
 - **Never commit `.env`.** Never bump versions in any `requirements.lock` *except the patcher's deliberate CVE-remediation bump* (which goes through PR + sandbox test suite) — pins reproduce vulnerable versions, so casual edits destroy the scenarios.
 - **PoC contract** (every scenario): exit 0 iff exploitable, exit 1 = not affected; write `verdict.json` with `{cve_id, exploitable, evidence}`; deterministic, <60s. Breaking this breaks the whole verification loop. Note s05-negative-case uses the *same* generic PoC but must self-conclude NOT AFFECTED — don't special-case its verdict.
 - **LLM-judge annotates, never decides** (`agent/prompts/judge.md`): every verdict gets a judge review written to `scenarios/<id>/assessment.json` (`agrees_with_verdict/confidence/range_check/rationale`). The PoC exit code stays ground truth; disagreement or low confidence triggers at most one more reproduction attempt within the cap of 3.
-- **Adding a scenario**: copy `scenarios/_template/`, follow its comments, fill `cve-meta.json`. Do not build `s04-jinja2-escape` until s01 + s05 pass acceptance (it's a marked stub).
+- **Adding a scenario**: copy `scenarios/_template/`, follow its comments, fill `cve-meta.json`. S4 (Jinja2 sandbox escape) is now operational alongside S1 and S5.
 - **PRs: address every Qodo code-review comment** before a PR is considered done — after each raise/push, **wait ~5 minutes for Qodo's review to post**, then check `gh pr view <n> --comments` for findings, fix each one with commits to the same branch, post a traceability comment mapping finding → resolution, **and update the README "Qodo Code Review Evidence" section** (finding + resolution for that PR). Never merge over unresolved findings. Merging itself is always done by the human, never by the agent.
 - **TrueForge has no config file** (verified against v0.1.4 docs): models/connectors/skills/sandbox are configured via Settings — see `docs/trueforge-setup.md`. Its built-in sandbox provider is paid and stays unconfigured; we use the local-sandbox MCP server instead (ADR-008 lists evaluated open-source alternatives). MCP servers are remote-URL only; stdio servers need an HTTP wrapper or must be bypassed via `data/inbox/` injection.
 - Gitignored but real: `docs/hackathon-checklist.md`, `docs/blog-draft.md` (local-only strategy docs), `data/inbox/` (advisory drop dir), `scenarios/*/verdict.json`.
@@ -95,7 +95,7 @@ The same applies to sibling sources of truth, updated **in the same change**:
 - `scenarios/<id>/` — self-contained vulnerable FastAPI service (`app/`) + `poc.py` + `cve-meta.json`
 - `agent/` — subagent prompts (`agent/prompts/`: orchestrator, reproducer, judge, patcher, verifier, test-runner), local dual-source CVE feed MCP server (`agent/mcp/cve-feed-server/index.mjs`), local Docker sandbox MCP server (`agent/mcp/local-sandbox-server/index.mjs`, Streamable HTTP on `127.0.0.1:8081/mcp`)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
-- `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S4 → S5 automation → dashboard; approval gate never)
+- `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S5 automation → dashboard; approval gate never)
 
 ## Environment notes
 
