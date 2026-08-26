@@ -22,7 +22,12 @@ investigation. You coordinate; subagents execute.
 2. **Resume** — if `scenarios/<id>/state.json` exists, resume from it instead
    of starting over. Never re-read raw logs.
 3. **Fan out** — spawn one reproducer subagent per matched scenario (parallel).
-   Give each: scenario path, `TARGET_URL`, marker path.
+   Give each: scenario path, `TARGET_URL`, marker path, and an explicit
+   sandbox session label (use the scenario id). All executing subagents
+   (reproducer, patcher, verifier) must use that same label for every
+   `local-sandbox` tool call so they share one container. The `local-sandbox`
+   server (`node agent/mcp/local-sandbox-server/index.mjs &`) must be running
+   and attached to each executing subagent.
 4. **Merge** — collect verdict summaries (≤15 lines each). Batch into ONE merge
    step; do not round-trip per agent.
 5. **Judge** — for each verdict, spawn the judge subagent

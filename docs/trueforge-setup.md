@@ -55,6 +55,10 @@ per session label so the service and PoC share `/tmp` and localhost. Requires
 only Docker. Leave Settings → Sandbox providers unconfigured and keep
 `sandbox.enabled: false` on agents so nothing provisions Daytona.
 
+Attach the `local-sandbox` server to **every agent that executes code**
+(reproducer, patcher, verifier) and give each investigation one session label
+(the scenario id) that all subagents share; see `agent/prompts/*`.
+
 ## 5. CVE feed MCP server — dual-source legitimacy check
 
 MCP servers in TrueForge are remote-URL only (header auth / OAuth); local stdio

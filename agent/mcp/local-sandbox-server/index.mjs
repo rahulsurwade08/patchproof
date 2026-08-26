@@ -81,13 +81,15 @@ function containerName(session) {
   return `patchproof-sbx-${h}`;
 }
 
-async function startContainer(name) {
+async function startContainer(name, network = "none") {
+  const netArgs =
+    network === "none" ? ["--network", "none"] : ["--network", String(network)];
   for (let attempt = 0; attempt < 3; attempt++) {
     await docker(["rm", "-f", name]);
     const started = await docker([
       "run", "--rm", "-d",
       "--name", name,
-      "--network", "none",
+      ...netArgs,
       "--pids-limit", "512",
       "--memory", "1g",
       "--cpus", "1",
@@ -103,12 +105,12 @@ async function startContainer(name) {
   throw new Error(`failed to start container ${name} after 3 attempts`);
 }
 
-async function ensureContainer(session) {
+async function ensureContainer(session, network = "none") {
   const name = containerName(session);
   await withLock(name, async () => {
     const running = await docker(["inspect", "-f", "{{.State.Running}}", name]);
     if (running.code === 0 && running.stdout.trim() === "true") return;
-    await startContainer(name);
+    await startContainer(name, network);
   });
   return name;
 }
@@ -146,6 +148,11 @@ const TOOLS = [
         session: { type: "string", description: "logical session label; containers are isolated per session" },
         command: { type: "string", description: "shell command to execute inside the container" },
         timeout_secs: { type: "number", description: "per-command timeout (default 60, max 600)" },
+        network: {
+          type: "string",
+          description:
+            "Docker network to attach (default 'none'). Only the verifier may set a named compose network to reach staging; reproduction and patching always use 'none'.",
+        },
       },
       required: ["session", "command"],
     },
@@ -186,7 +193,7 @@ const TOOLS = [
 async function toolCall(name, args = {}) {
   switch (name) {
     case "sandbox_exec": {
-      const name2 = await ensureContainer(args.session);
+      const name2 = await ensureContainer(args.session, args.network);
       const timeout = Math.min(Number(args.timeout_secs || 60), 600);
       const res = await docker(
         ["exec", "-w", "/srv", name2, "sh", "-c", String(args.command)],
@@ -200,7 +207,7 @@ async function toolCall(name, args = {}) {
       };
     }
     case "sandbox_write": {
-      const name2 = await ensureContainer(args.session);
+      const name2 = await ensureContainer(args.session, args.network);
       const res = await docker(["exec", "-i", name2, "sh", "-c",
         `mkdir -p "$(dirname '${args.path}')" && cat > '${args.path}'`],
         { input: String(args.content ?? "") });
