@@ -32,10 +32,10 @@ Settings → Connectors → **GitHub** from the shipped catalog:
 
 Used by the orchestrator (advisory → repo matching) and the patcher (evidence PRs).
 
-## 4. Sandbox — local Docker MCP server (no Daytona)
+## 4. Sandbox — local Docker MCP server
 
-TrueForge's only built-in sandbox provider is **Daytona (paid)**; this project
-does not use it. Instead, our own keyless sandbox runs as a local MCP server:
+Code execution runs through our own keyless sandbox MCP server (no cloud
+providers, no accounts):
 
 ```bash
 node agent/mcp/local-sandbox-server/index.mjs &   # serves http://127.0.0.1:8081/mcp
@@ -53,7 +53,8 @@ Tools: `sandbox_exec`, `sandbox_write`, `sandbox_read`, `sandbox_stop` — each
 runs inside disposable Docker containers with `--network none`, one container
 per session label so the service and PoC share `/tmp` and localhost. Requires
 only Docker. Leave Settings → Sandbox providers unconfigured and keep
-`sandbox.enabled: false` on agents so nothing provisions Daytona.
+`sandbox.enabled: false` on agents. Evaluated alternatives are recorded in
+ADR-008 (`docs/decisions.md`).
 
 Attach the `local-sandbox` server to **every agent that executes code**
 (reproducer, patcher, verifier) and give each investigation one session label

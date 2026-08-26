@@ -37,8 +37,8 @@ CVE advisory ──► orchestrator matches it to a repo (GitHub MCP)
 ## Quickstart
 
 Prerequisites: Python 3.11+ (or Docker), Node 20+, a TrueForge install
-(`npx @truefoundry/trueforge`), and API keys for OpenRouter, GitHub, and
-Daytona — configured via TrueForge Settings, see
+(`npx @truefoundry/trueforge`), and API keys for OpenRouter and GitHub —
+configured via TrueForge Settings, see
 [docs/trueforge-setup.md](docs/trueforge-setup.md).
 
 ```bash
@@ -99,8 +99,9 @@ scripts/run_poc_local.sh s01-pyyaml-rce   # → verdict.json + PoC exit code
 This path is for **human- and CI-run verification only** — the autonomous
 agentic pipeline goes through the `local-sandbox` server above.
 
-> Note: TrueForge's built-in sandbox provider is Daytona (paid) and is **not**
-> used by this project; our provider stays disabled.
+No cloud sandbox providers are used anywhere in this project. See ADR-008
+(`docs/decisions.md`) for the evaluated open-source alternatives
+(Microsandbox, Nightona, beta9, E2B infra).
 
 ## Scenario contract
 

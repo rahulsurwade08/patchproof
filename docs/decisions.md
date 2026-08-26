@@ -36,25 +36,31 @@ low confidence triggers at most one more reproduction attempt (cap 3).
 Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
 (e.g. HTTP 500 mistaken for "payload rejected") get caught before patching.
 
-## ADR-008 — Local Docker sandbox MCP server over Daytona
+## ADR-008 — Keyless local Docker sandbox MCP server (cloud providers removed)
 **Status:** accepted (supersedes the Daytona-based sandbox setup)
-TrueForge's only built-in sandbox provider is Daytona (paid), which is
-incompatible with an open-source project. PatchProof instead ships its own
-`local-sandbox` MCP server (Streamable HTTP, `127.0.0.1:8081/mcp`) that runs
-commands in disposable `--network none` Docker containers — one per
-investigation so service and PoC share `/tmp`. The built-in provider stays
-disabled. Rationale: zero cost, zero cloud accounts for contributors, same
-isolation contract; verified end-to-end against TrueForge v0.1.4 tool listing.
+TrueForge's only built-in sandbox provider is a paid cloud service, which is
+incompatible with an open-source project (and, as of June 2026, Daytona's core
+went closed-source). PatchProof therefore ships its own `local-sandbox` MCP
+server (Streamable HTTP, `127.0.0.1:8081/mcp`): disposable `--network none`
+Docker containers — one per investigation so service and PoC share `/tmp` —
+with resource limits, credential redaction, ownership labels, crash-recovery
+startup cleanup, and full shutdown cleanup. This is the default and only
+execution path for open-source users and CI.
 
-**Compliance waiver:** sponsor rules ask that Daytona be the only selectable
-sandbox provider. This project consciously waives that requirement for all
-non-demo usage: a paid, account-gated sandbox cannot be a hard dependency of
-an open-source tool. TrueForge remains the runtime for orchestration, model
-routing, MCP integration, subagents, session persistence and approvals; only
-code execution is delegated to our own keyless container runner, under the
-same isolation contract (`--network none`, resource limits, no host
-execution). Revisit if/when TrueForge supports a local sandbox provider
-upstream.
+**Evaluated open-source alternatives** (2026 survey):
+- **Microsandbox** (Apache-2.0): local libkrun/KVM microVMs, own-kernel
+  isolation (stronger than Docker), no daemon or account, official MCP server,
+  OCI-image compatible. Recommended future upgrade for stronger isolation;
+  requires KVM on Linux / Apple Silicon on macOS, currently beta.
+- **Nightona** (AGPL-3.0): community fork of the last open Daytona release,
+  self-hosted via Docker Compose/Helm. API-compatible with Daytona v0.190.0,
+  but TrueForge's built-in provider hardcodes the cloud endpoint, so it cannot
+  be used through the native integration anyway.
+- **Beam/beta9** (AGPL-3.0) and **E2B infra** (Apache-2.0): capable but require
+  Kubernetes/Nomad operations far beyond this project's scope.
+
+Rationale: zero cost, zero accounts, same isolation contract, verified
+end-to-end against TrueForge v0.1.4 tool listing.
 
 ## ADR-007 — GitHub connector via header-auth token derived from gh CLI
 **Status:** accepted (corrected after implementation; supersedes earlier
