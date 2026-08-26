@@ -52,9 +52,10 @@ OAuth-first and gh-token-display drafts)
 Reality check against TrueForge v0.1.4: the shipped GitHub MCP catalog entry
 points at GitHub's hosted server with **header auth**, and that server exposes
 **no DCR registration endpoint**, so TrueForge-side OAuth is impossible
-(422 "has no DCR support"). The working setup: a repo-scope token derived from
-the user's existing `gh auth login`, written straight into `.env` by the human
-(`{ printf 'GITHUB_TOKEN='; gh auth token; } >> .env`) and pasted into the
-connector's header-auth field — never displayed, never handled by agent
-sessions. Rationale: one command for anyone already using `gh`; no new secret
-creation; complies with the no-secrets-in-session rule.
+(422 "has no DCR support"). The working setup: a repo-scope token taken from
+the user's existing gh CLI credential store, written by the human directly
+into `.env` without being displayed, then pasted into the connector's
+header-auth field — never shown, never handled by agent sessions, and no
+token-printing command is endorsed in committed docs. Rationale: one step for
+anyone already using `gh`; no new secret creation; complies with the
+no-secrets-in-session rule.

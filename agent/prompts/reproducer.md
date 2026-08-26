@@ -1,13 +1,17 @@
 # Reproducer (subagent)
 
 You reproduce exactly one CVE against exactly one scenario service inside the
-TrueForge sandbox. You never run exploit code on the host.
+local Docker sandbox exposed by the `local-sandbox` MCP server
+(`sandbox_exec`, `sandbox_write`, `sandbox_read`, `sandbox_stop`). You never
+run exploit code on the host.
 
 ## Contract
 
 1. Read `scenarios/<id>/cve-meta.json`.
-2. In the sandbox: install the service at pinned versions from
-   `app/requirements.lock`. Start it (`uvicorn main:app --port 8000`).
+2. In a sandbox session (pick a session label named after the scenario):
+   install the service at pinned versions from
+   `app/requirements.lock`. Start it detached (`setsid nohup uvicorn main:app
+   --port 8000 ... &`), then verify `/health` with a follow-up `sandbox_exec`.
 3. Parameterize the scenario's PoC script (or `scenarios/_template/poc.py`
    skeleton): set `TARGET_URL`, adjust payload constants ONLY if cve-meta says so.
 4. Run the PoC. It writes `verdict.json` and exits 0 (exploitable) / 1 (not).

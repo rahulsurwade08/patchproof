@@ -20,11 +20,33 @@
 
 import http from "node:http";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.LOCAL_SANDBOX_PORT || 8081);
 const IMAGE = process.env.LOCAL_SANDBOX_IMAGE || "python:3.11-slim";
 const MAX_OUTPUT = 20000;
+const MAX_BODY_BYTES = 1024 * 1024;
+
+// Best-effort redaction of credential-looking strings in tool output.
+function redact(text) {
+  return String(text)
+    .replace(/sk-or-v1-[A-Za-z0-9_-]{8,}/g, "<redacted>")
+    .replace(/ghp_[A-Za-z0-9]{20,}/g, "<redacted>")
+    .replace(/github_pat_[A-Za-z0-9_]{20,}/g, "<redacted>")
+    .replace(/dtn_[A-Za-z0-9_-]{8,}/g, "<redacted>")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]{12,}/gi, "$1<redacted>")
+    .replace(/((?:api[_-]?key|token|password|secret)(?:['"\s:=]+))['"]?[A-Za-z0-9._~+/=-]{12,}['"]?/gi,
+      "$1<redacted>");
+}
+
+// Per-container async locks so concurrent ensureContainer calls can't race.
+const locks = new Map();
+async function withLock(key, fn) {
+  const prev = locks.get(key) || Promise.resolve();
+  const run = prev.then(fn, fn);
+  locks.set(key, run.catch(() => {}));
+  await run;
+}
 
 function docker(args, { timeoutMs = 120000, input } = {}) {
   return new Promise((resolve) => {
@@ -54,31 +76,60 @@ function docker(args, { timeoutMs = 120000, input } = {}) {
 }
 
 function containerName(session) {
-  // Sanitized: sessions are agent-chosen labels.
-  const safe = String(session || "default").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 40);
-  return `patchproof-sbx-${safe}`;
+  // Hash the RAW label: distinct labels can never collide, however similar.
+  const h = createHash("sha256").update(String(session || "default")).digest("hex").slice(0, 16);
+  return `patchproof-sbx-${h}`;
+}
+
+async function startContainer(name) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await docker(["rm", "-f", name]);
+    const started = await docker([
+      "run", "--rm", "-d",
+      "--name", name,
+      "--network", "none",
+      "--pids-limit", "512",
+      "--memory", "1g",
+      "--cpus", "1",
+      "-w", "/srv",
+      IMAGE,
+      "sh", "-c", "sleep infinity",
+    ]);
+    if (started.code === 0) return;
+    // Another caller may have created it between our rm and run — re-check.
+    const inspect = await docker(["inspect", "-f", "{{.State.Running}}", name]);
+    if (inspect.code === 0 && inspect.stdout.trim() === "true") return;
+  }
+  throw new Error(`failed to start container ${name} after 3 attempts`);
 }
 
 async function ensureContainer(session) {
   const name = containerName(session);
-  const running = await docker(["inspect", "-f", "{{.State.Running}}", name]);
-  if (running.code === 0 && running.stdout.trim() === "true") return name;
-  await docker(["rm", "-f", name]);
-  const started = await docker([
-    "run", "--rm", "-d",
-    "--name", name,
-    "--network", "none",
-    "--pids-limit", "512",
-    "--memory", "1g",
-    "--cpus", "1",
-    "-w", "/srv",
-    IMAGE,
-    "sh", "-c", "sleep infinity",
-  ]);
-  if (started.code !== 0) {
-    throw new Error(`failed to start container: ${started.stderr}`);
-  }
+  await withLock(name, async () => {
+    const running = await docker(["inspect", "-f", "{{.State.Running}}", name]);
+    if (running.code === 0 && running.stdout.trim() === "true") return;
+    await startContainer(name);
+  });
   return name;
+}
+
+async function cleanupAllContainers() {
+  const listed = await docker(["ps", "-aq", "--filter", "name=patchproof-sbx-"]);
+  const ids = listed.stdout.trim().split("\n").filter(Boolean);
+  for (const id of ids) await docker(["rm", "-f", id]);
+  return ids.length;
+}
+
+function registerShutdownCleanup() {
+  let done = false;
+  const handler = () => {
+    if (done) return;
+    done = true;
+    try { cleanupAllContainers(); } catch { /* best effort */ }
+    process.exit(0);
+  };
+  process.on("SIGINT", handler);
+  process.on("SIGTERM", handler);
 }
 
 const TOOLS = [
@@ -143,8 +194,8 @@ async function toolCall(name, args = {}) {
       );
       return {
         exit_code: res.code,
-        stdout: res.stdout,
-        stderr: res.stderr,
+        stdout: redact(res.stdout),
+        stderr: redact(res.stderr),
         container: name2,
       };
     }
@@ -160,7 +211,7 @@ async function toolCall(name, args = {}) {
       const res = await docker(["exec", containerName(args.session),
         "sh", "-c", `cat '${args.path}' 2>&1`]);
       return { path: args.path, exists: res.code === 0 && !/^cat: /.test(res.stdout),
-        content: res.stdout };
+        content: redact(res.stdout) };
     }
     case "sandbox_stop": {
       await docker(["rm", "-f", containerName(args.session)]);
@@ -190,13 +241,25 @@ const server = http.createServer(async (req, res) => {
   }
   let msg;
   try {
-    msg = JSON.parse(await new Promise((resolve, reject) => {
-      let buf = "";
-      req.on("data", (c) => (buf += c));
-      req.on("end", () => resolve(buf));
+    const bodyText = await new Promise((resolve, reject) => {
+      let size = 0;
+      const chunks = [];
+      req.on("data", (c) => {
+        size += c.length;
+        if (size > MAX_BODY_BYTES) {
+          reject(Object.assign(new Error("request body too large"), { tooLarge: true }));
+          req.destroy();
+          return;
+        }
+        chunks.push(c);
+      });
+      req.on("end", () => resolve(Buffer.concat(chunks).toString()));
       req.on("error", reject);
-    }));
-  } catch {
+    });
+    msg = JSON.parse(bodyText);
+  } catch (err) {
+    if (err.tooLarge) return send(res, 413, { jsonrpc: "2.0", id: null,
+      error: { code: -32700, message: "request body exceeds 1 MiB" } });
     return send(res, 400, { jsonrpc: "2.0", id: null,
       error: { code: -32700, message: "parse error" } });
   }
@@ -216,6 +279,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (method === "tools/call") {
       const { name, arguments: args } = params || {};
+      if (!TOOLS.some((t) => t.name === name)) {
+        return send(res, 200, { jsonrpc: "2.0", id,
+          error: { code: -32602, message: `unknown tool: ${name}` } });
+      }
       try {
         const result = await toolCall(name, args);
         return send(res, 200, { jsonrpc: "2.0", id, result: {
@@ -234,6 +301,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+registerShutdownCleanup();
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`local-sandbox MCP listening on http://127.0.0.1:${PORT}/mcp (image: ${IMAGE}, request-id: ${randomUUID().slice(0, 8)})`);
 });

@@ -1,7 +1,7 @@
 # Patcher
 
-You fix a CONFIRMED-exploitable scenario. You work entirely in the sandbox
-until the PR exists.
+You fix a CONFIRMED-exploitable scenario. You work entirely inside a
+`local-sandbox` MCP container session until the PR exists.
 
 ## Contract
 

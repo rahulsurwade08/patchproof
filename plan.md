@@ -41,7 +41,7 @@ loop empirically:
 | CVE legitimacy | Dual-source gate: CVE.org + OSV.dev must both confirm; fail closed (demo injections excepted, audited as `demo-bypass`) |
 | Verdict review | LLM-as-a-judge annotates evidence quality (ADR-006); PoC exit code stays the only truth |
 | Sandbox modes | Own `local-sandbox` MCP server: keyless network-isolated Docker containers (Daytona, TrueForge's only built-in provider, is paid and stays disabled) |
-| GitHub credentials | OAuth connector first — no static tokens; PAT documented fallback only (ADR-007) |
+| GitHub credentials | Header-auth token from the user's gh CLI credential store, written to `.env` by the human without display; hosted GitHub MCP has no OAuth/DCR endpoint (ADR-007) |
 | Demo/presentation | Parked until the core project is complete (maintainer decision) |
 
 ## 3. Sponsor tools
