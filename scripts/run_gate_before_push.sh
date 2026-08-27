@@ -49,7 +49,7 @@ json_field() {
 
 if ! python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8081/health", timeout=5)' 2>/dev/null; then
   echo "FAIL: local-sandbox MCP server not reachable at $MCP_URL" >&2
-  echo "Start it with: node agent/mcp/local-sandbox-server/index.mjs &" >&2
+  echo "Start it with: python3 agent/mcp/local_sandbox_server.py &" >&2
   write_gate false 2 1 "exploitable=false" "MCP server unreachable"
   exit 2
 fi

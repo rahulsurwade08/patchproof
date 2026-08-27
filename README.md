@@ -92,10 +92,11 @@ Docker containers with networking disabled, one per investigation (service and
 PoC share it). Zero cloud accounts. Start it before a harness run:
 
 ```bash
-node agent/mcp/local-sandbox-server/index.mjs &
+python3 agent/mcp/local_sandbox_server.py &
 ```
 
-Requires only Docker. See [docs/trueforge-setup.md](docs/trueforge-setup.md).
+Requires Docker plus Python 3.9+ on the host (the MCP server itself is a
+small stdlib-only script). See [docs/trueforge-setup.md](docs/trueforge-setup.md).
 
 ### 2. Keyless local Docker without the harness
 
