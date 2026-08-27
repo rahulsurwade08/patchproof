@@ -98,7 +98,7 @@ def test_ensure_container_recreates_on_image_mismatch(monkeypatch):
     assert name == srv.container_name("s")
     assert any(a[:2] == ["rm", "-f"] for a in calls)
     assert any(a[:3] == ["run", "--rm", "-d"] and "patchproof-new" in a
-               and "sleep 86400" in a for a in calls)
+               and "while :; do sleep 3600; done" in a for a in calls)
 
 
 def test_ensure_container_reuses_matching(monkeypatch):
