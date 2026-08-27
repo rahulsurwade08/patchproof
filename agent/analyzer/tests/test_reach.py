@@ -70,7 +70,7 @@ def test_pep621_dependency_list_parsed(tmp_path):
            '[project]\nname = "x"\ndependencies = ["pyyaml==3.13"]\n')
     rec, _ = _run(repo, tmp_path)
     assert rec["dep"]["pinned_version"] == "3.13"
-    assert rec["verdict"] == "NOT_REACHABLE"
+    assert rec["verdict"] == "UNKNOWN"
 
 
 def test_direct_load_reachable(tmp_path):
@@ -86,13 +86,13 @@ def test_direct_load_reachable(tmp_path):
     assert rec["needs_sandbox"] is True
 
 
-def test_pinned_but_unreferenced_not_reachable(tmp_path):
+def test_pinned_but_unreferenced_gates_sandbox(tmp_path):
     repo = tmp_path / "repo"
     _require(repo)
     _write(os.path.join(repo, "main.py"), "print('hello')\n")
     rec, _ = _run(repo, tmp_path)
-    assert rec["verdict"] == "NOT_REACHABLE"
-    assert rec["needs_sandbox"] is False
+    assert rec["verdict"] == "UNKNOWN"
+    assert rec["needs_sandbox"] is True
 
 
 def test_safe_symbol_not_mistaken_for_vulnerable(tmp_path):
@@ -104,8 +104,11 @@ def test_safe_symbol_not_mistaken_for_vulnerable(tmp_path):
         "    raw = await request.body()\n"
         "    cfg = yaml.safe_load(raw)\n"))
     rec, _ = _run(repo, tmp_path)
-    assert rec["verdict"] == "NOT_REACHABLE"
-    assert rec["needs_sandbox"] is False
+    # safe_load is a distinct symbol the analyzer cannot prove safe without a
+    # hardcoded map, and the pkg import is aliased (`yaml` vs `pyyaml`) — so
+    # this must gate the sandbox, never be declared safe statically.
+    assert rec["verdict"] == "UNKNOWN"
+    assert rec["needs_sandbox"] is True
 
 
 def test_static_config_not_reachable(tmp_path):
@@ -303,11 +306,34 @@ def test_alternate_advisory_keys(tmp_path):
     assert rec["dep"]["name"] == "pyyaml"
 
 
-def test_transitive_unreferenced_capped_confidence(tmp_path):
+def test_transitive_unreferenced_gates_sandbox(tmp_path):
     repo = tmp_path / "repo"
     _require(repo)
     _write(os.path.join(repo, "main.py"), "print('hi')\n")
     rec, _ = _run(repo, tmp_path)
-    assert rec["verdict"] == "NOT_REACHABLE"
-    assert rec["confidence"] == "medium"
+    assert rec["verdict"] == "UNKNOWN"
+    assert rec["needs_sandbox"] is True
     assert "transitive" in rec["rationale"]
+
+
+def test_wildcard_spec_is_not_a_pin(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo, body="pyyaml==3.*\n")
+    rec, _ = _run(repo, tmp_path)
+    assert rec["verdict"] == "UNKNOWN"
+    assert rec["needs_sandbox"] is True
+
+
+def test_post_release_sorts_between():
+    assert versions.version_in_range("1.0.post1", ">= 1.0.1") is False
+    assert versions.version_in_range("1.0.post1", ">= 1.0") is True
+
+
+def test_dockerignore_blocks_secrets(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    gen_context.generate(str(repo), str(repo))
+    di = open(os.path.join(str(repo), ".dockerignore"), encoding="utf-8").read()
+    for pattern in (".env", "*.pem", "id_rsa*", ".aws", ".ssh"):
+        assert pattern in di

@@ -115,7 +115,10 @@ def generate(repo_path, out_dir=None, force=False):
 
     _write_file(os.path.join(out_dir, "Dockerfile"), "\n".join(lines) + "\n", force)
     _write_file(os.path.join(out_dir, ".dockerignore"),
-                "\n".join((".git", "venv", ".venv", "__pycache__", "node_modules",
+                "\n".join((".git", ".env", ".env.*", "*.pem", "*.key", "*.p12",
+                           "*.pfx", "id_rsa*", ".aws", ".ssh", ".npmrc",
+                           ".pypirc", "credentials*", "*.credentials",
+                           "venv", ".venv", "__pycache__", "node_modules",
                            "data", "output")) + "\n", force)
 
     return {

@@ -15,8 +15,11 @@ from functools import total_ordering
 _NUM_RE = re.compile(r"(\d+|[a-zA-Z]+)")
 
 # Pre-release tokens ranked: a smaller rank sorts older.
+# PEP 440 order: dev < alpha < beta < rc < final < post.
+# The final release itself sits at rank 4 (see _cmp), post at 5.
 _PRE_RANK = {"dev": 0, "a": 1, "alpha": 1, "b": 2, "beta": 2, "pre": 2,
-             "preview": 2, "c": 3, "rc": 3}
+             "preview": 2, "c": 3, "rc": 3, "post": 5, "rev": 5, "r": 5}
+_FINAL_RANK = 4
 
 
 def _parse(text):
@@ -77,13 +80,11 @@ def _cmp(a, b):
     c = _mixed_compare(_strip_zeros(a.nums), _strip_zeros(b.nums))
     if c:
         return c
-    if a.pre == b.pre:
-        return _mixed_compare(a.pre_nums, b.pre_nums)
-    if a.pre is None:
-        return 1
-    if b.pre is None:
-        return -1
-    return (a.pre > b.pre) - (a.pre < b.pre)
+    ra = _FINAL_RANK if a.pre is None else a.pre
+    rb = _FINAL_RANK if b.pre is None else b.pre
+    if ra != rb:
+        return (ra > rb) - (ra < rb)
+    return _mixed_compare(a.pre_nums, b.pre_nums)
 
 
 def parse_version(text):

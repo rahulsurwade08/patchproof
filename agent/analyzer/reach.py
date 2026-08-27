@@ -347,16 +347,17 @@ def reach(repo_path, advisory, out_dir):
 
     if not candidate:
         # The repo pins the package but its own source never references it.
-        # Transitive dependency-internal usage is NOT traced by this heuristic
-        # stage (see disclaimer), so confidence is capped at medium and the
-        # sandbox remains available for re-confirmation.
+        # Absence of a direct repo call is insufficient to disable sandboxing:
+        # an installed dependency can invoke the vulnerable symbol internally
+        # on application-controlled input. Fail open to the sandbox.
         record.update({
-            "verdict": "NOT_REACHABLE",
-            "confidence": "medium",
+            "verdict": "UNKNOWN",
+            "confidence": "low",
             "rationale": (f"pinned {pkg}=={dep['version']} not referenced in repo "
-                          f"source; no call site of the vulnerable symbol in repo "
-                          f"code (transitive dependency usage not traced)"),
-            "needs_sandbox": False,
+                          f"source; transitive dependency-internal usage is not "
+                          f"traced by static analysis — sandbox confirmation "
+                          f"required"),
+            "needs_sandbox": True,
         })
         _write(record, out_dir)
         return record

@@ -29,9 +29,9 @@ def _normalize(name):
 def _entry(kind, path, rel, spec):
     spec = (spec or "").strip()
     exact = None
-    m = re.match(r"^==\s*(\d[0-9A-Za-z.\-*]*)$", spec)
+    m = re.match(r"^==\s*(\d[0-9A-Za-z.\-]*)$", spec)
     if m:
-        exact = m.group(1).rstrip("*")
+        exact = m.group(1)
     elif kind in ("pyproject.toml", "package.json") and re.match(r"^\d[0-9A-Za-z.\-]*$", spec):
         exact = spec
     return {"manifest": kind, "path": rel, "version": exact,
@@ -123,8 +123,4 @@ def scan_repo(repo_path):
 
 
 def find_package(found, name):
-    entries = found.get(_normalize(name))
-    if not entries:
-        return None
-    pinned = [e for e in entries if e["pinned"]]
-    return pinned or entries
+    return found.get(_normalize(name))

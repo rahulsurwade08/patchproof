@@ -38,12 +38,15 @@ python agent/analyzer/gen_context.py <repo-path> [--out <dir>]
 ## Verdict semantics (honesty rules)
 
 - **NOT_REACHABLE** (high conf): package not pinned, pinned outside the
-  affected range, never referenced in source, or only reachable through
-  static/checked-in inputs (e.g. a config file parsed at startup). This is the
-  headline noise-killer — it dismisses the alert WITHOUT spending sandbox time.
+  affected range, or the vulnerable symbol only reachable through
+  static/checked-in file inputs (e.g. a config file parsed at startup). This
+  is the headline noise-killer — it dismisses the alert WITHOUT spending
+  sandbox time.
 - **REACHABLE**: vulnerable function is called on attacker-controlled input
   (HTTP request, stdin, argv). Gate sandbox time for the reproducer.
-- **UNKNOWN**: input source is ambiguous, or no package/symbol was derivable.
+- **UNKNOWN**: input source is ambiguous, the package is declared without an
+  exact pin, or the pinned package is never referenced in repo source
+  (transitive dependency-internal usage cannot be ruled out statically).
   **Never assume safe.** Gate sandbox time.
 - If neither OSV nor CVE.org yields usable data, emit an honest `UNKNOWN` —
   never a scenario match, never an invented symbol.
