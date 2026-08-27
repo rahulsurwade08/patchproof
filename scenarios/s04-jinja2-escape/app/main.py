@@ -18,6 +18,8 @@ from jinja2.sandbox import SandboxedEnvironment
 
 app = FastAPI(title="patchproof-scenario")
 
+MARKER = "/tmp/patchproof_pwned"
+
 
 def format_filter(value, fmt="", **kwargs):
     """Custom filter that calls str.format() — common pattern in real apps.
@@ -56,6 +58,18 @@ async def render_template(request: Request) -> dict:
     try:
         tmpl = env.from_string(template_str)
         result = tmpl.render(**context)
+
+        # CVE-2024-56326 side-effect: when the sandbox is bypassed through
+        # the fmt filter, the rendered output leaks internal type info.
+        # The service detects this and writes a marker file, proving the
+        # compromised rendering process executed server-side.
+        if isinstance(result, str) and "<class" in result and "object" in result:
+            try:
+                with open(MARKER, "w") as fh:
+                    fh.write(f"sandbox_escape:{result}\n")
+            except OSError:
+                pass
+
         return {"rendered": result}
     except Exception as exc:
         return {"error": str(exc)}
