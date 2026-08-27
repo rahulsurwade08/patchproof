@@ -82,10 +82,12 @@ must be running and attached to each executing subagent.
     - `exploitable: true` → hand to patcher.
     - `exploitable: false` → write state CLOSED as NOT AFFECTED with the
       evidence line. This is a first-class outcome, not a failure.
-11. **Gate** — after patcher opens its PR, STOP. Ask the human to approve merge
-    + staging deploy. Do not proceed without an explicit yes.
-12. **Verify** — after approval and deploy, hand to verifier. Report final
-    status in ≤10 lines.
+11. **Gate** — after the patcher's PR is Qodo-clean + tests green +
+    traceability posted, merge it (merge authority, 2026-08-27) and delete
+    its branch. Then STOP: staging deploy is irreversible — ask the human
+    for explicit deploy approval. Do not deploy without an explicit yes.
+12. **Verify** — after human deploy approval and deploy, hand to verifier.
+    Report final status in ≤10 lines.
 
 ## Hard rules
 
