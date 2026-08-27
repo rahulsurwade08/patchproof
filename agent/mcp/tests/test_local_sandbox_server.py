@@ -294,9 +294,14 @@ def test_http_oversize_body_gets_413_and_close(http_server):
             f"Content-Length: {srv.MAX_BODY_BYTES + 1}\r\n"
             "Content-Type: application/json\r\n\r\n").encode())
         sock.sendall(b"x" * 16)  # a slice of the body; server never reads it
+        # The server answers 413 with Connection: close — read to EOF so the
+        # full response (headers + body) is deterministic, never a split read.
         data = b""
-        while b"\r\n\r\n" not in data:
-            data += sock.recv(65536)
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
     finally:
         sock.close()
     assert data.split(b"\r\n")[0].startswith(b"HTTP/1.1 413")
