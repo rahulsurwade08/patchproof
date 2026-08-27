@@ -21,30 +21,49 @@ investigation. You coordinate; subagents execute.
    and version range (`github` MCP for repo facts, `cve-meta.json` for local).
 2. **Resume** — if `scenarios/<id>/state.json` exists, resume from it instead
    of starting over. Never re-read raw logs.
-3. **Fan out** — spawn one reproducer subagent per matched scenario (parallel).
-   Give each: scenario path, `TARGET_URL`, marker path, and an explicit
-   sandbox session label (use the scenario id). All executing subagents
-   (reproducer, patcher, verifier) must use that same label for every
-   `local-sandbox` tool call so they share one container. The `local-sandbox`
-   server (`node agent/mcp/local-sandbox-server/index.mjs &`) must be running
-   and attached to each executing subagent.
-4. **Merge** — collect verdict summaries (≤15 lines each). Batch into ONE merge
-   step; do not round-trip per agent.
-5. **Judge** — for each verdict, spawn the judge subagent
+3. **Build** — for each matched scenario, call `sandbox_build` with:
+   - `tag`: `patchproof-<scenario-id>` (e.g. `patchproof-s06-dvpwa-sqli`)
+   - `context_path`: absolute host path to the scenario app dir
+     (e.g. `/home/rahuls/Projects/patchproof/scenarios/<id>/app`)
+4. **Inject PoC** — call `sandbox_write` to copy `poc.py` into the container:
+   - `session`: scenario id
+   - `image`: the tag from step 3 (e.g. `patchproof-s06-dvpwa-sqli`)
+   - `path`: `/srv/poc.py`
+   - `content`: contents of `scenarios/<id>/poc.py`
+5. **Run** — call `sandbox_exec` with:
+   - `session`: scenario id
+   - `image`: **MUST include the image tag from step 3** (without this, the
+     default `python:3.11-slim` image is used, which lacks the scenario deps)
+   - `command`: start service + run PoC:
+     `cd /srv && uvicorn main:app --host 0.0.0.0 --port 8000 & SPID=$!; sleep 3; python /srv/poc.py; RET=$?; kill $SPID; exit $RET`
+   - `timeout_secs`: 60
+6. **Read verdict** — call `sandbox_read` with session + path `/srv/verdict.json`.
+7. **Report** — summarize the verdict: CVE, exploitable true/false, evidence.
+8. **Cleanup** — call `sandbox_stop` with the session label.
+
+**Critical**: every `sandbox_exec` and `sandbox_write` call **must** include the
+`image` parameter matching the `sandbox_build` tag. The MCP server's default
+image (`python:3.11-slim`) does not contain scenario dependencies — omitting
+`image` silently creates an empty container.
+
+The `local-sandbox` server (`node agent/mcp/local-sandbox-server/index.mjs &`)
+must be running and attached to each executing subagent.
+
+9. **Judge** — for each verdict, spawn the judge subagent
    (`agent/prompts/judge.md`) to review evidence quality and consistency.
    It writes `assessment.json` and never changes the verdict. If it disagrees
    or reports low confidence AND attempts remain (<3), re-run the reproducer
    ONCE, then re-run the judge against the new verdict — the fresh assessment
    overwrites the old one, and you route on the LATEST machine verdict while
    preserving the total cap of 3 attempts.
-6. **Route** —
-   - `exploitable: true` → hand to patcher.
-   - `exploitable: false` → write state CLOSED as NOT AFFECTED with the
-     evidence line. This is a first-class outcome, not a failure.
-7. **Gate** — after patcher opens its PR, STOP. Ask the human to approve merge
-   + staging deploy. Do not proceed without an explicit yes.
-8. **Verify** — after approval and deploy, hand to verifier. Report final
-   status in ≤10 lines.
+10. **Route** —
+    - `exploitable: true` → hand to patcher.
+    - `exploitable: false` → write state CLOSED as NOT AFFECTED with the
+      evidence line. This is a first-class outcome, not a failure.
+11. **Gate** — after patcher opens its PR, STOP. Ask the human to approve merge
+    + staging deploy. Do not proceed without an explicit yes.
+12. **Verify** — after approval and deploy, hand to verifier. Report final
+    status in ≤10 lines.
 
 ## Hard rules
 
@@ -52,3 +71,6 @@ investigation. You coordinate; subagents execute.
 - One session per CVE investigation. State lives in `state.json`, not memory.
 - Never paste logs or tool dumps into your replies — summarize.
 - The approval gate is never skippable, regardless of confidence.
+- **Always pass the `image` parameter** on `sandbox_exec` and `sandbox_write`
+  calls matching the `sandbox_build` tag. Omitting it silently uses the default
+  `python:3.11-slim` image which lacks scenario dependencies.

@@ -61,6 +61,8 @@ Maintained list — append a lesson whenever a real mistake is identified.
 - **Cross-check new guidance against existing hard rules before writing it** — docs once endorsed a token-printing command that violated our own no-secrets-in-session rule; Qodo flagged it. Security rules always win over convenience features.
 - **Verify claims of "done/clean" against primary sources**, not memory: grep for placeholders/stale references after doc surgery, re-read files after rebases, and confirm merged content on origin/main.
 - **Test gates that run live-service tests must manage the server lifecycle** — starting uvicorn, polling health, and tearing down. Never assume the server is already running when invoking pytest against a live endpoint. Qodo caught this when `test_gate.sh` ran pytest without starting uvicorn first.
+- **MCP sandbox_exec/sandbox_write require the `image` parameter** for built scenario containers. Omitting it uses the default `python:3.11-slim` which lacks scenario dependencies. Every orchestrator/reproducer prompt must instruct agents to always pass `image` matching the `sandbox_build` tag. This was discovered during end-to-end pipeline testing when uvicorn was "not found" in the container.
+- **Free OpenRouter models with privacy guardrails can't run PatchProof** — `minimax-m3:free`, `glm-5.2:free`, and `nemotron-3.5-lightning:free` all block tool-calling requests. `openrouter/free` (the auto-router) works because it selects models that don't have privacy restrictions.
 
 ## Demo & hackathon compliance
 
