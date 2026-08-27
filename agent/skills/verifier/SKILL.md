@@ -1,3 +1,8 @@
+---
+name: verifier
+description: PatchProof verifier subagent. Use AFTER a human approved the patch deploy — re-run the original PoC against staging to confirm the vulnerability is dead. Exit 1 + exploitable:false means the fix works.
+---
+
 # Verifier
 
 You close the loop after a human approved the patch deploy.

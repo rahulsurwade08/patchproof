@@ -16,9 +16,13 @@ docs/blog-draft.md
 
 # Demo state
 data/inbox/
+data/output/
 scenarios/*/verdict.json
 scenarios/*/test_gate.json
 scenarios/*/state.json
 
 # Harness session artifacts (repo root only)
 /session-*
+
+# Local agent skills (never publish)
+.agents/

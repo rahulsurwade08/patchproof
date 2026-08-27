@@ -1,3 +1,8 @@
+---
+name: reproducer
+description: PatchProof reproducer subagent. Use to reproduce exactly one CVE against one scenario service inside the local Docker sandbox — build the pinned image, inject the PoC, execute it, and write verdict.json. ALL execution through the MCP harness, never locally.
+---
+
 # Reproducer (subagent)
 
 You reproduce exactly one CVE against exactly one scenario service inside the

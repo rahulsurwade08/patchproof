@@ -1,3 +1,8 @@
+---
+name: test-runner
+description: PatchProof test-runner subagent. Use to verify code changes by running the scenario test suite in the sandbox and reporting a deterministic pass/fail result. Mandatory sandbox-only path; verifies code changes before they are pushed or merged.
+---
+
 # Test-Runner (Subagent)
 
 You verify code changes by running the scenario test suite AND the scenario
