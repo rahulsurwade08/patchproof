@@ -18,6 +18,9 @@ def _write(path, content):
         fh.write(content)
 
 
+_NODE_LISTENER = ("const http = require('http');\n"
+                  "http.createServer(() => {}).listen(3000, '127.0.0.1');\n")
+
 _SELF_SERVING_APP = (
     "import uvicorn\n"
     "app = 'placeholder'\n"
@@ -256,7 +259,7 @@ def test_gen_context_node_entry_uses_node(tmp_path):
     repo = tmp_path / "app"
     _write(os.path.join(repo, "package.json"),
            json.dumps({"dependencies": {"yaml": "1.10.0"}}))
-    _write(os.path.join(repo, "server.js"), "console.log('hi')\n")
+    _write(os.path.join(repo, "server.js"), _NODE_LISTENER)
     result = gen_context.generate(str(repo), str(repo))
     assert result["base_image"] == "node:20-slim"
     dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
@@ -269,7 +272,7 @@ def test_gen_context_npm_ci_with_lockfile(tmp_path):
     _write(os.path.join(repo, "package.json"),
            json.dumps({"dependencies": {"yaml": "1.10.0"}}))
     _write(os.path.join(repo, "package-lock.json"), "{}")
-    _write(os.path.join(repo, "server.js"), "console.log('hi')\n")
+    _write(os.path.join(repo, "server.js"), _NODE_LISTENER)
     gen_context.generate(str(repo), str(repo))
     dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
     assert "npm ci" in dockerfile and "package-lock.json" in dockerfile
@@ -406,7 +409,7 @@ def test_gen_context_nested_npm_project(tmp_path):
     _write(os.path.join(repo, "frontend", "package.json"), json.dumps(
         {"dependencies": {"yaml": "1.10.0"}}))
     _write(os.path.join(repo, "frontend", "package-lock.json"), "{}")
-    _write(os.path.join(repo, "frontend", "server.js"), "console.log('hi')\n")
+    _write(os.path.join(repo, "frontend", "server.js"), _NODE_LISTENER)
     result = gen_context.generate(str(repo), str(repo))
     assert result["entry"] == os.path.join("frontend", "server.js")
     dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
@@ -433,7 +436,7 @@ def test_gen_context_quoting_survives_spaces(tmp_path):
     repo = tmp_path / "app"
     _write(os.path.join(repo, "front end", "package.json"), json.dumps(
         {"dependencies": {"yaml": "1.10.0"}}))
-    _write(os.path.join(repo, "front end", "server.js"), "console.log('hi')\n")
+    _write(os.path.join(repo, "front end", "server.js"), _NODE_LISTENER)
     gen_context.generate(str(repo), str(repo))
     dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
     assert 'COPY ["front end/package.json", "front end/package.json"]' in dockerfile
@@ -467,3 +470,176 @@ def test_gen_context_fails_without_entry(tmp_path):
     _write(os.path.join(repo, "lib.py"), "print('library only')\n")
     with pytest.raises(ValueError):
         gen_context.generate(str(repo), str(repo))
+
+
+def test_gen_context_rejects_console_only_node(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "package.json"), json.dumps(
+        {"dependencies": {"yaml": "1.10.0"}}))
+    _write(os.path.join(repo, "server.js"), "console.log('not a server')\n")
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
+
+
+def test_gen_context_installs_uvicorn_for_app_object(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo, body="fastapi==0.115.0\n")  # note: no uvicorn declared
+    _write(os.path.join(repo, "main.py"),
+           "from fastapi import FastAPI\napp = FastAPI()\n")
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["start_command"][0] == "uvicorn"
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    assert "pip install" in dockerfile and "uvicorn" in dockerfile
+
+
+def test_conflicting_static_and_network_evidence_gates_sandbox(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "handler.py"), (
+        "import yaml\n"
+        "async def h(request):\n"
+        "    cfg = yaml.load(open('./dev.yaml'))\n"
+        "    return yaml.load(await request.json())\n"))
+    _write(os.path.join(repo, "dev.yaml"), "key: value\n")
+    rec, _ = _run(repo, tmp_path)
+    # static literal on one call line + network provenance in the same
+    # context -> conflicting evidence must NOT produce a safe verdict
+    verdicts = [c["input_source"] for c in rec.get("call_sites_scanned", [])]
+    assert "NOT_REACHABLE" not in verdicts or rec["verdict"] != "NOT_REACHABLE" \
+        or all(v != "REACHABLE" for v in verdicts)
+    assert rec["verdict"] == "REACHABLE" or rec["verdict"] == "UNKNOWN"
+    assert rec["needs_sandbox"] is True
+
+
+def test_checked_in_filename_with_indicator_word_not_reachable(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"),
+           "import yaml\ncfg = yaml.load(open('body.yaml'))\n")
+    _write(os.path.join(repo, "body.yaml"), "k: v\n")
+    rec, _ = _run(repo, tmp_path)
+    assert rec["verdict"] == "NOT_REACHABLE"
+    assert rec["needs_sandbox"] is False
+
+
+def test_relative_repo_path_does_not_crash(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"),
+           "import yaml\ncfg = yaml.load(open('dev.yaml'))\n")
+    _write(os.path.join(repo, "dev.yaml"), "k: v\n")
+    monkeypatch.chdir(tmp_path)
+    adv = _advisory(tmp_path)
+    rec = reach.reach("repo", reach._load_advisory(adv), str(tmp_path / "o"))
+    assert rec["verdict"] == "NOT_REACHABLE"
+
+
+def test_cmd_json_escapes_sensitive_entry_paths(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, 'we"ird', "main.py"), _SELF_SERVING_APP)
+    gen_context.generate(str(repo), str(repo))
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    cmd_line = next(l for l in dockerfile.splitlines() if l.startswith("CMD "))
+    import json as j
+    parsed = j.loads(cmd_line[4:])
+    assert parsed[0] == "python"
+
+
+def test_gen_context_rejects_node_constructor_without_listen(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "package.json"), json.dumps(
+        {"dependencies": {"express": "4.19.0"}}))
+    _write(os.path.join(repo, "server.js"),
+           "const http = require('http');\nhttp.createServer(() => {});\n")
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
+
+
+def test_multiline_static_call_not_reachable(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"), (
+        "import yaml\n"
+        "cfg = yaml.load(\n"
+        "    open('config.yaml'))\n"))
+    _write(os.path.join(repo, "config.yaml"), "k: v\n")
+    rec, _ = _run(repo, tmp_path)
+    assert rec["verdict"] == "NOT_REACHABLE"
+    assert rec["needs_sandbox"] is False
+
+
+def test_uvicorn_launcher_install_precedes_repo_deps(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo, body="fastapi==0.115.0\nuvicorn==0.29.0\n")
+    _write(os.path.join(repo, "main.py"),
+           "from fastapi import FastAPI\napp = FastAPI()\n")
+    gen_context.generate(str(repo), str(repo))
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    assert dockerfile.index("pip install --no-cache-dir \"uvicorn") < \
+        dockerfile.index("pip install --no-cache-dir -r")
+
+
+def test_gen_context_rejects_all_interface_node_bind(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "package.json"), json.dumps(
+        {"dependencies": {"express": "4.19.0"}}))
+    _write(os.path.join(repo, "server.js"),
+           "http.createServer(() => {}).listen(3000);\n")
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
+
+
+def test_gen_context_accepts_python_listener_loop(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), (
+        "import tornado.ioloop\n"
+        "import tornado.web\n"
+        "app = tornado.web.Application([])\n"
+        "app.listen(8888, '127.0.0.1')\n"
+        "tornado.ioloop.IOLoop.current().start()\n"))
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["start_command"] == ["python", "main.py"]
+
+
+def test_unrelated_literal_after_call_not_static(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"), (
+        "import yaml\n"
+        "def handle(data):\n"
+        "    cfg = yaml.load(data)\n"
+        "    other = yaml.safe_load(open('config.yaml'))\n"))
+    _write(os.path.join(repo, "config.yaml"), "k: v\n")
+    rec, _ = _run(repo, tmp_path)
+    # the checked-in literal is OUTSIDE the yaml.load(data) call span, and
+    # the call's provenance is unknown — must not be a false NOT_REACHABLE
+    site = next(c for c in rec["call_sites_scanned"] if "yaml.load(data)" in c["symbol"])
+    assert site["input_source"] != "NOT_REACHABLE"
+
+
+def test_gen_context_rejects_all_interface_python_bind(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), (
+        "import tornado.ioloop\nimport tornado.web\n"
+        "app = tornado.web.Application([])\n"
+        "app.listen(8888)\n"
+        "tornado.ioloop.IOLoop.current().start()\n"))
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
+
+
+def test_comment_bracket_does_not_extend_call_span(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"), (
+        "import yaml\n"
+        "def handle(data):\n"
+        "    cfg = yaml.load(data)  # (\n"
+        "    other = yaml.safe_load(open('config.yaml'))\n"))
+    _write(os.path.join(repo, "config.yaml"), "k: v\n")
+    rec, _ = _run(repo, tmp_path)
+    site = next(c for c in rec["call_sites_scanned"] if "yaml.load(data)" in c["symbol"])
+    assert site["input_source"] != "NOT_REACHABLE"

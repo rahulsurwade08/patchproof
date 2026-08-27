@@ -183,9 +183,66 @@ def _file_is_code(fname):
 _CONTEXT_WINDOW = 8
 
 
-def _collected_site(rel, lineno, line, context):
+def _call_span(lines, lineno, lang="py", max_lines=30):
+    """Return the vulnerable call's actual expression text: the call line
+    plus continuation lines until delimiters balance. String literals,
+    escapes, and COMMENTS (py #..., js //... and /*...*/) are skipped while
+    counting, so bracket characters in comments cannot extend the span."""
+    span = [lines[lineno - 1]]
+    state = {"quote": None, "block": False}
+
+    def net_depth(text, depth):
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if state["block"]:
+                if text[i:i + 2] == "*/":
+                    state["block"] = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if state["quote"]:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == state["quote"]:
+                    state["quote"] = None
+                i += 1
+                continue
+            if lang == "js" and text[i:i + 2] in ("//", "/*"):
+                if text[i:i + 2] == "/*":
+                    state["block"] = True
+                    i += 2
+                    continue
+                return depth  # // comment: rest of line ignored
+            if lang == "py" and ch == "#":
+                return depth  # comment: rest of line ignored
+            if ch in "'\"":
+                state["quote"] = ch
+                i += 1
+                continue
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            i += 1
+        return depth
+
+    depth = net_depth(span[0], 0)
+    if depth > 0:
+        for line in lines[lineno:lineno - 1 + max_lines]:
+            span.append(line)
+            depth = net_depth(line, depth)
+            if depth <= 0:
+                break
+    return "".join(span)
+
+
+def _collected_site(rel, lineno, line, context, call_span):
     return {"file": rel, "line": lineno, "symbol": line.strip()[:160],
-            "context": (context or line).strip()[:600]}
+            "context": (context or line).strip()[:600],
+            "call_span": (call_span or line).strip()[:800]}
 
 
 def _find_call_sites(repo_path, funcs, pkg):
@@ -213,10 +270,14 @@ def _find_call_sites(repo_path, funcs, pkg):
                 if low.lstrip().startswith(("def ", "async def ", "@app.", "@router.", "@bp.")):
                     context = line
                 window = "".join(lines[lineno:lineno + _CONTEXT_WINDOW])
+                # Continuation lines: a multiline call's own arguments live
+                # here, so checked-in literals on them count for the call.
+                lang = "js" if fname.endswith((".js", ".ts", ".jsx", ".tsx")) else "py"
+                span = _call_span(lines, lineno, lang)
                 if _is_direct_call(line, funcs, pkg):
-                    direct.append(_collected_site(rel, lineno, line, context + window))
+                    direct.append(_collected_site(rel, lineno, line, context + window, span))
                 elif pkg and _is_pkg_reference(line, pkg):
-                    pkg_sites.append(_collected_site(rel, lineno, line, context + window))
+                    pkg_sites.append(_collected_site(rel, lineno, line, context + window, span))
     return direct, pkg_sites
 
 
@@ -262,16 +323,27 @@ def _checked_in_file_literal(context, site_rel, repo_path):
 
 
 def _classify_site(site, repo_path):
-    """Classify a call site's input source using its context window.
+    """Classify a call site's input source.
 
-    Returns REACHABLE / NOT_REACHABLE / UNKNOWN. Checked-in file evidence
-    wins over generic indicator substrings; network provenance must match a
-    concrete source expression; everything else stays UNKNOWN.
+    Returns REACHABLE / NOT_REACHABLE / UNKNOWN. Static evidence is tied to
+    the vulnerable call's own line (a quoted checked-in file literal in the
+    call arguments); network provenance matches concrete source expressions
+    anywhere in the context window. When both appear — or neither does — the
+    site is UNKNOWN: conflicting or missing evidence never disables
+    sandboxing.
     """
-    context = site.get("context") or site["symbol"]
-    if _checked_in_file_literal(context, site["file"], repo_path):
+    call_line = site["symbol"]
+    context = site.get("context") or call_line
+    # Static evidence covers the vulnerable call's own expression span
+    # (balanced delimiters), NOT the whole window.
+    has_static = _checked_in_file_literal(
+        site.get("call_span") or call_line, site["file"], repo_path)
+    has_network = any(rx.search(context) for rx in _NETWORK_RES)
+    if has_static and has_network:
+        return "UNKNOWN"
+    if has_static:
         return "NOT_REACHABLE"
-    if any(rx.search(context) for rx in _NETWORK_RES):
+    if has_network:
         return "REACHABLE"
     return "UNKNOWN"
 
@@ -337,6 +409,10 @@ def _select_dep(repo_path, packages):
 
 
 def reach(repo_path, advisory, out_dir):
+    # Normalize once: realpath comparisons inside the trace require an
+    # absolute root, and relative CLI args (".", "sub/../repo") must not
+    # crash the containment check.
+    repo_path = os.path.realpath(os.path.abspath(repo_path))
     packages = advisory.get("packages") or []
     record = {
         "cve_id": advisory["cve_id"],

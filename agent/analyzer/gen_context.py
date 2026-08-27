@@ -91,10 +91,25 @@ def _install_block(manifest_name, manifest_rel, ctx_root):
 _COPY_IGNORE = (".git", "venv", ".venv", "__pycache__", "node_modules",
                 "data", "output")
 
-# Evidence the entry starts its own server loop (safe to exec directly).
-_SELF_SERVING_RE = re.compile(
-    r"uvicorn\.run\(|run_app\(|app\.run\(|\.listen\(|serve_forever\(|"
-    r"create_server\(")
+# Evidence the entry starts its own server loop (safe to exec directly) —
+# Python and Node alike.
+# Server-loop evidence. Python: dedicated server-runner calls, or an explicit
+# .listen() paired with a serving loop (serve_forever/IOLoop/start) — a bare
+# listen() constructor alone doesn't prove the process serves. Node: ONLY an
+# explicit .listen() call bound to localhost proves serving — all-interface
+# binds violate the sandbox's localhost-only contract, and constructors
+# without listen exit immediately.
+_PY_SELF_SERVING_RE = re.compile(
+    r"uvicorn\.run\(|run_app\(|app\.run\(|serve_forever\(|create_server\(|"
+    r"make_server\(")
+_PY_LISTEN_RE = re.compile(r"\.listen\(")
+_PY_LISTEN_LOCAL_RE = re.compile(
+    r"\.listen\(\s*(?:\d+|['\"][\w.]+['\"])\s*,\s*['\"]"
+    r"(?:127\.0\.0\.1|localhost|::1)['\"]")
+_PY_LOOP_RE = re.compile(r"serve_forever\(|IOLoop|run_forever\(|\.start\(")
+_NODE_LISTEN_RE = re.compile(
+    r"\.listen\(\s*(?:\d+|['\"][\w.]+['\"])\s*,\s*['\"]"
+    r"(?:127\.0\.0\.1|localhost|::1)['\"]")
 # Evidence the entry exposes an ASGI/WSGI application object (needs a server
 # launcher — `python entry.py` would define the app and exit).
 _APP_OBJECT_RE = re.compile(
@@ -109,30 +124,57 @@ def _derive_start_command(entry, repo_path):
     A bare `[python, entry]` only works when the entry starts its own server
     loop; an entry that merely defines an ASGI/WSGI app object exits without
     serving, so it gets a uvicorn command; anything else is a hard failure
-    rather than a start command we cannot prove works.
+    rather than a start command we cannot prove works. Node entries must show
+    a listener/server loop too — console-only scripts exit immediately.
     """
     runner, ext = ("python", ".py") if entry.endswith(".py") else ("node", ".js")
-    if runner == "node":
-        # Node servers listen directly; no module indirection to resolve.
-        return [runner, entry]
     try:
         with open(os.path.join(repo_path, entry), encoding="utf-8",
                   errors="replace") as fh:
             text = fh.read()
     except OSError:
         text = ""
-    if _SELF_SERVING_RE.search(text):
-        return [runner, entry]
-    m = _APP_OBJECT_RE.search(text)
-    if m:
-        module = entry[:-len(ext)].replace(os.sep, ".").replace("/", ".")
-        module = re.sub(r"\.__init__$", "", module)
-        return ["uvicorn", f"{module}:{m.group(1)}",
-                "--host", "127.0.0.1", "--port", "8000"]
-    raise ValueError(
-        f"cannot prove a serving command for {entry}: it neither starts a "
-        f"server loop nor exposes a recognized ASGI/WSGI app object; supply "
-        f"the startup command explicitly instead of a start that exits")
+    if runner == "python":
+        if _PY_LISTEN_RE.search(text):
+            # A .listen() must bind loopback explicitly (tornado-style
+            # binds default to all interfaces); runners like uvicorn.run/
+            # run_app/serve_forever default to 127.0.0.1 safely.
+            self_serving = (_PY_LISTEN_LOCAL_RE.search(text)
+                            and _PY_LOOP_RE.search(text))
+        else:
+            self_serving = _PY_SELF_SERVING_RE.search(text)
+    else:
+        self_serving = _NODE_LISTEN_RE.search(text)
+    if not self_serving:
+        if runner == "python" and _PY_LISTEN_RE.search(text) and \
+                not _PY_LISTEN_LOCAL_RE.search(text):
+            raise ValueError(
+                f"cannot prove a safe serving command for {entry}: a "
+                f".listen() call exists but does not bind 127.0.0.1/"
+                f"localhost — sandbox services must bind loopback only; "
+                f"fix the bind or supply the startup command explicitly")
+        if runner == "node":
+            if ".listen(" in text:
+                raise ValueError(
+                    f"cannot prove a safe serving command for {entry}: a "
+                    f".listen() call exists but does not bind 127.0.0.1/"
+                    f"localhost — sandbox services must bind loopback only; "
+                    f"fix the bind or supply the startup command explicitly")
+            raise ValueError(
+                f"cannot prove a serving command for {entry}: the script "
+                f"shows no localhost-bound listener (listen(3000, "
+                f"'127.0.0.1')); supply the startup command explicitly")
+        m = _APP_OBJECT_RE.search(text)
+        if m:
+            module = entry[:-len(ext)].replace(os.sep, ".").replace("/", ".")
+            module = re.sub(r"\.__init__$", "", module)
+            return ["uvicorn", f"{module}:{m.group(1)}",
+                    "--host", "127.0.0.1", "--port", "8000"]
+        raise ValueError(
+            f"cannot prove a serving command for {entry}: it neither starts a "
+            f"server loop nor exposes a recognized ASGI/WSGI app object; supply "
+            f"the startup command explicitly instead of a start that exits")
+    return [runner, entry]
 
 
 def _write_file(path, content, force):
@@ -175,8 +217,15 @@ def generate(repo_path, out_dir=None, force=False):
         copy_rest = ["COPY . /srv"]
 
     lines = [f"FROM {base}", "WORKDIR /srv"]
+    if start_command[0] == "uvicorn":
+        # App-object derivation emits a uvicorn launch, but the repo's own
+        # requirements may not include it. Install BEFORE the repo deps so a
+        # pinned uvicorn (uvicorn==0.29.0) re-asserts itself during
+        # `pip install -r requirements.txt` and the vulnerable environment
+        # stays intact; only a repo that never pins uvicorn keeps ours.
+        lines.append('RUN pip install --no-cache-dir "uvicorn>=0.30"')
     lines += install_lines + copy_rest
-    lines.append("CMD [" + ", ".join(f'"{p}"' for p in start_command) + "]")
+    lines.append(f"CMD {json.dumps(start_command)}")
 
     _write_file(os.path.join(out_dir, "Dockerfile"), "\n".join(lines) + "\n", force)
     _write_file(os.path.join(out_dir, ".dockerignore"),
