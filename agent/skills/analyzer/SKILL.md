@@ -59,8 +59,9 @@ python agent/analyzer/gen_context.py <repo-path> [--out <dir>]
 ```
 
 It derives a minimal `Dockerfile` + entry from the repo layout (fixes the
-dvpwa `context_path` gap). Confirm the generated entry point is the real app
-before building.
+dvpwa `context_path` gap) and **fails explicitly** when no runnable entry can
+be derived — it never emits a Dockerfile pointing at a phantom entry file.
+Confirm the generated entry point is the real app before building.
 
 ## Rules
 

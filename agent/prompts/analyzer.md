@@ -35,6 +35,11 @@ If the repo can't be built for the sandbox (missing `Dockerfile`, or only
 python agent/analyzer/gen_context.py <repo-path> [--out <dir>]
 ```
 
+It derives a minimal `Dockerfile` + entry from the repo layout and **fails
+explicitly** when no runnable entry can be derived — never emitting a
+Dockerfile that points at a phantom entry file. Confirm the generated entry
+point is the real app before building.
+
 ## Verdict semantics (honesty rules)
 
 - **NOT_REACHABLE** (high conf): package not pinned, pinned outside the

@@ -377,3 +377,26 @@ def test_dockerignore_blocks_secrets(tmp_path):
     di = open(os.path.join(str(repo), ".dockerignore"), encoding="utf-8").read()
     for pattern in (".env", "*.pem", "id_rsa*", ".aws", ".ssh"):
         assert pattern in di
+
+
+def test_gen_context_nested_npm_project(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "frontend", "package.json"), json.dumps(
+        {"dependencies": {"yaml": "1.10.0"}}))
+    _write(os.path.join(repo, "frontend", "package-lock.json"), "{}")
+    _write(os.path.join(repo, "frontend", "server.js"), "console.log('hi')\n")
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["entry"] == os.path.join("frontend", "server.js")
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    assert "COPY frontend/package.json frontend/package.json" in dockerfile
+    assert "COPY frontend/package-lock.json frontend/package-lock.json" in dockerfile
+    assert "RUN cd frontend && npm ci" in dockerfile
+    assert 'CMD ["node", "frontend/server.js"]' in dockerfile
+
+
+def test_gen_context_fails_without_entry(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "lib.py"), "print('library only')\n")
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))

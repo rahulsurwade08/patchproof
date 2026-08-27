@@ -12,6 +12,8 @@ Behavior:
     COPY sources never escape the context.
   - Existing `Dockerfile`/`.dockerignore` are never silently overwritten;
     pass ``--force`` to replace them explicitly.
+  - Raises ValueError when no runnable entry can be derived — a Dockerfile
+    referencing a nonexistent entry would start-fail in the sandbox.
 
 Never runs exploit code; this only generates build context.
 """
@@ -59,12 +61,18 @@ def _install_block(manifest_name, manifest_rel, ctx_root):
         return [f"COPY {manifest_rel} {manifest_rel}",
                 f"RUN pip install --no-cache-dir -r {manifest_rel}"]
     if manifest_name == "package.json":
+        manifest_dir = os.path.dirname(manifest_rel)
         lockfiles = [f for f in ("package-lock.json", "npm-shrinkwrap.json",
                                  "yarn.lock", "pnpm-lock.yaml")
-                     if os.path.isfile(os.path.join(ctx_root, f))]
+                     if os.path.isfile(os.path.join(ctx_root, manifest_dir, f))]
         lines = [f"COPY {manifest_rel} {manifest_rel}"]
-        lines += [f"COPY {f} {f}" for f in lockfiles]
-        lines.append("RUN npm ci --omit=dev" if lockfiles else "RUN npm install --omit=dev")
+        lines += [f"COPY {os.path.join(manifest_dir, f) if manifest_dir else f} {os.path.join(manifest_dir, f) if manifest_dir else f}"
+                  for f in lockfiles]
+        install = "npm ci --omit=dev" if lockfiles else "npm install --omit=dev"
+        # Manifest scanning is recursive: the Node project root is the
+        # manifest's directory, not necessarily the context root.
+        lines.append(f"RUN cd {manifest_dir} && {install}" if manifest_dir
+                     else f"RUN {install}")
         return lines
     if manifest_name == "pyproject.toml":
         # A pyproject manifest alone is not installable: source first.
@@ -96,7 +104,12 @@ def generate(repo_path, out_dir=None, force=False):
                         ignore=shutil.ignore_patterns(*_COPY_IGNORE),
                         dirs_exist_ok=True)
 
-    entry = _find_entry(repo_path) or "main.py"
+    entry = _find_entry(repo_path)
+    if not entry:
+        raise ValueError(
+            f"no runnable application entry detected in {repo_path} "
+            f"(looked for {', '.join(_ENTRY_CANDIDATES)}); supply the entry "
+            f"explicitly instead of generating a Dockerfile that cannot start")
     manifest_name, manifest_path = _detect_manifest(repo_path)
     is_py = entry.endswith(".py")
     base = "python:3.11-slim" if is_py else "node:20-slim"
