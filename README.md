@@ -55,6 +55,10 @@ python poc.py                 # writes verdict.json, exits 0 if exploitable
 
 # 4. Or run everything through staging
 docker compose -f infra/docker-compose.yml up --build
+
+# 5. Launch the dashboard
+cd dashboard && pip install -r requirements.txt
+uvicorn app:app --port 8080   # open http://localhost:8080
 ```
 
 Full walkthrough including harness wiring and the approval flow:
@@ -66,10 +70,15 @@ Full walkthrough including harness wiring and the approval flow:
 plan.md                  project plan
 docs/                    architecture, demo walkthrough, decision log
 scenarios/               vulnerable demo services + their PoC contracts
+  _template/             scaffold for new scenarios
+  s01-pyyaml-rce/        PyYAML FullLoader RCE (CVE-2020-14343)
+  s04-jinja2-escape/     Jinja2 sandbox escape (CVE-2024-56326)
+  s05-negative-case/     same CVE, safe loader (NOT_AFFECTED)
+  s06-dvpwa-sqli/        DVPWA-style SQL injection pattern
 agent/                   TrueForge config, MCP servers, prompts, skills
 infra/                   local staging (docker compose)
-scripts/                 demo helpers
-dashboard/               thin live-status UI (built after the core loop)
+scripts/                 demo helpers, pre-push gate
+dashboard/               thin live-status UI (FastAPI + SSE)
 ```
 
 ## Sandbox options
@@ -135,3 +144,4 @@ Every pull request in this repo is reviewed by [Qodo](https://www.qodo.ai) from 
 - [#16 — Subagent final integration (gate + hook + docs)](https://github.com/rahulsurwade08/patchproof/pull/16): Qodo raised 6 findings — (1) gate bypasses local-sandbox MCP (docker build/run directly), (2) AGENTS.md omits new gate command, (3) architecture lists obsolete test_gate.sh, (4) PoC verdict fabricated from pytest instead of real execution, (5) push gate unenforced (no tracked hook), (6) failure diagnostics discarded. All fixed across 16b4b6e + 2ae8b6c: gate routes through MCP via JSON-RPC (sandbox_build + sandbox_exec), PoC resolved from cve-meta.json contract and executed separately via sandbox_exec with real verdict.json read, tracked scripts/install-hooks.sh for pre-push hook with enforcement chain documented in AGENTS.md, build/pytest/PoC diagnostics preserved on failure, gate script header references hook installer, AGENTS.md + architecture.md updated. Resolution: [summary](https://github.com/rahulsurwade08/patchproof/pull/16#issuecomment-5430022549).
 - [#17 — fix: MCP-only pre-push gate](https://github.com/rahulsurwade08/patchproof/pull/17): Qodo found no issues.
 - [#18 — feat(s04): add Jinja2 sandbox escape scenario (CVE-2024-56326)](https://github.com/rahulsurwade08/patchproof/pull/18): Qodo raised 7 findings — (1) [High] filter did `value.format()` directly — validated as correct CVE pattern (patcher must fix both dep + filter); (2) [High] PoC only proved type disclosure without marker file — added marker write to `/tmp/patchproof_pwned`; (3) [High] `test_gate.sh` ran pytest without starting uvicorn first — rewrote gate to start server + poll health; (4) [Medium] S04 added without S01/S05 acceptance gate — added enforcement to AGENTS.md; (5) [Medium] PoC had no 60s runtime cap — added `time.monotonic()` timeout; (6) [Medium] Dockerfile bound to `0.0.0.0` — changed to `127.0.0.1`; (7) [Medium] PoC didn't generate `assessment.json` — added judge review output.
+- [#19 — feat(dashboard + S06 DVPWA SQL injection)](https://github.com/rahulsurwade08/patchproof/pull/19): Qodo raised 18 findings across two review cycles. Cycle 1 (14 findings) — `test_gate.sh` `--network host` → `--network none`; `run_poc_local.sh` `docker cp` → `docker exec cat`; S04/S06 assessment types fixed (confidence: numeric, range_check: boolean); timing removed from verdict evidence; S06 DROP TABLE test → search exfiltration test; S04/S06 Dockerfiles bound to `0.0.0.0` for Compose; docker-compose ports bound to `127.0.0.1`; XSS via `esc()` HTML-escaping; EVENT_LOG populated via `_scan_events_from_files()`. Cycle 2 (6 new findings) — MCP server `ensureContainer` network comparison bug (Docker inspect returns empty list for `--network none`, fixed to treat empty as matching); orchestrator prompt missing `network: none` on sandbox calls + `0.0.0.0` → `127.0.0.1`; S04 stale marker (added pre-attempt clear + per-run nonce correlation); dashboard event dedup (moved `seen` set to module level). All 18 findings resolved.

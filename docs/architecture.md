@@ -42,6 +42,7 @@
 | Test-runner | `agent/prompts/test-runner.md` + `scripts/run_gate_before_push.sh` + `scripts/install-hooks.sh` | Subagent gate: `sandbox_build` image + `sandbox_exec` pytest + PoC → `test_gate.json`; tracked pre-push hook installer |
 | Scenario services | `scenarios/` | Deliberately vulnerable demo services with deterministic PoCs |
 | Staging target | `infra/docker-compose.yml` | Local deploy destination behind the approval gate |
+| Dashboard | `dashboard/app.py` + `dashboard/static/` | Thin live-status UI: scenario cards, live event log (SSE), approval queue; reads from `scenarios/*/` |
 
 ## State model (memory stays out of context)
 

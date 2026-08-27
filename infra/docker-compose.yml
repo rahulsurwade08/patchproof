@@ -2,9 +2,19 @@ services:
   staging-s01:
     build: ../scenarios/s01-pyyaml-rce/app
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
+
+  staging-s04:
+    build: ../scenarios/s04-jinja2-escape/app
+    ports:
+      - "127.0.0.1:8004:8000"
 
   staging-s05:
     build: ../scenarios/s05-negative-case/app
     ports:
-      - "8002:8000"
+      - "127.0.0.1:8002:8000"
+
+  staging-s06:
+    build: ../scenarios/s06-dvpwa-sqli/app
+    ports:
+      - "127.0.0.1:8006:8000"

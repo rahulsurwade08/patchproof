@@ -33,9 +33,10 @@ loop empirically:
 | Location | `~/Projects/patchproof` |
 | Team | Solo |
 | Scenario stack | Python only |
-| Core scenarios | S1 PyYAML RCE (CVE-2020-14343) · S5 negative case (same CVE, safe usage) · S4 Jinja2 sandbox escape (CVE-2024-56326) |
+| Core scenarios | S1 PyYAML RCE (CVE-2020-14343) · S5 negative case (same CVE, safe usage) · S4 Jinja2 sandbox escape (CVE-2024-56326) · S6 DVPWA SQL injection pattern |
 | Scenario S4 | S4 Jinja2 sandbox escape (CVE-2024-56326) — sandbox_escape via fmt filter, fully operational |
-| UI | Thin live dashboard, built after the core loop works; TrueForge chat UI is the fallback surface |
+| Scenario S6 | S6 DVPWA SQL injection (code-level vuln from anxolerd/dvpwa) — string formatting in SQL queries, auth bypass + DROP TABLE |
+| UI | Thin live dashboard — FastAPI + SSE + vanilla JS, reads scenario verdicts/events, approval panel |
 | Models | OpenRouter free models via BYOK; assume ~50 req/day ceiling until tested |
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
 | CVE legitimacy | Dual-source gate: CVE.org + OSV.dev must both confirm; fail closed (demo injections excepted, audited as `demo-bypass`) |

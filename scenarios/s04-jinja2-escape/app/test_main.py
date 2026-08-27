@@ -33,7 +33,9 @@ def test_render_sandbox_blocks_dunder():
 
 
 def test_sandbox_escape_via_fmt_filter():
-    """CVE-2024-56326: fmt filter calls .format() in native Python, leaking __class__."""
+    """CVE-2024-56326: fmt filter delegates .format() to sub-template rendered
+    inside SandboxedEnvironment; inspect_format_method in Jinja 3.1.2 fails
+    to block attribute access chains."""
     resp = client.post("/render", json={"template": '{{ "{0.__class__.__mro__}" | fmt("x") }}'})
     data = resp.json()
     rendered = data.get("rendered", "")

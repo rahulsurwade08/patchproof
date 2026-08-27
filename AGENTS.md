@@ -29,6 +29,10 @@ scripts/run_poc_local.sh <scenario-id>   # writes verdict.json, exits PoC code
 # Mandatory pre-push test gate (routes through local-sandbox MCP)
 bash scripts/run_gate_before_push.sh <scenario-id>  # sandbox_build + sandbox_exec via MCP
 scripts/install-hooks.sh                             # install git pre-push hook (run once per clone)
+
+# Dashboard (live-status UI)
+cd dashboard && pip install -r requirements.txt
+uvicorn app:app --port 8080
 ```
 
 ## Hard rules
@@ -57,6 +61,8 @@ Maintained list — append a lesson whenever a real mistake is identified.
 - **Cross-check new guidance against existing hard rules before writing it** — docs once endorsed a token-printing command that violated our own no-secrets-in-session rule; Qodo flagged it. Security rules always win over convenience features.
 - **Verify claims of "done/clean" against primary sources**, not memory: grep for placeholders/stale references after doc surgery, re-read files after rebases, and confirm merged content on origin/main.
 - **Test gates that run live-service tests must manage the server lifecycle** — starting uvicorn, polling health, and tearing down. Never assume the server is already running when invoking pytest against a live endpoint. Qodo caught this when `test_gate.sh` ran pytest without starting uvicorn first.
+- **MCP sandbox_exec/sandbox_write require the `image` parameter** for built scenario containers. Omitting it uses the default `python:3.11-slim` which lacks scenario dependencies. Every orchestrator/reproducer prompt must instruct agents to always pass `image` matching the `sandbox_build` tag. This was discovered during end-to-end pipeline testing when uvicorn was "not found" in the container.
+- **Free OpenRouter models with privacy guardrails can't run PatchProof** — `minimax-m3:free`, `glm-5.2:free`, and `nemotron-3.5-lightning:free` all block tool-calling requests. `openrouter/free` (the auto-router) works because it selects models that don't have privacy restrictions.
 
 ## Demo & hackathon compliance
 
@@ -97,6 +103,7 @@ The same applies to sibling sources of truth, updated **in the same change**:
 - `agent/` — subagent prompts (`agent/prompts/`: orchestrator, reproducer, judge, patcher, verifier, test-runner), local dual-source CVE feed MCP server (`agent/mcp/cve-feed-server/index.mjs`), local Docker sandbox MCP server (`agent/mcp/local-sandbox-server/index.mjs`, Streamable HTTP on `127.0.0.1:8081/mcp`)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
 - `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (S5 automation → dashboard; approval gate never)
+- `dashboard/` — thin live-status UI (FastAPI + SSE + vanilla JS), reads scenario verdicts/events
 
 ## Environment notes
 
