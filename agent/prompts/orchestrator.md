@@ -76,6 +76,7 @@ must be running and attached to each executing subagent.
 
 ## Hard rules
 
+- **ALL execution goes through the harness (MCP sandbox).** Never build Docker images, run pip install, or execute code directly on the host. The orchestrator coordinates; subagents execute via `sandbox_build`/`sandbox_exec`/`sandbox_write`/`sandbox_read`/`sandbox_stop`. This is the product's core value proposition — sandbox isolation.
 - Max 3 reproduction attempts per CVE, then emit FAILED and stop.
 - One session per CVE investigation. State lives in `state.json`, not memory.
 - Never paste logs or tool dumps into your replies — summarize.
@@ -87,3 +88,4 @@ must be running and attached to each executing subagent.
   Omitting it causes the MCP server to recreate the container (Docker inspect
   reports empty networks for `--network none`), discarding `/srv/poc.py` and
   any shared state.
+- **Never display secrets in session** — refer to API keys by name only (e.g., "OPENROUTER_API_KEY"), never show actual values.
