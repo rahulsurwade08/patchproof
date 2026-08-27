@@ -21,6 +21,7 @@ Never runs exploit code; this only generates build context.
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -90,6 +91,49 @@ def _install_block(manifest_name, manifest_rel, ctx_root):
 _COPY_IGNORE = (".git", "venv", ".venv", "__pycache__", "node_modules",
                 "data", "output")
 
+# Evidence the entry starts its own server loop (safe to exec directly).
+_SELF_SERVING_RE = re.compile(
+    r"uvicorn\.run\(|run_app\(|app\.run\(|\.listen\(|serve_forever\(|"
+    r"create_server\(")
+# Evidence the entry exposes an ASGI/WSGI application object (needs a server
+# launcher — `python entry.py` would define the app and exit).
+_APP_OBJECT_RE = re.compile(
+    r"^\s*(\w+)\s*=\s*("
+    r"FastAPI|Flask|Starlette|Quart|Sanic|Bottle|"
+    r"web\.Application|aiohttp\.web\.Application)\(", re.M)
+
+
+def _derive_start_command(entry, repo_path):
+    """Return a runtime command that actually SERVES the app, or raise.
+
+    A bare `[python, entry]` only works when the entry starts its own server
+    loop; an entry that merely defines an ASGI/WSGI app object exits without
+    serving, so it gets a uvicorn command; anything else is a hard failure
+    rather than a start command we cannot prove works.
+    """
+    runner, ext = ("python", ".py") if entry.endswith(".py") else ("node", ".js")
+    if runner == "node":
+        # Node servers listen directly; no module indirection to resolve.
+        return [runner, entry]
+    try:
+        with open(os.path.join(repo_path, entry), encoding="utf-8",
+                  errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        text = ""
+    if _SELF_SERVING_RE.search(text):
+        return [runner, entry]
+    m = _APP_OBJECT_RE.search(text)
+    if m:
+        module = entry[:-len(ext)].replace(os.sep, ".").replace("/", ".")
+        module = re.sub(r"\.__init__$", "", module)
+        return ["uvicorn", f"{module}:{m.group(1)}",
+                "--host", "127.0.0.1", "--port", "8000"]
+    raise ValueError(
+        f"cannot prove a serving command for {entry}: it neither starts a "
+        f"server loop nor exposes a recognized ASGI/WSGI app object; supply "
+        f"the startup command explicitly instead of a start that exits")
+
 
 def _write_file(path, content, force):
     if os.path.exists(path) and not force:
@@ -121,6 +165,7 @@ def generate(repo_path, out_dir=None, force=False):
     is_py = entry.endswith(".py")
     base = "python:3.11-slim" if is_py else "node:20-slim"
     runner = "python" if is_py else "node"
+    start_command = _derive_start_command(entry, repo_path)
 
     if manifest_path and manifest_name == "pyproject.toml":
         install_lines = ["COPY . /srv", "RUN pip install --no-cache-dir ."]
@@ -131,7 +176,7 @@ def generate(repo_path, out_dir=None, force=False):
 
     lines = [f"FROM {base}", "WORKDIR /srv"]
     lines += install_lines + copy_rest
-    lines.append("CMD [" + ", ".join(f'"{p}"' for p in (runner, entry)) + "]")
+    lines.append("CMD [" + ", ".join(f'"{p}"' for p in start_command) + "]")
 
     _write_file(os.path.join(out_dir, "Dockerfile"), "\n".join(lines) + "\n", force)
     _write_file(os.path.join(out_dir, ".dockerignore"),
@@ -144,7 +189,6 @@ def generate(repo_path, out_dir=None, force=False):
     # The sandbox start command overrides the Dockerfile CMD, so persist the
     # validated startup command for the reproducer to consume (it cannot
     # assume `uvicorn main:app` for arbitrary repos).
-    start_command = [runner, entry]
     context_record = {
         "dockerfile": os.path.join(out_dir, "Dockerfile"),
         "base_image": base,

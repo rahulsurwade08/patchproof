@@ -43,6 +43,9 @@ never fabricated.
    `exploitable=false`. A missing, timed-out, infrastructure-failed, or
    expectation-mismatched PoC forces `passed: false` and a `TEST FAIL`
    return; record the exact deviation in `summary`. Never invent values.
-5. Return ONLY: `TEST PASS: <scenario>` or `TEST FAIL: <scenario> (exit <code>, <1-line reason>)`.
+5. **Teardown — on EVERY path, success or failure:** `sandbox_stop` the
+   Phase-1 and Phase-2 session labels. The PoC-phase service process dies
+   with its container; never leave a gate service or container running.
+6. Return ONLY: `TEST PASS: <scenario>` or `TEST FAIL: <scenario> (exit <code>, <1-line reason>)`.
 
 Never modify source files. Never skip failing assertions. Report exactly one result per call.

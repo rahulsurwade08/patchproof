@@ -18,6 +18,13 @@ def _write(path, content):
         fh.write(content)
 
 
+_SELF_SERVING_APP = (
+    "import uvicorn\n"
+    "app = 'placeholder'\n"
+    "if __name__ == '__main__':\n"
+    "    uvicorn.run(app)\n")
+
+
 def _require(repo, body="pyyaml==3.13\n"):
     _write(os.path.join(repo, "requirements.txt"), body)
 
@@ -58,7 +65,7 @@ def test_package_not_pinned(tmp_path):
 def test_unpinned_spec_is_unknown_not_absent(tmp_path):
     repo = tmp_path / "repo"
     _require(repo, body="pyyaml>=3.0\n")
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     rec, _ = _run(repo, tmp_path)
     assert rec["verdict"] == "UNKNOWN"
     assert rec["needs_sandbox"] is True
@@ -181,7 +188,7 @@ def test_reachability_json_written(tmp_path):
 def test_direct_script_entry_runs(tmp_path):
     repo = tmp_path / "repo"
     _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     adv = _advisory(tmp_path)
     import subprocess
     import sys
@@ -215,7 +222,7 @@ def test_osv_interval_events_assembled(tmp_path):
 def test_gen_context_generates_dockerfile(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     assert os.path.isfile(os.path.join(str(repo), "Dockerfile"))
     assert result["entry"] == "main.py"
@@ -226,7 +233,7 @@ def test_gen_context_generates_dockerfile(tmp_path):
 def test_gen_context_refuses_overwrite(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     gen_context.generate(str(repo), str(repo))
     with pytest.raises(FileExistsError):
         gen_context.generate(str(repo), str(repo))
@@ -236,7 +243,7 @@ def test_gen_context_refuses_overwrite(tmp_path):
 def test_gen_context_out_is_complete_context(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     out = tmp_path / "ctx"
     result = gen_context.generate(str(repo), str(out))
     assert result["build_context"] == os.path.abspath(str(out))
@@ -324,7 +331,7 @@ def test_alternate_advisory_keys(tmp_path):
 def test_transitive_unreferenced_gates_sandbox(tmp_path):
     repo = tmp_path / "repo"
     _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     rec, _ = _run(repo, tmp_path)
     assert rec["verdict"] == "UNKNOWN"
     assert rec["needs_sandbox"] is True
@@ -374,7 +381,7 @@ def test_npm_identity_is_exact_not_pep503(tmp_path):
 def test_pep503_name_normalization(tmp_path):
     repo = tmp_path / "repo"
     _write(os.path.join(repo, "requirements.txt"), "zope.interface==5.4.1\n")
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     adv = tmp_path / "adv.json"
     _write(str(adv), json.dumps({
         "cve_id": "CVE-NORM", "package": "zope-interface",
@@ -387,7 +394,7 @@ def test_pep503_name_normalization(tmp_path):
 def test_dockerignore_blocks_secrets(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     gen_context.generate(str(repo), str(repo))
     di = open(os.path.join(str(repo), ".dockerignore"), encoding="utf-8").read()
     for pattern in (".env", "*.pem", "id_rsa*", ".aws", ".ssh"):
@@ -412,9 +419,9 @@ def test_gen_context_nested_npm_project(tmp_path):
 def test_gen_context_persists_start_command(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
-    assert result["start_command"] == ["python", "main.py"]
+    assert result["start_command"] == ["python", "main.py"]  # self-serving entry
     ctx_file = os.path.join(str(repo), "patchproof-build-context.json")
     assert os.path.isfile(ctx_file)
     saved = json.load(open(ctx_file, encoding="utf-8"))
@@ -432,6 +439,26 @@ def test_gen_context_quoting_survives_spaces(tmp_path):
     assert 'COPY ["front end/package.json", "front end/package.json"]' in dockerfile
     assert "RUN cd 'front end' && npm install" in dockerfile
     assert 'CMD ["node", "front end/server.js"]' in dockerfile
+
+
+def test_gen_context_app_object_gets_uvicorn(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "api", "main.py"),
+           "from fastapi import FastAPI\napp = FastAPI()\n")
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["start_command"] == ["uvicorn", "api.main:app",
+                                       "--host", "127.0.0.1", "--port", "8000"]
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    assert '"uvicorn"' in dockerfile
+
+
+def test_gen_context_fails_without_serving_command(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), "print('library only')\n")
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
 
 
 def test_gen_context_fails_without_entry(tmp_path):

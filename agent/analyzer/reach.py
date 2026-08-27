@@ -41,15 +41,10 @@ _SKIP_FILES = (".min.js",)
 # Candidate symbols derived from advisory prose, kept conservative.
 _FN_HINT_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]{1,40})\s*\(")
 
-# Input-source trace indicators (heuristic; the sandbox arbitrates).
-# NETWORK: evidence the site is fed from an HTTP/argv/stdin source.
-# STATIC evidence requires a quoted file-path literal with a static-data
-# extension whose file exists in the repo (checked in) — see
-# _checked_in_file_literal. Variable or function NAMES prove nothing.
-_NETWORK_INDICATORS = (
-    "@app.", "@router.", "@bp.", "@get(", "@post(", "@put(", "@patch(",
-    "@delete(", "request", "body", "sys.argv", "stdin", "environ", "input(",
-)
+# Input-source trace (heuristic; the sandbox arbitrates). NETWORK provenance
+# must match a concrete source expression (_NETWORK_RES); STATIC evidence
+# requires a quoted file-path literal whose file exists in the repo (see
+# _checked_in_file_literal). Variable or function NAMES prove nothing.
 
 _CODE_EXT = (".py", ".js", ".ts", ".jsx", ".tsx")
 _SERIALIZATION_CAP = 40
@@ -227,37 +222,57 @@ def _find_call_sites(repo_path, funcs, pkg):
 
 _STATIC_EXT_RE = re.compile(r"['\"]([^'\"]*?\.(?:yaml|yml|json))['\"]")
 
+# Concrete source expressions for attacker-controlled provenance — matched as
+# identifiers/attribute calls, never as bare substrings (a checked-in
+# filename like body.yaml must not read as request provenance).
+_NETWORK_RES = tuple(re.compile(p) for p in (
+    r"@app\.(get|post|put|patch|delete)\b", r"@router\.", r"@bp\.",
+    r"@\w*\.(get|post|put|patch|delete)\(",
+    r"\bawait\s+request\b", r"\brequest\.(body|json|form|args|data|files|"
+    r"values|stream|GET|POST|cookies|headers)\b",
+    r":\s*Request\b", r"\(Request\)",
+    r"\bdef\s+\w+\([^)]*\brequest\b[^)]*\)",
+    r"\(\s*request\s*[,)]",
+    r"\bsys\.argv\b", r"\bstdin\b", r"\bos\.environ\b", r"\bgetenv\(",
+    r"\binput\(",
+))
+
 
 def _checked_in_file_literal(context, site_rel, repo_path):
-    """True if the context quotes a file path with a static-data extension
-    AND that file exists in the repo (checked in), not just any substring."""
+    """True if the context quotes a relative file path with a static-data
+    extension AND exactly that file exists inside the repo.
+
+    Rejects absolute paths and parent traversal; resolves the quoted path
+    against the site's directory and the repo root — no basename guessing —
+    and requires the resolved file to stay inside the repository.
+    """
     m = _STATIC_EXT_RE.search(context)
     if not m:
         return False
     quoted = m.group(1)
-    site_dir = os.path.dirname(os.path.join(repo_path, site_rel)) or repo_path
-    candidates = []
-    name = os.path.basename(quoted)
+    if os.path.isabs(quoted) or ".." in quoted.split(os.sep) + quoted.split("/"):
+        return False
+    site_dir = os.path.dirname(os.path.join(repo_path, site_rel))
     for base in (site_dir, repo_path):
-        candidates.append(os.path.join(base, quoted))
-        candidates.append(os.path.join(base, name))
-    return any(os.path.isfile(c) for c in candidates)
+        resolved = os.path.realpath(os.path.join(base, quoted))
+        if os.path.isfile(resolved) and \
+                os.path.commonpath([resolved, repo_path]) == str(repo_path):
+            return True
+    return False
 
 
 def _classify_site(site, repo_path):
     """Classify a call site's input source using its context window.
 
-    Returns REACHABLE / NOT_REACHABLE / UNKNOWN. Names alone prove nothing:
-    NOT_REACHABLE requires a quoted file-path literal with a static-data
-    extension whose file actually exists in the repo (checked-in evidence);
-    unresolved provenance stays UNKNOWN.
+    Returns REACHABLE / NOT_REACHABLE / UNKNOWN. Checked-in file evidence
+    wins over generic indicator substrings; network provenance must match a
+    concrete source expression; everything else stays UNKNOWN.
     """
     context = site.get("context") or site["symbol"]
-    low = context.lower()
-    if any(ind in low for ind in _NETWORK_INDICATORS):
-        return "REACHABLE"
     if _checked_in_file_literal(context, site["file"], repo_path):
         return "NOT_REACHABLE"
+    if any(rx.search(context) for rx in _NETWORK_RES):
+        return "REACHABLE"
     return "UNKNOWN"
 
 
