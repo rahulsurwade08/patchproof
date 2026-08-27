@@ -117,9 +117,23 @@ def test_static_config_not_reachable(tmp_path):
     _write(os.path.join(repo, "config.py"), (
         "import yaml\n"
         "cfg = yaml.load(open('./dev.yaml', 'r'))\n"))
+    _write(os.path.join(repo, "dev.yaml"), "key: value\n")
     rec, _ = _run(repo, tmp_path)
     assert rec["verdict"] == "NOT_REACHABLE"
     assert rec["needs_sandbox"] is False
+
+
+def test_unchecked_file_literal_is_not_static_evidence(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "config.py"), (
+        "import yaml\n"
+        "cfg = yaml.load(open('./user-supplied.yaml', 'r'))\n"))
+    rec, _ = _run(repo, tmp_path)
+    # the quoted .yaml path does not exist in the repo — no checked-in
+    # evidence, so the site must NOT be classified safe
+    assert rec["verdict"] == "UNKNOWN"
+    assert rec["needs_sandbox"] is True
 
 
 def test_name_similarity_does_not_prove_static(tmp_path):
@@ -138,6 +152,7 @@ def test_mixed_unknown_and_static_gates_sandbox(tmp_path):
     repo = tmp_path / "repo"
     _require(repo)
     _write(os.path.join(repo, "startup.py"), "import yaml\nyaml.load(open('a.yaml'))\n")
+    _write(os.path.join(repo, "a.yaml"), "key: value\n")
     _write(os.path.join(repo, "util.py"), "import yaml\ndef f(v):\n    return yaml.load(v)\n")
     rec, _ = _run(repo, tmp_path)
     assert rec["verdict"] == "UNKNOWN"

@@ -33,6 +33,7 @@ else:
     from . import deps, versions
 
 OSV_QUERY_URL = "https://api.osv.dev/v1/vulns/"
+CVEORG_QUERY_URL = "https://cveawg.mitre.org/api/cve/"
 
 _SKIP_DIRS = deps._SKIP_PARTS + ("static", "assets", "dist", "build", "public", "vendor")
 _SKIP_FILES = (".min.js",)
@@ -42,13 +43,13 @@ _FN_HINT_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]{1,40})\s*\(")
 
 # Input-source trace indicators (heuristic; the sandbox arbitrates).
 # NETWORK: evidence the site is fed from an HTTP/argv/stdin source.
-# STATIC: evidence of a checked-in file literal being parsed. Variable or
-# function NAMES (config/settings/schema) prove nothing and are ignored.
+# STATIC evidence requires a quoted file-path literal with a static-data
+# extension whose file exists in the repo (checked in) — see
+# _checked_in_file_literal. Variable or function NAMES prove nothing.
 _NETWORK_INDICATORS = (
     "@app.", "@router.", "@bp.", "@get(", "@post(", "@put(", "@patch(",
     "@delete(", "request", "body", "sys.argv", "stdin", "environ", "input(",
 )
-_STATIC_INDICATORS = (".yaml", ".yml", ".json")
 
 _CODE_EXT = (".py", ".js", ".ts", ".jsx", ".tsx")
 _SERIALIZATION_CAP = 40
@@ -80,10 +81,30 @@ def _load_advisory(arg):
     cve_id = arg
     source = "unknown"
     desc = ""
+    cveorg_state = None
+    # Dual-source legitimacy (ADR-010): a bare CVE id is only trusted when
+    # CVE.org has a PUBLISHED record; otherwise fail closed to UNKNOWN.
+    try:
+        with urllib.request.urlopen(CVEORG_QUERY_URL + cve_id, timeout=15) as resp:
+            cve_data = json.load(resp)
+        cveorg_state = (cve_data.get("cveMetadata") or {}).get("state")
+        if not desc:
+            containers = cve_data.get("containers") or {}
+            cna_desc = ((containers.get("cna") or {}).get("descriptions") or [{}])
+            desc = cna_desc[0].get("value", "") if cna_desc else ""
+    except Exception as exc:  # noqa: BLE001 - fail closed on CVE.org errors
+        return {"cve_id": cve_id, "source": "unverified", "packages": [],
+                "description": f"(CVE.org lookup failed: {exc})",
+                "verified": {"cveorg": False, "osv": False}}
+    if cveorg_state != "PUBLISHED":
+        return {"cve_id": cve_id, "source": "unverified", "packages": [],
+                "description": f"CVE.org record state={cveorg_state!r}; "
+                               f"advisory not accepted without a PUBLISHED record",
+                "verified": {"cveorg": False, "osv": False}}
     try:
         with urllib.request.urlopen(OSV_QUERY_URL + cve_id, timeout=15) as resp:
             data = json.load(resp)
-        desc = data.get("details") or data.get("summary") or ""
+        desc = data.get("details") or data.get("summary") or desc
         packages = []
         for aff in (data.get("affected") or []):
             name = (aff.get("package") or {}).get("name")
@@ -102,12 +123,13 @@ def _load_advisory(arg):
                 if introduced is not None:
                     ranges.append("" if introduced == "0" else f">= {introduced}")
             packages.append({"name": name, "ranges": ranges})
-        source = "osv"
+        source = "cveorg+osv"
     except Exception as exc:  # noqa: BLE001 - honest UNKNOWN on lookup failure
         return {"cve_id": cve_id, "source": source, "packages": [],
-                "description": f"(OSV lookup failed: {exc})"}
+                "description": f"(OSV lookup failed: {exc})",
+                "verified": {"cveorg": True, "osv": False}}
     return {"cve_id": cve_id, "source": source, "description": desc,
-            "packages": packages}
+            "packages": packages, "verified": {"cveorg": True, "osv": True}}
 
 
 def _derive_vuln_funcs(advisory, pkg):
@@ -203,22 +225,43 @@ def _find_call_sites(repo_path, funcs, pkg):
     return direct, pkg_sites
 
 
-def _classify_site(site):
+_STATIC_EXT_RE = re.compile(r"['\"]([^'\"]*?\.(?:yaml|yml|json))['\"]")
+
+
+def _checked_in_file_literal(context, site_rel, repo_path):
+    """True if the context quotes a file path with a static-data extension
+    AND that file exists in the repo (checked in), not just any substring."""
+    m = _STATIC_EXT_RE.search(context)
+    if not m:
+        return False
+    quoted = m.group(1)
+    site_dir = os.path.dirname(os.path.join(repo_path, site_rel)) or repo_path
+    candidates = []
+    name = os.path.basename(quoted)
+    for base in (site_dir, repo_path):
+        candidates.append(os.path.join(base, quoted))
+        candidates.append(os.path.join(base, name))
+    return any(os.path.isfile(c) for c in candidates)
+
+
+def _classify_site(site, repo_path):
     """Classify a call site's input source using its context window.
 
     Returns REACHABLE / NOT_REACHABLE / UNKNOWN. Names alone prove nothing:
-    NOT_REACHABLE requires a checked-in file literal in context; unresolved
-    provenance stays UNKNOWN.
+    NOT_REACHABLE requires a quoted file-path literal with a static-data
+    extension whose file actually exists in the repo (checked-in evidence);
+    unresolved provenance stays UNKNOWN.
     """
-    context = (site.get("context") or site["symbol"]).lower()
-    if any(ind in context for ind in _NETWORK_INDICATORS):
+    context = site.get("context") or site["symbol"]
+    low = context.lower()
+    if any(ind in low for ind in _NETWORK_INDICATORS):
         return "REACHABLE"
-    if any(ind in context for ind in _STATIC_INDICATORS):
+    if _checked_in_file_literal(context, site["file"], repo_path):
         return "NOT_REACHABLE"
     return "UNKNOWN"
 
 
-def _trace_input_sources(sites):
+def _trace_input_sources(sites, repo_path):
     """Classify all candidate sites; aggregate into a verdict.
 
     Any REACHABLE site dominates. Any UNKNOWN site gates sandbox time —
@@ -226,7 +269,7 @@ def _trace_input_sources(sites):
     """
     classified = []
     for site in sites:
-        classified.append({**site, "input_source": _classify_site(site)})
+        classified.append({**site, "input_source": _classify_site(site, repo_path)})
     if not classified:
         return classified, ("UNKNOWN", "no candidate sites found in repo source")
     reachable = [c for c in classified if c["input_source"] == "REACHABLE"]
@@ -283,6 +326,7 @@ def reach(repo_path, advisory, out_dir):
     record = {
         "cve_id": advisory["cve_id"],
         "source": advisory.get("source", "unknown"),
+        "verified": advisory.get("verified"),
         "disclaimer": ("heuristic static verdict for scanned call sites only; symbol "
                        "knowledge derived from the advisory, no hardcoded map; "
                        "REACHABLE/UNKNOWN gate sandbox confirmation; import aliases "
@@ -362,7 +406,7 @@ def reach(repo_path, advisory, out_dir):
         _write(record, out_dir)
         return record
 
-    classified, (verdict, rationale) = _trace_input_sources(candidate)
+    classified, (verdict, rationale) = _trace_input_sources(candidate, repo_path)
     record["call_sites_scanned"] = classified[:_SERIALIZATION_CAP]
     record.update({
         "verdict": verdict,

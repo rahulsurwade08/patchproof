@@ -92,16 +92,22 @@ targets.
 
 ## ADR-010 — OSV/CVE.org only; no hardcoded CVE data, no scenario fallback
 **Status:** accepted
-CVE.org (canonical records) and OSV.dev (affected ranges + advisory text/symbol
-hints) are the **only** sources of CVE knowledge. We **hardcode no CVE data**
-anywhere — no local symbol map. If neither source yields a usable advisory or
-symbol knowledge for a (package, version), the honest verdict is `UNKNOWN`, and
-we spend **no sandbox time** and **never** fall back to a scenario match.
-`UNKNOWN` call sites get sandbox confirmation; `NOT_REACHABLE` requires the
-non-attacker-controlled input source be identified. Every report carries a
-coverage/source disclaimer. Rationale: a hand-curated map or scenario fallback
-reintroduces exactly the false positives / silent misses the pivot exists to
-remove.
+
+**Context.** The analyzer needs CVE/package/range/symbol knowledge to triage
+arbitrary repos. Hand-curated symbol maps, affected-range tables, or scenario
+fallbacks would harden stale knowledge into the codebase, silently drift from
+the canonical records, and reintroduce exactly the false positives and silent
+misses the reachability pivot exists to remove.
+
+**Decision.** CVE.org (canonical records) and OSV.dev (affected ranges +
+advisory text/symbol hints) are the **only** sources of CVE knowledge. We
+**hardcode no CVE data** anywhere — no local symbol map. Symbol/range
+knowledge is derived at runtime from the advisory. If neither source yields a
+usable advisory for a (package, version), the honest verdict is `UNKNOWN`;
+we spend **no sandbox time** on it and **never** fall back to a scenario
+match. `UNKNOWN` call sites get sandbox confirmation; `NOT_REACHABLE`
+requires the non-attacker-controlled input source be identified. Every
+report carries a coverage/source disclaimer.
 
 ## ADR-011 — Python migration of MCP servers (uniformity standard)
 **Status:** accepted
