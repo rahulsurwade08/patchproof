@@ -183,10 +183,47 @@ def _file_is_code(fname):
 _CONTEXT_WINDOW = 8
 
 
-def _collected_site(rel, lineno, line, context, continuation):
+def _call_span(lines, lineno, max_lines=30):
+    """Return the vulnerable call's actual expression text: the call line
+    plus continuation lines until delimiters balance (string literals and
+    escapes are skipped while counting). Bounds the evidence to the call
+    itself instead of a fixed number of following lines."""
+    span = [lines[lineno - 1]]
+
+    def net_depth(text, depth):
+        quote = None
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in "'\"":
+                quote = ch
+            elif ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            i += 1
+        return depth
+
+    depth = net_depth(span[0], 0)
+    if depth > 0:
+        for line in lines[lineno:lineno - 1 + max_lines]:
+            span.append(line)
+            depth = net_depth(line, depth)
+            if depth <= 0:
+                break
+    return "".join(span)
+
+
+def _collected_site(rel, lineno, line, context, call_span):
     return {"file": rel, "line": lineno, "symbol": line.strip()[:160],
             "context": (context or line).strip()[:600],
-            "continuation": (continuation or "").strip()[:300]}
+            "call_span": (call_span or line).strip()[:800]}
 
 
 def _find_call_sites(repo_path, funcs, pkg):
@@ -216,11 +253,11 @@ def _find_call_sites(repo_path, funcs, pkg):
                 window = "".join(lines[lineno:lineno + _CONTEXT_WINDOW])
                 # Continuation lines: a multiline call's own arguments live
                 # here, so checked-in literals on them count for the call.
-                continuation = "".join(lines[lineno:lineno + 2])
+                span = _call_span(lines, lineno)
                 if _is_direct_call(line, funcs, pkg):
-                    direct.append(_collected_site(rel, lineno, line, context + window, continuation))
+                    direct.append(_collected_site(rel, lineno, line, context + window, span))
                 elif pkg and _is_pkg_reference(line, pkg):
-                    pkg_sites.append(_collected_site(rel, lineno, line, context + window, continuation))
+                    pkg_sites.append(_collected_site(rel, lineno, line, context + window, span))
     return direct, pkg_sites
 
 
@@ -277,10 +314,10 @@ def _classify_site(site, repo_path):
     """
     call_line = site["symbol"]
     context = site.get("context") or call_line
-    # Static evidence covers the call line and its immediate continuation
-    # (multiline calls), NOT the whole window.
+    # Static evidence covers the vulnerable call's own expression span
+    # (balanced delimiters), NOT the whole window.
     has_static = _checked_in_file_literal(
-        call_line + "\n" + site.get("continuation", ""), site["file"], repo_path)
+        site.get("call_span") or call_line, site["file"], repo_path)
     has_network = any(rx.search(context) for rx in _NETWORK_RES)
     if has_static and has_network:
         return "UNKNOWN"

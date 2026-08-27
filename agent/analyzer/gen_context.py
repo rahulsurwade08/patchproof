@@ -93,12 +93,20 @@ _COPY_IGNORE = (".git", "venv", ".venv", "__pycache__", "node_modules",
 
 # Evidence the entry starts its own server loop (safe to exec directly) —
 # Python and Node alike.
-# Server-loop evidence. Python: dedicated server-runner calls. Node: ONLY an
-# explicit .listen() call proves serving — createServer()/fastify() alone
-# construct without listening and the process would exit.
+# Server-loop evidence. Python: dedicated server-runner calls, or an explicit
+# .listen() paired with a serving loop (serve_forever/IOLoop/start) — a bare
+# listen() constructor alone doesn't prove the process serves. Node: ONLY an
+# explicit .listen() call bound to localhost proves serving — all-interface
+# binds violate the sandbox's localhost-only contract, and constructors
+# without listen exit immediately.
 _PY_SELF_SERVING_RE = re.compile(
-    r"uvicorn\.run\(|run_app\(|app\.run\(|serve_forever\(|create_server\(")
-_NODE_LISTEN_RE = re.compile(r"\.listen\(")
+    r"uvicorn\.run\(|run_app\(|app\.run\(|serve_forever\(|create_server\(|"
+    r"make_server\(")
+_PY_LISTEN_RE = re.compile(r"\.listen\(")
+_PY_LOOP_RE = re.compile(r"serve_forever\(|IOLoop|run_forever\(|\.start\(")
+_NODE_LISTEN_RE = re.compile(
+    r"\.listen\(\s*(?:\d+|['\"][\w.]+['\"])\s*,\s*['\"]"
+    r"(?:127\.0\.0\.1|localhost|::1)['\"]")
 # Evidence the entry exposes an ASGI/WSGI application object (needs a server
 # launcher — `python entry.py` would define the app and exit).
 _APP_OBJECT_RE = re.compile(
@@ -123,14 +131,24 @@ def _derive_start_command(entry, repo_path):
             text = fh.read()
     except OSError:
         text = ""
-    self_serving = (_NODE_LISTEN_RE.search(text) if runner == "node"
-                    else _PY_SELF_SERVING_RE.search(text))
+    if runner == "python":
+        self_serving = (_PY_SELF_SERVING_RE.search(text)
+                        or (_PY_LISTEN_RE.search(text)
+                            and _PY_LOOP_RE.search(text)))
+    else:
+        self_serving = _NODE_LISTEN_RE.search(text)
     if not self_serving:
         if runner == "node":
+            if ".listen(" in text:
+                raise ValueError(
+                    f"cannot prove a safe serving command for {entry}: a "
+                    f".listen() call exists but does not bind 127.0.0.1/"
+                    f"localhost — sandbox services must bind loopback only; "
+                    f"fix the bind or supply the startup command explicitly")
             raise ValueError(
                 f"cannot prove a serving command for {entry}: the script "
-                f"shows no listener/server loop (listen/createServer/fastify); "
-                f"supply the startup command explicitly")
+                f"shows no localhost-bound listener (listen(3000, "
+                f"'127.0.0.1')); supply the startup command explicitly")
         m = _APP_OBJECT_RE.search(text)
         if m:
             module = entry[:-len(ext)].replace(os.sep, ".").replace("/", ".")

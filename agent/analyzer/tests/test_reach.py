@@ -18,7 +18,8 @@ def _write(path, content):
         fh.write(content)
 
 
-_NODE_LISTENER = "const http = require('http');\nhttp.createServer(() => {}).listen(3000);\n"
+_NODE_LISTENER = ("const http = require('http');\n"
+                  "http.createServer(() => {}).listen(3000, '127.0.0.1');\n")
 
 _SELF_SERVING_APP = (
     "import uvicorn\n"
@@ -577,3 +578,42 @@ def test_uvicorn_launcher_install_precedes_repo_deps(tmp_path):
     dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
     assert dockerfile.index("pip install --no-cache-dir \"uvicorn") < \
         dockerfile.index("pip install --no-cache-dir -r")
+
+
+def test_gen_context_rejects_all_interface_node_bind(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "package.json"), json.dumps(
+        {"dependencies": {"express": "4.19.0"}}))
+    _write(os.path.join(repo, "server.js"),
+           "http.createServer(() => {}).listen(3000);\n")
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
+
+
+def test_gen_context_accepts_python_listener_loop(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), (
+        "import tornado.ioloop\n"
+        "import tornado.web\n"
+        "app = tornado.web.Application([])\n"
+        "app.listen(8888)\n"
+        "tornado.ioloop.IOLoop.current().start()\n"))
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["start_command"] == ["python", "main.py"]
+
+
+def test_unrelated_literal_after_call_not_static(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"), (
+        "import yaml\n"
+        "def handle(data):\n"
+        "    cfg = yaml.load(data)\n"
+        "    other = yaml.safe_load(open('config.yaml'))\n"))
+    _write(os.path.join(repo, "config.yaml"), "k: v\n")
+    rec, _ = _run(repo, tmp_path)
+    # the checked-in literal is OUTSIDE the yaml.load(data) call span, and
+    # the call's provenance is unknown — must not be a false NOT_REACHABLE
+    site = next(c for c in rec["call_sites_scanned"] if "yaml.load(data)" in c["symbol"])
+    assert site["input_source"] != "NOT_REACHABLE"
