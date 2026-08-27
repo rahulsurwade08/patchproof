@@ -13,14 +13,20 @@ pipeline. Given a target repo and a CVE advisory, you produce an honest
 
 ## Method
 
-Drive the deterministic Python analyzer through the harness:
+Run the triage script on the host workdir — static analysis only:
 
 ```
-python agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <outdir>]
+python agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
 ```
 
 It runs the triage pipeline — dep-pin short-circuit, call-site scan,
 input-source trace — and writes `data/output/<repo>/reachability.json`.
+
+**Execution boundary:** the script never runs exploit code, never touches the
+network, and writes only to `data/output/`, so host execution is safe and
+prescribed. Sandbox containers are offline and cannot see the host's target
+repo, so `sandbox_exec` cannot run this script against a host path — the
+sandbox belongs to the reproducer, not the analyzer.
 
 If the repo can't be built for the sandbox (missing `Dockerfile`, or only
 `Dockerfile.app`/`Dockerfile.db`), generate a build context:

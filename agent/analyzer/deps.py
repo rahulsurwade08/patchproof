@@ -95,7 +95,11 @@ def _iter_package_json(path, rel):
 
 
 def scan_repo(repo_path):
-    """Return {normalized_name: {manifest, path, version, spec, pinned}}."""
+    """Return {normalized_name: [entries]} — every declaration, not just the first.
+
+    Multiple manifests may pin the same package; reachability must consider
+    each entry, so none is discarded (first-entry wins can hide an affected pin).
+    """
     found = {}
     for root, dirs, files in os.walk(repo_path):
         dirs[:] = [d for d in dirs if d not in _SKIP_PARTS]
@@ -112,11 +116,15 @@ def scan_repo(repo_path):
                 else:
                     continue
                 for name, entry in it:
-                    found.setdefault(name, entry)
+                    found.setdefault(name, []).append(entry)
             except (OSError, ValueError):
                 continue
     return found
 
 
 def find_package(found, name):
-    return found.get(_normalize(name))
+    entries = found.get(_normalize(name))
+    if not entries:
+        return None
+    pinned = [e for e in entries if e["pinned"]]
+    return pinned or entries

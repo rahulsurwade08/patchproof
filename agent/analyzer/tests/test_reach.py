@@ -266,3 +266,48 @@ def test_prerelease_sorts_before_release():
 
 def test_deps_scan_missing_dir():
     assert deps.scan_repo("/nonexistent") == {}
+
+
+def test_equivalent_versions_compare_equal():
+    assert versions.version_in_range("1.0.0", "== 1.0") is True
+    assert versions.version_in_range("1.0", "< 1.0.1") is True
+    assert versions.version_in_range("1.0.1", "< 1.0.1") is False
+
+
+def test_multi_manifest_affected_pin_not_hidden(tmp_path):
+    repo = tmp_path / "repo"
+    _write(os.path.join(repo, "requirements.txt"), "pyyaml==5.4.1\n")
+    _write(os.path.join(repo, "sub", "requirements.txt"), "pyyaml==3.13\n")
+    rec, _ = _run(repo, tmp_path)
+    assert rec["in_scope"] is True
+    assert rec["dep"]["pinned_version"] == "3.13"
+
+
+def test_poetry_group_dependencies_parsed(tmp_path):
+    repo = tmp_path / "repo"
+    _write(os.path.join(repo, "pyproject.toml"), (
+        "[tool.poetry.group.dev.dependencies]\n"
+        'pyyaml = "3.13"\n'))
+    rec, _ = _run(repo, tmp_path)
+    assert rec["dep"]["pinned_version"] == "3.13"
+
+
+def test_alternate_advisory_keys(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    p = tmp_path / "alt.json"
+    _write(str(p), json.dumps({
+        "cve_id": "CVE-ALT", "affected_package": "pyyaml",
+        "affected_range": "< 5.4", "summary": "load() unsafe"}))
+    rec = reach.reach(str(repo), reach._load_advisory(str(p)), str(tmp_path / "o"))
+    assert rec["dep"]["name"] == "pyyaml"
+
+
+def test_transitive_unreferenced_capped_confidence(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    rec, _ = _run(repo, tmp_path)
+    assert rec["verdict"] == "NOT_REACHABLE"
+    assert rec["confidence"] == "medium"
+    assert "transitive" in rec["rationale"]

@@ -64,15 +64,18 @@ def _load_advisory(arg):
         with open(arg, encoding="utf-8") as fh:
             data = json.load(fh)
         cve_id = str(data.get("cve_id") or data.get("id") or os.path.basename(arg))
-        raw_pkg = data.get("package")
+        raw_pkg = (data.get("package") or data.get("affected_package")
+                   or data.get("dependency"))
         if isinstance(raw_pkg, dict):
             raw_pkg = raw_pkg.get("name")
-        affected = data.get("affected_versions") or data.get("affected") or ""
+        affected = (data.get("affected_versions") or data.get("affected")
+                    or data.get("affected_range") or "")
         if not isinstance(affected, str):
             affected = ""
         packages = [{"name": raw_pkg, "ranges": [affected]}] if raw_pkg else []
+        desc = (data.get("description") or data.get("summary") or "")
         return {"cve_id": cve_id, "source": "advisory-file",
-                "description": data.get("description") or "", "packages": packages}
+                "description": desc, "packages": packages}
 
     cve_id = arg
     source = "unknown"
@@ -246,25 +249,33 @@ def _trace_input_sources(sites):
 
 
 def _select_dep(repo_path, packages):
-    """Pick the advisory package the repo actually pins.
+    """Pick the advisory package/manifest entry the repo actually pins.
 
-    Returns (pkg_name, dep_entry, scan) using repository evidence rather than
-    advisory order. A package declared without an exact pin is reported as
-    version-unknown, never as absent.
+    Returns (pkg_name, dep_entry, scan, ranges, status) using repository
+    evidence rather than advisory order. Every manifest declaration of a
+    package is considered (none discarded); a declaration without an exact
+    pin is version-unknown, never absent.
     """
     scan = deps.scan_repo(repo_path)
-    unknown = None
+    in_scope = out_scope = unknown = None
     for adv in packages:
-        dep = deps.find_package(scan, adv["name"])
-        if not dep:
-            continue
-        if dep["pinned"]:
-            return adv["name"], dep, scan
-        if unknown is None:
-            unknown = (adv["name"], dep, scan)
-    if unknown:
-        return unknown
-    return None, None, scan
+        ranges = [r for r in adv["ranges"] if r]
+        entries = deps.find_package(scan, adv["name"]) or []
+        for entry in entries:
+            if not entry["pinned"]:
+                if unknown is None:
+                    unknown = (adv["name"], entry, scan, ranges, "unknown")
+                continue
+            affected = (any(versions.version_in_range(entry["version"], r)
+                            for r in ranges) if ranges else True)
+            if affected and in_scope is None:
+                in_scope = (adv["name"], entry, scan, ranges, "in-scope")
+            elif not affected and out_scope is None:
+                out_scope = (adv["name"], entry, scan, ranges, "out-of-scope")
+    for state in (in_scope, unknown, out_scope):
+        if state:
+            return state
+    return None, None, scan, [], "absent"
 
 
 def reach(repo_path, advisory, out_dir):
@@ -275,8 +286,8 @@ def reach(repo_path, advisory, out_dir):
         "disclaimer": ("heuristic static verdict for scanned call sites only; symbol "
                        "knowledge derived from the advisory, no hardcoded map; "
                        "REACHABLE/UNKNOWN gate sandbox confirmation; import aliases "
-                       "may evade static scanning — sandbox re-confirmation is "
-                       "available for any verdict"),
+                       "and transitive dependency-internal usage are not traced — "
+                       "sandbox re-confirmation is available for any verdict"),
     }
 
     if not packages:
@@ -286,10 +297,10 @@ def reach(repo_path, advisory, out_dir):
         _write(record, out_dir)
         return record
 
-    pkg, dep, scan = _select_dep(repo_path, packages)
+    pkg, dep, _scan, ranges, status = _select_dep(repo_path, packages)
     record["advisory_packages"] = [p["name"] for p in packages]
 
-    if dep is None:
+    if status == "absent":
         names = ", ".join(p["name"] for p in packages)
         record.update({"dep": None, "in_scope": False, "verdict": "NOT_REACHABLE",
                        "confidence": "high",
@@ -300,11 +311,10 @@ def reach(repo_path, advisory, out_dir):
 
     record["dep"] = {"name": pkg, "manifest": dep["manifest"],
                      "manifest_path": dep["path"], "spec": dep["spec"]}
-    ranges = next((p["ranges"] for p in packages if p["name"] == pkg), [])
     if ranges:
         record["dep"]["affected_ranges"] = ranges
 
-    if not dep["pinned"]:
+    if status == "unknown":
         record.update({"in_scope": None, "verdict": "UNKNOWN", "confidence": "low",
                        "rationale": (f"{pkg} declared with non-exact spec "
                                      f"'{dep['spec']}'; installed version unknown "
@@ -313,17 +323,17 @@ def reach(repo_path, advisory, out_dir):
         _write(record, out_dir)
         return record
 
-    pinned = dep["version"]
-    record["dep"]["pinned_version"] = pinned
-    in_scope = any(versions.version_in_range(pinned, r) for r in ranges) if ranges else True
-    record["in_scope"] = in_scope
-    if not in_scope:
-        record.update({"verdict": "NOT_REACHABLE", "confidence": "high",
-                       "rationale": f"pinned {pkg}=={pinned} outside affected range "
-                                    f"({'; '.join(ranges)})",
+    if status == "out-of-scope":
+        record.update({"in_scope": False, "verdict": "NOT_REACHABLE",
+                       "confidence": "high",
+                       "rationale": f"pinned {pkg}=={dep['version']} outside affected "
+                                    f"range ({'; '.join(ranges)})",
                        "needs_sandbox": False})
         _write(record, out_dir)
         return record
+
+    record["dep"]["pinned_version"] = dep["version"]
+    record["in_scope"] = True
 
     funcs = _derive_vuln_funcs(advisory, pkg)
     direct, pkg_sites = _find_call_sites(repo_path, funcs, pkg)
@@ -337,11 +347,15 @@ def reach(repo_path, advisory, out_dir):
 
     if not candidate:
         # The repo pins the package but its own source never references it.
+        # Transitive dependency-internal usage is NOT traced by this heuristic
+        # stage (see disclaimer), so confidence is capped at medium and the
+        # sandbox remains available for re-confirmation.
         record.update({
             "verdict": "NOT_REACHABLE",
-            "confidence": "high",
-            "rationale": (f"pinned {pkg}=={pinned} not referenced in repo source; "
-                          f"no call site of the vulnerable symbol"),
+            "confidence": "medium",
+            "rationale": (f"pinned {pkg}=={dep['version']} not referenced in repo "
+                          f"source; no call site of the vulnerable symbol in repo "
+                          f"code (transitive dependency usage not traced)"),
             "needs_sandbox": False,
         })
         _write(record, out_dir)

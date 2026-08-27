@@ -63,10 +63,18 @@ def _mixed_compare(a, b):
     return (len(a) > len(b)) - (len(a) < len(b))
 
 
+def _strip_zeros(nums):
+    """Trailing zero components are insignificant: 1.0 == 1.0.0 == 1."""
+    i = len(nums)
+    while i and nums[i - 1] == 0:
+        i -= 1
+    return nums[:i]
+
+
 def _cmp(a, b):
     if not isinstance(b, _Version):
         b = _Version(b)
-    c = _mixed_compare(a.nums, b.nums)
+    c = _mixed_compare(_strip_zeros(a.nums), _strip_zeros(b.nums))
     if c:
         return c
     if a.pre == b.pre:

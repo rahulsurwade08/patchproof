@@ -47,7 +47,8 @@ def _find_entry(repo_path):
 def _detect_manifest(repo_path):
     found = deps.scan_repo(repo_path)
     for kind in ("requirements", "pyproject.toml", "package.json"):
-        entry = next((v for v in found.values() if v["manifest"] == kind), None)
+        entry = next((e for entries in found.values() for e in entries
+                      if e["manifest"] == kind), None)
         if entry:
             return kind, entry["path"]
     return None, None

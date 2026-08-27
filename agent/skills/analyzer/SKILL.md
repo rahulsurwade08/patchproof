@@ -17,15 +17,21 @@ UNKNOWN — and decide whether sandbox time is warranted.
 
 ## Method (deterministic script)
 
-Drive `agent/analyzer/reach.py` (through `sandbox_exec` when in the harness):
+Run the triage script on the host workdir — static analysis only:
 
 ```
-python agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <outdir>]
+python agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
 ```
 
 It runs the triage pipeline — dep-pin → call-site scan → input-source trace —
 and writes `data/output/<repo>/reachability.json`. Your job is to run it, read
 the result, and gate on it honestly.
+
+**Execution boundary:** this script never runs exploit code, never touches the
+network, and writes only to `data/output/`, so host execution is safe and is
+the prescribed path. Sandbox containers are offline and cannot see the host's
+target repo, so `sandbox_exec` CANNOT run this script against a host path —
+the sandbox belongs to the reproducer, not the analyzer.
 
 ## Verdict semantics (honesty rules)
 

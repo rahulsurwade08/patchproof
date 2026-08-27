@@ -24,6 +24,14 @@ investigation. You coordinate; subagents execute.
 
 1. **Match** — for each advisory, find candidate scenarios by dependency name
    and version range (`github` MCP for repo facts, `cve-meta.json` for local).
+1a. **Analyze (first stage, gates sandbox time)** — for each candidate, run
+    the analyzer skill (`agent/skills/analyzer`): it executes
+    `agent/analyzer/reach.py` on the host workdir (static analysis only) and
+    writes `data/output/<repo>/reachability.json`. Route on the verdict:
+    - `NOT_REACHABLE` (no sandbox needed) → close as NOT AFFECTED with the
+      rationale; do NOT build or reproduce.
+    - `REACHABLE` / `UNKNOWN` (needs_sandbox) → continue to Build below.
+    Never override a machine verdict with your own reading of advisory text.
 2. **Resume** — if `scenarios/<id>/state.json` exists, resume from it instead
    of starting over. Never re-read raw logs.
 3. **Build** — for each matched scenario, call `sandbox_build` with:

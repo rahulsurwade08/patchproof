@@ -15,7 +15,10 @@ do not stop the container.
    is what injects your patch into the build context.
 3. Reuse the SAME session label: on the next `sandbox_exec`, pass
    `image: patchproof-<id>-patched` — the server detects the image change and
-   recreates the container automatically. In order:
+   recreates the container automatically. Recreation wipes the container
+   filesystem, so RE-INJECT the PoC (`sandbox_write` with
+   `image: patchproof-<id>-patched`, `network: none`, path `/srv/poc.py`)
+   before any rerun. In order:
    a. `python -m pytest test_main.py -q` — all green, else revert and report.
       (The scenario Dockerfile copies app contents to `/srv`, so tests live at
       `/srv/test_main.py`.)
