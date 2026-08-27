@@ -464,6 +464,27 @@ def test_gen_context_fails_without_serving_command(tmp_path):
         gen_context.generate(str(repo), str(repo))
 
 
+def test_gen_context_skips_symlinked_dockerfiles(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    os.symlink("/dev/zero", os.path.join(repo, "Dockerfile.zero"))
+    os.symlink("/etc/passwd", os.path.join(repo, "Dockerfile.esc"))
+    result = gen_context.generate(str(repo), str(repo), force=True)
+    assert result["base_image"] == "python:3.11-slim"  # fallback, no hang/leak
+
+
+def test_gen_context_handles_from_flags_and_digests(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM --platform=linux/amd64 python:3.9-slim@sha256:"
+           + "a" * 64 + "\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo), force=True)
+    assert result["base_image"] == "python:3.9-slim@sha256:" + "a" * 64
+
+
 def test_gen_context_rejects_untrusted_base(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
