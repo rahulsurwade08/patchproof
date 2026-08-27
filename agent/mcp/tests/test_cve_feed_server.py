@@ -62,10 +62,9 @@ def test_cve_get_server_error_raises(monkeypatch):
 
 def test_cross_check_confirmed(monkeypatch):
     monkeypatch.setattr(srv, "cve_get", lambda a: {"found": True, "state": "PUBLISHED"})
-    monkeypatch.setattr(srv, "osv_query_all", lambda a, max_pages=5: [
-        {"id": "GHSA-1", "aliases": ["CVE-1"], "summary": "y"},
-        {"id": "GHSA-2", "aliases": [], "summary": "n"},
-    ])
+    monkeypatch.setattr(srv, "osv_query_all", lambda a, max_pages=5: (
+        [{"id": "GHSA-1", "aliases": ["CVE-1"], "summary": "y"},
+         {"id": "GHSA-2", "aliases": [], "summary": "n"}], False))
     out = srv.cross_check({"cveId": "CVE-1", "ecosystem": "PyPI", "name": "pyyaml"})
     assert out["verdict"] == "CONFIRMED"
     assert out["osv_entry"]["id"] == "GHSA-1"
@@ -79,10 +78,64 @@ def test_cross_check_unknown_when_cve_missing(monkeypatch):
 
 def test_cross_check_not_in_scope_when_osv_empty(monkeypatch):
     monkeypatch.setattr(srv, "cve_get", lambda a: {"found": True, "state": "PUBLISHED"})
-    monkeypatch.setattr(srv, "osv_query_all", lambda a, max_pages=5: [])
+    monkeypatch.setattr(srv, "osv_query_all", lambda a, max_pages=5: ([], False))
     out = srv.cross_check({"cveId": "CVE-1", "ecosystem": "PyPI", "name": "x"})
     assert out["verdict"] == "NOT_IN_SCOPE"
     assert out["osv_entries_checked"] == 0
+
+
+def test_cross_check_unknown_when_osv_truncated(monkeypatch):
+    monkeypatch.setattr(srv, "cve_get", lambda a: {"found": True, "state": "PUBLISHED"})
+
+    def fake_page(query, page_token=None):
+        return {"vulns": [{"id": "GHSA-x", "aliases": []}],
+                "next_page_token": "still-more"}
+
+    monkeypatch.setattr(srv, "osv_query_page", fake_page)
+    out = srv.cross_check({"cveId": "CVE-1", "ecosystem": "PyPI", "name": "x"})
+    assert out["verdict"] == "UNKNOWN"
+    assert "truncated" in out["reason"]
+    assert out["osv_entries_checked"] > 0
+
+
+def test_identifiers_are_url_quoted(monkeypatch):
+    captured = {}
+
+    def fake_http(url, method="GET", body=None):
+        captured["url"] = url
+        return 200, {"cveMetadata": {"cveId": "CVE-1", "state": "PUBLISHED"},
+                     "containers": {}}
+
+    monkeypatch.setattr(srv, "_http_json", fake_http)
+    srv.cve_get({"cveId": "CVE-2020../etc#fragment"})
+    assert "#fragment" not in captured["url"]
+    assert "CVE-2020..%2Fetc%23fragment" in captured["url"]
+
+
+def test_osv_get_quotes_vuln_id(monkeypatch):
+    captured = {}
+
+    def fake_http(url, method="GET", body=None):
+        captured["url"] = url
+        return 200, {"id": "GHSA-1", "aliases": [], "summary": "", "affected": []}
+
+    monkeypatch.setattr(srv, "_http_json", fake_http)
+    srv.osv_get({"vulnId": "GHSA?a=b"})
+    assert "GHSA%3Fa%3Db" in captured["url"]
+
+
+def test_stdio_server_ignores_non_object_json():
+    reqs = [
+        json.dumps([1, 2, 3]) + "\n",      # valid JSON array: ignored
+        '"just a string"\n',                # valid JSON string: ignored
+        "42\n",                             # valid JSON number: ignored
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {}}) + "\n",
+    ]
+    proc = _spawn(reqs)
+    assert proc.returncode == 0, proc.stderr[-300:]
+    replies = [json.loads(l) for l in proc.stdout.strip().splitlines()]
+    assert len(replies) == 1 and replies[0]["id"] == 1
 
 
 def test_osv_query_all_follows_pagination(monkeypatch):
@@ -98,8 +151,9 @@ def test_osv_query_all_follows_pagination(monkeypatch):
         return pages[len(seen) - 1]
 
     monkeypatch.setattr(srv, "osv_query_page", fake)
-    assert [v["id"] for v in srv.osv_query_all({"ecosystem": "PyPI", "name": "x"})] \
-        == ["A", "B", "C"]
+    vulns, truncated = srv.osv_query_all({"ecosystem": "PyPI", "name": "x"})
+    assert [v["id"] for v in vulns] == ["A", "B", "C"]
+    assert truncated is False
     assert seen == [None, "t1", "t2"]
 
 

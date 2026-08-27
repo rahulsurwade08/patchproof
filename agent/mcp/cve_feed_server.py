@@ -17,6 +17,7 @@ identical tool contracts, responses, and error semantics.
 
 import json
 import sys
+import urllib.parse
 import urllib.request
 
 CVE_API = "https://cveawg.mitre.org/api/cve"
@@ -126,7 +127,8 @@ def summarize_cve(rec):
 
 
 def cve_get(args):
-    status, body = _http_json(f"{CVE_API}/{args['cveId']}")
+    cve_id = urllib.parse.quote(args["cveId"], safe="")
+    status, body = _http_json(f"{CVE_API}/{cve_id}")
     if status == 404:
         return {"found": False}
     if status != 200:
@@ -159,8 +161,9 @@ def osv_query(args):
 
 
 def osv_query_all(args, max_pages=5):
-    """Full traversal for legitimacy decisions: follow pagination up to a
-    sane cap so a truncated result can never produce a false NOT_IN_SCOPE."""
+    """Full traversal for legitimacy decisions. Returns (vulns, truncated):
+    truncated is True when pages remain beyond the cap, so a match on a
+    later page can never be misclassified as NOT_IN_SCOPE."""
     query = {"package": {"ecosystem": args["ecosystem"], "name": args["name"]}}
     if args.get("version"):
         query["version"] = args["version"]
@@ -171,12 +174,13 @@ def osv_query_all(args, max_pages=5):
         all_vulns.extend(body.get("vulns") or [])
         page_token = body.get("next_page_token")
         if not page_token:
-            break
-    return all_vulns
+            return all_vulns, False
+    return all_vulns, True
 
 
 def osv_get(args):
-    status, v = _http_json(f"{OSV_API}/vulns/{args['vulnId']}")
+    vuln_id = urllib.parse.quote(args["vulnId"], safe="")
+    status, v = _http_json(f"{OSV_API}/vulns/{vuln_id}")
     if status == 404:
         return {"found": False}
     if status != 200:
@@ -196,7 +200,7 @@ def cross_check(args):
     cve = cve_get({"cveId": args["cveId"]})
     if not cve.get("found") or cve.get("state") != "PUBLISHED":
         return {"verdict": "UNKNOWN", "cve": cve}
-    osv = osv_query_all({
+    osv, truncated = osv_query_all({
         "ecosystem": args["ecosystem"],
         "name": args["name"],
         "version": args.get("version"),
@@ -212,6 +216,12 @@ def cross_check(args):
                     "summary": (v.get("summary") or "")[:200],
                 },
             }
+    if truncated:
+        return {"verdict": "UNKNOWN",
+                "reason": (f"osv results truncated at the page cap with "
+                           f"{len(osv)} entries checked; a match on a later "
+                           f"page cannot be ruled out"),
+                "cve": cve, "osv_entries_checked": len(osv)}
     return {"verdict": "NOT_IN_SCOPE", "cve": cve, "osv_entries_checked": len(osv)}
 
 
@@ -265,8 +275,8 @@ def main():
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if msg.get("id") is None:
-            continue  # notifications: ignore
+        if not isinstance(msg, dict) or msg.get("id") is None:
+            continue  # notifications and non-object payloads: ignore
         try:
             result = dispatch(msg.get("method"), msg.get("params") or {})
             _send({"jsonrpc": "2.0", "id": msg["id"], "result": result})

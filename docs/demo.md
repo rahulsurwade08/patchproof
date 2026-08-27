@@ -22,7 +22,7 @@ python scripts/fake_cve_injector.py --scenario s01-pyyaml-rce
 Paste `agent/prompts/orchestrator.md` as the session system/task brief. The
 orchestrator:
 
-1. Reads the injected advisory from `data/inbox/` (the Python `cve-feed` stdio server — `agent/mcp/cve_feed_server.py` — provides `cve_get_cve`/`osv_query_package`/`osv_get_vuln`/`cve_cross_check` when registered; see `docs/trueforge-setup.md` §5).
+1. Reads the injected advisory from `data/inbox/` (the `cve-feed` MCP tools are not yet registered — see `docs/trueforge-setup.md` §5).
 2. Matches the advisory to `scenarios/s01-pyyaml-rce` via GitHub MCP.
 3. Spawns a reproducer subagent.
 
