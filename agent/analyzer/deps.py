@@ -23,7 +23,8 @@ _REQ_LINE_RE = re.compile(r"^([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?\s*(==|~=|>=|<=|>|
 
 
 def _normalize(name):
-    return (name or "").strip().lower().replace("_", "-")
+    """PEP 503 canonical form: lowercase, [-_.]+ runs collapse to '-'."""
+    return re.sub(r"[-_.]+", "-", (name or "").strip().lower())
 
 
 def _entry(kind, path, rel, spec):

@@ -329,6 +329,30 @@ def test_post_release_sorts_between():
     assert versions.version_in_range("1.0.post1", ">= 1.0") is True
 
 
+def test_preview_ranks_as_rc():
+    assert versions.version_in_range("1.0preview1", ">= 1.0rc1") is True
+    assert versions.version_in_range("1.0preview1", "< 1.0rc1") is False
+
+
+def test_local_version_sorts_below_post():
+    assert versions.version_in_range("1.0+abc", "< 1.0.post1") is True
+    assert versions.version_in_range("1.0+abc", ">= 1.0") is True
+    assert versions.version_in_range("1.0.post1", "< 1.0.1") is True
+
+
+def test_pep503_name_normalization(tmp_path):
+    repo = tmp_path / "repo"
+    _write(os.path.join(repo, "requirements.txt"), "zope.interface==5.4.1\n")
+    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    adv = tmp_path / "adv.json"
+    _write(str(adv), json.dumps({
+        "cve_id": "CVE-NORM", "package": "zope-interface",
+        "affected_versions": "< 5.5", "description": "x() unsafe"}))
+    rec = reach.reach(str(repo), reach._load_advisory(str(adv)), str(tmp_path / "o"))
+    assert rec["dep"]["pinned_version"] == "5.4.1"
+    assert rec["in_scope"] is True
+
+
 def test_dockerignore_blocks_secrets(tmp_path):
     repo = tmp_path / "app"
     _require(repo)

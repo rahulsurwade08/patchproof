@@ -15,16 +15,20 @@ from functools import total_ordering
 _NUM_RE = re.compile(r"(\d+|[a-zA-Z]+)")
 
 # Pre-release tokens ranked: a smaller rank sorts older.
-# PEP 440 order: dev < alpha < beta < rc < final < post.
-# The final release itself sits at rank 4 (see _cmp), post at 5.
+# PEP 440 order: dev < alpha < beta < rc(=preview/c) < final < local < post.
+# The final release itself sits at rank 4; a local version (+foo) at 4.5;
+# post at 5 (see _cmp).
 _PRE_RANK = {"dev": 0, "a": 1, "alpha": 1, "b": 2, "beta": 2, "pre": 2,
-             "preview": 2, "c": 3, "rc": 3, "post": 5, "rev": 5, "r": 5}
+             "c": 3, "rc": 3, "preview": 3, "post": 5, "rev": 5, "r": 5}
 _FINAL_RANK = 4
+_LOCAL_RANK = 4.5
 
 
 def _parse(text):
-    """Return (num_parts, pre_rank or None, pre_parts)."""
-    tokens = _NUM_RE.findall(str(text).strip().lower())
+    """Return (num_parts, pre_rank or None, pre_parts, local_parts or None)."""
+    base, _, local = str(text).strip().lower().partition("+")
+    local_tokens = _NUM_RE.findall(local) if local else None
+    tokens = _NUM_RE.findall(base)
     nums, pre, pre_nums = [], None, []
     for tok in tokens:
         if tok.isdigit():
@@ -35,14 +39,14 @@ def _parse(text):
             pre = _PRE_RANK[tok]
         else:
             nums.append(tok)
-    return nums, pre, pre_nums
+    return nums, pre, pre_nums, (local_tokens or None)
 
 
 @total_ordering
 class _Version:
     def __init__(self, text):
         self.text = text
-        self.nums, self.pre, self.pre_nums = _parse(text)
+        self.nums, self.pre, self.pre_nums, self.local = _parse(text)
 
     def __eq__(self, other):
         return _cmp(self, other) == 0
@@ -80,10 +84,18 @@ def _cmp(a, b):
     c = _mixed_compare(_strip_zeros(a.nums), _strip_zeros(b.nums))
     if c:
         return c
-    ra = _FINAL_RANK if a.pre is None else a.pre
-    rb = _FINAL_RANK if b.pre is None else b.pre
+    if a.pre is None:
+        ra = _LOCAL_RANK if a.local else _FINAL_RANK
+    else:
+        ra = a.pre
+    if b.pre is None:
+        rb = _LOCAL_RANK if b.local else _FINAL_RANK
+    else:
+        rb = b.pre
     if ra != rb:
         return (ra > rb) - (ra < rb)
+    if a.local != b.local:
+        return _mixed_compare(a.local or [], b.local or [])
     return _mixed_compare(a.pre_nums, b.pre_nums)
 
 
