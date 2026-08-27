@@ -23,8 +23,13 @@ _REQ_LINE_RE = re.compile(r"^([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?\s*(==|~=|>=|<=|>|
 
 
 def _normalize(name):
-    """PEP 503 canonical form: lowercase, [-_.]+ runs collapse to '-'."""
+    """PEP 503 canonical form (Python manifests): [-_.]+ runs collapse to '-'."""
     return re.sub(r"[-_.]+", "-", (name or "").strip().lower())
+
+
+def _npm_key(name):
+    """npm identity: lowercase exact name — dots and @scope are significant."""
+    return (name or "").strip().lower()
 
 
 def _entry(kind, path, rel, spec):
@@ -92,7 +97,7 @@ def _iter_package_json(path, rel):
             spec = spec if isinstance(spec, str) else ""
             if "git" in spec or spec.startswith(("file:", "link:", "workspace:")):
                 continue
-            yield _normalize(name), _entry("package.json", None, rel, spec)
+            yield _npm_key(name), _entry("package.json", None, rel, spec)
 
 
 def scan_repo(repo_path):
@@ -124,4 +129,13 @@ def scan_repo(repo_path):
 
 
 def find_package(found, name):
-    return found.get(_normalize(name))
+    """Look up declarations under both identity schemes.
+
+    npm names are exact lowercase identity (dots/@scope significant); Python
+    names use PEP 503. The advisory side may use either, so try both keys.
+    """
+    for key in (_npm_key(name), _normalize(name)):
+        entries = found.get(key)
+        if entries:
+            return entries
+    return None

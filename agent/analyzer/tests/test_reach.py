@@ -340,6 +340,22 @@ def test_local_version_sorts_below_post():
     assert versions.version_in_range("1.0.post1", "< 1.0.1") is True
 
 
+def test_local_label_ignored_without_local_bound():
+    assert versions.version_in_range("1.0+vendor", "<= 1.0") is True
+    assert versions.version_in_range("1.0+vendor", "== 1.0") is True
+    assert versions.version_in_range("1.0+vendor", "== 1.0+vendor") is True
+    assert versions.version_in_range("1.0.post1", "<= 1.0+vendor") is False
+
+
+def test_npm_identity_is_exact_not_pep503(tmp_path):
+    repo = tmp_path / "repo"
+    _write(os.path.join(repo, "package.json"), json.dumps(
+        {"dependencies": {"@scope/foo.bar": "1.0.0"}}))
+    scan = deps.scan_repo(str(repo))
+    assert deps.find_package(scan, "@scope/foo.bar") is not None
+    assert deps.find_package(scan, "@scope/foo-bar") is None
+
+
 def test_pep503_name_normalization(tmp_path):
     repo = tmp_path / "repo"
     _write(os.path.join(repo, "requirements.txt"), "zope.interface==5.4.1\n")

@@ -104,6 +104,10 @@ def parse_version(text):
 
 
 def _clause_matches(op, ver, pinned):
+    # PEP 440: when the specifier boundary carries no local label, the
+    # candidate's local label is ignored (1.0+vendor satisfies <= 1.0).
+    if pinned.local is not None and ver.local is None:
+        pinned = _Version(pinned.text.split("+", 1)[0])
     c = _cmp(pinned, ver)
     if op == "==":
         return c == 0
