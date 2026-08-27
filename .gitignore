@@ -16,6 +16,7 @@ docs/blog-draft.md
 
 # Demo state
 data/inbox/
+data/output/
 scenarios/*/verdict.json
 scenarios/*/test_gate.json
 scenarios/*/state.json
