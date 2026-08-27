@@ -54,7 +54,7 @@
 | Component | Location | Role |
 |---|---|---|
 | Orchestrator | `agent/prompts/orchestrator.md` | Legitimacy check, runs the analyzer first, fans out reproducers for REACHABLE/UNKNOWN sites, merges verdicts, owns the approval gate |
-| Analyzer | `agent/prompts/analyzer.md` + `agent/skills/analyzer/SKILL.md` + `agent/analyzer/*.py` | First-stage reachability triage: dep-pin → call-site scan → input-source trace → `reachability.json`; gates sandbox time |
+| Analyzer | `agent/prompts/analyzer.md` + `agent/skills/analyzer/SKILL.md` + `agent/analyzer/*.py` | First-stage reachability triage: dep-pin → call-site scan → input-source trace → `reachability.json`; gates sandbox time. Its `gen_context.py` derives the sandbox build context (entry + start command + Dockerfile) and reuses the repo's own declared base image when it is an allowlisted official python/node image — foreign images, parametrized FROMs, and symlinks are rejected to the generic default (repo content untrusted, ADR-016) |
 | Reproducer | `agent/prompts/reproducer.md` | Sandbox contract: build-context gen + service @pinned deps + PoC execution |
 | Judge | `agent/prompts/judge.md` | LLM-as-a-judge: reviews verdict evidence quality/consistency, writes `assessment.json`, never flips outcomes |
 | Patcher | `agent/prompts/patcher.md` | Dependency bump + test suite in sandbox + evidence PR |

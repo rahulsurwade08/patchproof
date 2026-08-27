@@ -283,18 +283,30 @@ def test_http_non_object_payload_returns_parse_error(http_server):
 
 
 def test_http_oversize_body_gets_413_and_close(http_server):
-    req = urllib.request.Request(
-        http_server + "/mcp", data=b"x" * (srv.MAX_BODY_BYTES + 1),
-        headers={"Content-Type": "application/json"})
+    # Raw socket: the server rejects on Content-Length without reading the
+    # body, so a urllib upload would race the server's early response.
+    import socket
+    host, port = urllib.parse.urlparse(http_server).netloc.split(":")
+    sock = socket.create_connection((host, int(port)), timeout=10)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            status = resp.status
-            assert resp.headers.get("Connection") == "close"
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-        assert exc.headers.get("Connection") == "close"
-        assert json.loads(exc.read().decode())["error"]["code"] == -32700
-    assert status == 413
+        sock.sendall((
+            "POST /mcp HTTP/1.1\r\nHost: localhost\r\n"
+            f"Content-Length: {srv.MAX_BODY_BYTES + 1}\r\n"
+            "Content-Type: application/json\r\n\r\n").encode())
+        sock.sendall(b"x" * 16)  # a slice of the body; server never reads it
+        # The server answers 413 with Connection: close — read to EOF so the
+        # full response (headers + body) is deterministic, never a split read.
+        data = b""
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        sock.close()
+    assert data.split(b"\r\n")[0].startswith(b"HTTP/1.1 413")
+    assert b"Connection: close" in data
+    assert b"-32700" in data
 
 
 def test_http_tool_failure_is_error_result(http_server):
