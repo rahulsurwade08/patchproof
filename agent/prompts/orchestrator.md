@@ -28,14 +28,16 @@ investigation. You coordinate; subagents execute.
 4. **Inject PoC** — call `sandbox_write` to copy `poc.py` into the container:
    - `session`: scenario id
    - `image`: the tag from step 3 (e.g. `patchproof-s06-dvpwa-sqli`)
+   - `network`: **`none`** (must be passed on every call to prevent container recreation)
    - `path`: `/srv/poc.py`
    - `content`: contents of `scenarios/<id>/poc.py`
 5. **Run** — call `sandbox_exec` with:
    - `session`: scenario id
    - `image`: **MUST include the image tag from step 3** (without this, the
      default `python:3.11-slim` image is used, which lacks the scenario deps)
+   - `network`: **`none`** (must be passed on every call to prevent container recreation)
    - `command`: start service + run PoC:
-     `cd /srv && uvicorn main:app --host 0.0.0.0 --port 8000 & SPID=$!; sleep 3; python /srv/poc.py; RET=$?; kill $SPID; exit $RET`
+     `cd /srv && uvicorn main:app --host 127.0.0.1 --port 8000 & SPID=$!; sleep 3; python /srv/poc.py; RET=$?; kill $SPID; exit $RET`
    - `timeout_secs`: 60
 6. **Read verdict** — call `sandbox_read` with session + path `/srv/verdict.json`.
 7. **Report** — summarize the verdict: CVE, exploitable true/false, evidence.
@@ -74,3 +76,7 @@ must be running and attached to each executing subagent.
 - **Always pass the `image` parameter** on `sandbox_exec` and `sandbox_write`
   calls matching the `sandbox_build` tag. Omitting it silently uses the default
   `python:3.11-slim` image which lacks scenario dependencies.
+- **Always pass `network: none`** on `sandbox_exec` and `sandbox_write` calls.
+  Omitting it causes the MCP server to recreate the container (Docker inspect
+  reports empty networks for `--network none`), discarding `/srv/poc.py` and
+  any shared state.

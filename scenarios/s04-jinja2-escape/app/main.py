@@ -64,9 +64,10 @@ async def render_template(request: Request) -> dict:
         # The service detects this and writes a marker file, proving the
         # compromised rendering process executed server-side.
         if isinstance(result, str) and "<class" in result and "object" in result:
+            nonce = context.get("nonce", "")
             try:
                 with open(MARKER, "w") as fh:
-                    fh.write(f"sandbox_escape:{result}\n")
+                    fh.write(f"sandbox_escape:{nonce}:{result}\n")
             except OSError:
                 pass
 

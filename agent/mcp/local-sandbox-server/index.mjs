@@ -125,7 +125,14 @@ async function ensureContainer(session, network = "none", image = IMAGE) {
         name]);
       const [img, nets] = cfg.stdout.trim().split("|");
       const wantNet = network === "none" ? "none" : network;
-      if (img !== image || !nets.split(",").includes(wantNet)) {
+      // Docker inspect reports empty NetworkSettings.Networks for --network
+      // none containers (no named network attached), so treat empty nets as
+      // matching "none".
+      const netsList = nets.split(",").filter(Boolean);
+      const netMatch = wantNet === "none"
+        ? netsList.length === 0
+        : netsList.includes(wantNet);
+      if (img !== image || !netMatch) {
         await docker(["rm", "-f", name]);
         await startContainer(name, network, image);
       }

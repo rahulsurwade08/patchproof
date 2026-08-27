@@ -24,6 +24,7 @@ app = FastAPI(title="patchproof-dashboard")
 ROOT = Path(__file__).resolve().parent.parent
 SCENARIOS_DIR = ROOT / "scenarios"
 EVENT_LOG: list[dict] = []
+_SCANNED_KEYS: set[str] = set()  # persists across _scan_events_from_files calls
 
 
 def _record_event(event_type: str, message: str) -> None:
@@ -39,7 +40,6 @@ def _record_event(event_type: str, message: str) -> None:
 
 def _scan_events_from_files() -> None:
     """Populate EVENT_LOG by reading scenario verdict/gate files."""
-    seen = set()
     for d in sorted(SCENARIOS_DIR.iterdir()):
         if not d.is_dir() or d.name.startswith("_"):
             continue
@@ -61,9 +61,9 @@ def _scan_events_from_files() -> None:
                 pass
 
         key = f"{d.name}:{json.dumps(gate, sort_keys=True)}:{json.dumps(verdict, sort_keys=True)}"
-        if key in seen:
+        if key in _SCANNED_KEYS:
             continue
-        seen.add(key)
+        _SCANNED_KEYS.add(key)
 
         if gate.get("passed"):
             if verdict.get("exploitable"):
