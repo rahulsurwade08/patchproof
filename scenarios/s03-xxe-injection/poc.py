@@ -59,7 +59,7 @@ def main() -> int:
     start = time.monotonic()
 
     # Write a known marker file so we can prove XXE file read.
-    marker_content = f"xxe_proof_{os.getpid()}"
+    marker_content = "xxe_proof"
     try:
         with open(MARKER, "w") as fh:
             fh.write(marker_content)

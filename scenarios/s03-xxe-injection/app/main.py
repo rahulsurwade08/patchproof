@@ -24,8 +24,11 @@ async def parse_xml(request: Request) -> dict:
     """Parse XML input (DELIBERATELY VULNERABLE to XXE)."""
     raw = await request.body()
     try:
-        # Vulnerable: lxml resolves external entities by default
-        tree = etree.fromstring(raw)
+        # Vulnerable: explicit parser with resolve_entities=True.
+        # lxml >= 5.0 changed the default to False; this service deliberately
+        # enables it to demonstrate the XXE vulnerability class.
+        parser = etree.XMLParser(resolve_entities=True)
+        tree = etree.fromstring(raw, parser)
         # Extract all text content (entity expansion happens during parsing)
         text = etree.tostring(tree, encoding="unicode", pretty_print=True)
         return {"parsed": text[:2000]}

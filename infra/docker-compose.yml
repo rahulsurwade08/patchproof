@@ -4,6 +4,16 @@ services:
     ports:
       - "127.0.0.1:8001:8000"
 
+  staging-s02:
+    build: ../scenarios/s02-pickle-rce/app
+    ports:
+      - "127.0.0.1:8002:8000"
+
+  staging-s03:
+    build: ../scenarios/s03-xxe-injection/app
+    ports:
+      - "127.0.0.1:8003:8000"
+
   staging-s04:
     build: ../scenarios/s04-jinja2-escape/app
     ports:
@@ -12,7 +22,7 @@ services:
   staging-s05:
     build: ../scenarios/s05-negative-case/app
     ports:
-      - "127.0.0.1:8002:8000"
+      - "127.0.0.1:8005:8000"
 
   staging-s06:
     build: ../scenarios/s06-dvpwa-sqli/app
