@@ -112,9 +112,10 @@ report carries a coverage/source disclaimer.
 ## ADR-011 — Python migration of MCP servers (uniformity standard)
 **Status:** accepted
 All `agent/` runtime code is Python. The two existing MCP servers
-(`cve-feed-server/index.mjs`, `local-sandbox-server/index.mjs`) are migrated to
-Python (`agent/mcp/cve_feed_server.py`, `agent/mcp/local_sandbox_server.py`)
-with identical tool contracts, plus a new Python analyzer (`agent/analyzer/`).
+(`cve-feed-server/index.mjs`, `local-sandbox-server/index.mjs`) have been migrated to
+Python (`agent/mcp/cve_feed_server.py` (PR #26), `agent/mcp/local_sandbox_server.py`
+(PR #28, Node entry points retired in #29)) with identical tool contracts,
+plus a new Python analyzer (`agent/analyzer/`).
 Rationale: redundancy up front but a durable standard for all future MCP
 servers and analyzer code. Node remains allowed only in the non-runtime
 scaffolding (opencode skills/config, qodo tooling), not in the pipeline.
