@@ -60,8 +60,9 @@ if [ ! -d "$SCENARIO_DIR" ]; then
   exit 1
 fi
 
-# Acceptance gate: S04 requires S01 and S05 to be passing first.
-if [ "$SCENARIO" = "s04-jinja2-escape" ]; then
+# Acceptance gate: every scenario except S01 and S05 (the baselines) requires
+# S01 and S05 to be passing first.
+if [ "$SCENARIO" != "s01-pyyaml-rce" ] && [ "$SCENARIO" != "s05-negative-case" ]; then
   for prereq in s01-pyyaml-rce s05-negative-case; do
     gate="$ROOT/scenarios/$prereq/test_gate.json"
     if [ ! -f "$gate" ]; then

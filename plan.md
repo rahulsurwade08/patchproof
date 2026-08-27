@@ -34,6 +34,8 @@ loop empirically:
 | Team | Solo |
 | Scenario stack | Python only |
 | Core scenarios | S1 PyYAML RCE (CVE-2020-14343) · S5 negative case (same CVE, safe usage) · S4 Jinja2 sandbox escape (CVE-2024-56326) · S6 DVPWA SQL injection pattern |
+| Scenario S2 | S2 Pickle deserialization RCE (unsafe `pickle.loads` on untrusted input) |
+| Scenario S3 | S3 XML External Entity (XXE) injection (lxml default entity resolution) |
 | Scenario S4 | S4 Jinja2 sandbox escape (CVE-2024-56326) — sandbox_escape via fmt filter, fully operational |
 | Scenario S6 | S6 DVPWA SQL injection (code-level vuln from anxolerd/dvpwa) — string formatting in SQL queries, auth bypass + DROP TABLE |
 | UI | Thin live dashboard — FastAPI + SSE + vanilla JS, reads scenario verdicts/events, approval panel |
