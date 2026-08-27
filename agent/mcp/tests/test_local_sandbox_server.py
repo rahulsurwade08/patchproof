@@ -58,6 +58,8 @@ def test_sandbox_write_passes_path_as_argv(monkeypatch):
     def fake_docker(args, timeout_ms=120000, input_text=None):
         captured["args"] = args
         captured["input"] = input_text
+        if "Running" in " ".join(args):
+            return {"code": 0, "stdout": "true\n", "stderr": ""}
         return {"code": 0, "stdout": "", "stderr": ""}
 
     monkeypatch.setattr(srv, "docker", fake_docker)
@@ -96,7 +98,7 @@ def test_ensure_container_recreates_on_image_mismatch(monkeypatch):
     assert name == srv.container_name("s")
     assert any(a[:2] == ["rm", "-f"] for a in calls)
     assert any(a[:3] == ["run", "--rm", "-d"] and "patchproof-new" in a
-               for a in calls)
+               and "sleep 86400" in a for a in calls)
 
 
 def test_ensure_container_reuses_matching(monkeypatch):
