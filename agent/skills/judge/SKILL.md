@@ -19,8 +19,10 @@ verdict. You review; you never re-run exploits and never change outcomes.
 
 ## Degraded mode (no cve-feed server registered)
 
-If the `cve-feed` tools are unavailable (stdio wrapper pending — see
-`docs/trueforge-setup.md` §5), skip checklist item 2 and set
+If the `cve-feed` tools are unavailable (TrueForge registers remote-URL MCP
+servers only; the Python stdio server `agent/mcp/cve_feed_server.py` needs
+the HTTP transport wrapper — see `docs/trueforge-setup.md` §5, and until
+registered advisories arrive via `data/inbox/`), skip checklist item 2 and set
 `"range_check": false` in the output. Do not claim range consistency was
 verified when it wasn't; base confidence on evidence quality and entry-point
 match alone.
