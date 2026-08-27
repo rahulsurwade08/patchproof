@@ -90,9 +90,15 @@ def docker(args, timeout_ms=120000, input_text=None):
                 "stdout": proc.stdout[:MAX_OUTPUT],
                 "stderr": proc.stderr[:MAX_OUTPUT]}
     except subprocess.TimeoutExpired as exc:
-        return {"code": 124,
-                "stdout": (exc.stdout or "")[:MAX_OUTPUT],
-                "stderr": ((exc.stderr or "") + "\ntimed out")[:MAX_OUTPUT]}
+        # With text=True CPython still exposes captured output as bytes on
+        # some paths — normalize before touching it.
+        out, err = exc.stdout or "", exc.stderr or ""
+        if isinstance(out, bytes):
+            out = out.decode(errors="replace")
+        if isinstance(err, bytes):
+            err = err.decode(errors="replace")
+        return {"code": 124, "stdout": out[:MAX_OUTPUT],
+                "stderr": (err + "\ntimed out")[:MAX_OUTPUT]}
     except OSError as exc:
         return {"code": 125, "stdout": "", "stderr": str(exc)[:MAX_OUTPUT]}
 
@@ -104,8 +110,13 @@ def container_name(session):
 
 
 def start_container(name, network="none", image=IMAGE):
-    net_args = (["--network", "none"] if network == "none"
-                else ["--network", str(network)])
+    # Hard isolation boundary: runtime containers are ALWAYS --network none.
+    # A caller-supplied named network is rejected, never honored.
+    if network != "none":
+        raise RuntimeError(
+            "only network 'none' is permitted for sandbox runtime containers; "
+            "sandbox_exec/sandbox_write must stay offline (isolation contract)")
+    net_args = ["--network", "none"]
     for _attempt in range(3):
         docker(["rm", "-f", name])
         started = docker([
@@ -243,9 +254,9 @@ TOOLS = [
                 "network": {
                     "type": "string",
                     "description": (
-                        "Docker network to attach (default 'none'). Only the "
-                        "verifier may set a named compose network to reach "
-                        "staging; reproduction and patching always use 'none'."),
+                        "Docker network to attach (default 'none'). Only "
+                        "'none' is accepted: runtime containers are always "
+                        "network-isolated; any other value raises an error."),
                 },
                 "image": {
                     "type": "string",
@@ -312,9 +323,19 @@ def tool_call(name, args=None):
             if files:
                 tmp_dir = tempfile.mkdtemp(prefix="patchproof-ctx-")
                 shutil.copytree(context, tmp_dir, dirs_exist_ok=True)
+                ctx_root = os.path.realpath(tmp_dir)
                 for rel, content in files.items():
-                    dest = os.path.join(tmp_dir, rel)
-                    os.makedirs(os.path.dirname(dest) or tmp_dir, exist_ok=True)
+                    rel = str(rel)
+                    if os.path.isabs(rel) or rel.startswith("..") \
+                            or ".." in rel.split("/"):
+                        raise RuntimeError(
+                            f"files key escapes build context: {rel}")
+                    dest = os.path.realpath(os.path.join(tmp_dir, rel))
+                    if not dest.startswith(ctx_root + os.sep):
+                        raise RuntimeError(
+                            f"files key escapes build context: {rel}")
+                    os.makedirs(os.path.dirname(dest) or ctx_root,
+                                exist_ok=True)
                     with open(dest, "w", encoding="utf-8") as fh:
                         fh.write(str(content))
                 context = tmp_dir
@@ -329,8 +350,9 @@ def tool_call(name, args=None):
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
     if name == "sandbox_exec":
-        cname = ensure_container(args.get("session"), args.get("network"),
-                                 args.get("image"))
+        cname = ensure_container(args.get("session"),
+                                 args.get("network") or "none",
+                                 args.get("image") or IMAGE)
         timeout = min(float(args.get("timeout_secs") or 60), 600)
         res = docker(
             ["exec", "-w", "/srv", cname, "sh", "-c", str(args["command"])],
@@ -340,8 +362,9 @@ def tool_call(name, args=None):
                 "stderr": redact(res["stderr"]),
                 "container": cname}
     if name == "sandbox_write":
-        cname = ensure_container(args.get("session"), args.get("network"),
-                                 args.get("image"))
+        cname = ensure_container(args.get("session"),
+                                 args.get("network") or "none",
+                                 args.get("image") or IMAGE)
         path = str(args["path"])
         content = str(args.get("content") or "")
         # Arguments travel as docker-exec argv ($1), never interpolated into
@@ -368,11 +391,14 @@ def tool_call(name, args=None):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def _send(self, status, obj):
+    def _send(self, status, obj, close=False):
         body = json.dumps(obj).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if close:
+            self.close_connection = True
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -391,12 +417,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length") or 0)
             if length > MAX_BODY_BYTES:
+                # Reject without reading the body and close the connection:
+                # leaving the bytes unread on a keep-alive socket would be
+                # parsed as the next request (protocol desync).
+                self.close_connection = True
                 return self._send(413, {"jsonrpc": "2.0", "id": None,
                                         "error": {"code": -32700,
-                                                  "message": "request body exceeds 1 MiB"}})
+                                                  "message": "request body exceeds 1 MiB"}},
+                                  close=True)
             body = self.rfile.read(length)
             msg = json.loads(body.decode())
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            return self._send(400, {"jsonrpc": "2.0", "id": None,
+                                    "error": {"code": -32700,
+                                              "message": "parse error"}})
+        if not isinstance(msg, dict):
             return self._send(400, {"jsonrpc": "2.0", "id": None,
                                     "error": {"code": -32700,
                                               "message": "parse error"}})

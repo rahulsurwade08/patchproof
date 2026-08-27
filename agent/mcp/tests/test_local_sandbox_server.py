@@ -116,6 +116,53 @@ def test_ensure_container_reuses_matching(monkeypatch):
     assert not any(a[:2] == ["rm", "-f"] for a in calls)
 
 
+def test_runtime_container_rejects_named_network(monkeypatch):
+    monkeypatch.setattr(srv, "docker",
+                        lambda *a, **k: {"code": 0, "stdout": "", "stderr": ""})
+    with pytest.raises(RuntimeError):
+        srv.tool_call("sandbox_exec", {"session": "s", "command": "ls",
+                                       "network": "infra_default"})
+
+
+def test_runtime_container_defaults_apply(monkeypatch):
+    seen = {}
+
+    def fake_ensure(session, network, image):
+        seen["network"], seen["image"] = network, image
+        return srv.container_name(session)
+
+    monkeypatch.setattr(srv, "ensure_container", fake_ensure)
+    monkeypatch.setattr(srv, "docker",
+                        lambda *a, **k: {"code": 0, "stdout": "", "stderr": ""})
+    srv.tool_call("sandbox_exec", {"session": "s", "command": "ls"})
+    assert seen["network"] == "none" and seen["image"] == srv.IMAGE
+
+
+def test_build_rejects_path_traversal_overrides(monkeypatch, tmp_path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11-slim\n")
+    monkeypatch.setattr(srv, "docker",
+                        lambda *a, **k: {"code": 0, "stdout": "", "stderr": ""})
+    for rel in ("../evil.txt", "/etc/cron.d/evil", "a/../../evil"):
+        with pytest.raises(RuntimeError):
+            srv.tool_call("sandbox_build", {
+                "tag": "t", "context_path": str(tmp_path), "files": {rel: "x"}})
+    assert not (tmp_path.parent / "evil.txt").exists()
+
+
+def test_timeout_returns_124_not_crash(monkeypatch):
+    import subprocess as sp
+
+    def fake_run(*a, **k):
+        raise sp.TimeoutExpired(cmd=a[0], timeout=1,
+                                output=b"partial-out", stderr=b"partial-err")
+
+    monkeypatch.setattr(srv.subprocess, "run", fake_run)
+    out = srv.docker(["exec", "x"])
+    assert out["code"] == 124
+    assert out["stdout"] == "partial-out"
+    assert "timed out" in out["stderr"]
+
+
 def test_build_applies_files_overrides_to_temp_copy(monkeypatch, tmp_path):
     (tmp_path / "Dockerfile").write_text("FROM python:3.11-slim\n")
     (tmp_path / "requirements.lock").write_text("pyyaml==3.13\n")
@@ -199,6 +246,26 @@ def test_http_unknown_method(http_server):
 def test_http_parse_error(http_server):
     status, body = _post(http_server, None, raw=b"{not json")
     assert status == 400 and body["error"]["code"] == -32700
+
+
+def test_http_non_object_payload_returns_parse_error(http_server):
+    status, body = _post(http_server, None, raw=b"[1, 2, 3]")
+    assert status == 400 and body["error"]["code"] == -32700
+
+
+def test_http_oversize_body_gets_413_and_close(http_server):
+    req = urllib.request.Request(
+        http_server + "/mcp", data=b"x" * (srv.MAX_BODY_BYTES + 1),
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            status = resp.status
+            assert resp.headers.get("Connection") == "close"
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        assert exc.headers.get("Connection") == "close"
+        assert json.loads(exc.read().decode())["error"]["code"] == -32700
+    assert status == 413
 
 
 def test_http_tool_failure_is_error_result(http_server):
