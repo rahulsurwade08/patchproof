@@ -12,14 +12,13 @@ import asyncio
 import json
 import os
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-
-app = FastAPI(title="patchproof-dashboard")
 
 ROOT = Path(__file__).resolve().parent.parent
 SCENARIOS_DIR = ROOT / "scenarios"
@@ -74,6 +73,16 @@ def _scan_events_from_files() -> None:
                 _record_event("pass", f"{d.name}: tests pass")
         elif gate:
             _record_event("fail", f"{d.name}: tests FAIL — {gate.get('summary', '')[:60]}")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Scan existing scenario files on startup so the event log is populated."""
+    _scan_events_from_files()
+    yield
+
+
+app = FastAPI(title="patchproof-dashboard", lifespan=lifespan)
 
 
 def _scan_scenarios() -> list[dict]:
@@ -168,6 +177,14 @@ async def api_events():
 @app.get("/api/approvals")
 async def api_approvals():
     return _scan_approvals()
+
+
+@app.post("/api/events")
+async def push_event(request: Request):
+    """Push an event from the harness or an orchestrator subagent."""
+    body = await request.json()
+    _record_event(body.get("type", "info"), body.get("message", ""))
+    return {"ok": True}
 
 
 async def event_stream() -> AsyncGenerator[str, None]:

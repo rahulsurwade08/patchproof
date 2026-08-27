@@ -40,8 +40,15 @@ investigation. You coordinate; subagents execute.
      `cd /srv && uvicorn main:app --host 127.0.0.1 --port 8000 & SPID=$!; sleep 3; python /srv/poc.py; RET=$?; kill $SPID; exit $RET`
    - `timeout_secs`: 60
 6. **Read verdict** — call `sandbox_read` with session + path `/srv/verdict.json`.
+   The response contains the verdict content. **Save it immediately** to the
+   canonical host path `scenarios/<id>/verdict.json` so the judge and patcher
+   can read it after cleanup.
+6a. **Read assessment** — call `sandbox_read` with session + path
+    `/srv/assessment.json` (if the PoC wrote one). Save to
+    `scenarios/<id>/assessment.json` on the host.
 7. **Report** — summarize the verdict: CVE, exploitable true/false, evidence.
-8. **Cleanup** — call `sandbox_stop` with the session label.
+8. **Cleanup** — call `sandbox_stop` with the session label. The canonical
+   verdict/assessment files on the host are now the only persisted copies.
 
 **Critical**: every `sandbox_exec` and `sandbox_write` call **must** include the
 `image` parameter matching the `sandbox_build` tag. The MCP server's default
