@@ -78,3 +78,109 @@ header-auth field — never shown, never handled by agent sessions, and no
 token-printing command is endorsed in committed docs. Rationale: one step for
 anyone already using `gh`; no new secret creation; complies with the
 no-secrets-in-session rule.
+
+## ADR-009 — Product pivot to arbitrary-repo reachability triage
+**Status:** accepted
+Re-running *public* CVEs against *pre-packaged* scenarios proves nothing new —
+the exploit is already public. The actual value is proving whether a flagged
+CVE is *reachable* with attacker-controlled input in a **specific repo**.
+PatchProof therefore becomes a **reachability triage engine**: dep-pin → call
+sites → input-source trace → sandbox-confirmed verdict → auto-patch. The
+headline outcome is `NOT_REACHABLE` (killing scanner alert-fatigue), which
+scanners cannot produce. The 6 scenarios become test fixtures, never triage
+targets.
+
+## ADR-010 — OSV/CVE.org only; no hardcoded CVE data, no scenario fallback
+**Status:** accepted
+CVE.org (canonical records) and OSV.dev (affected ranges + advisory text/symbol
+hints) are the **only** sources of CVE knowledge. We **hardcode no CVE data**
+anywhere — no local symbol map. If neither source yields a usable advisory or
+symbol knowledge for a (package, version), the honest verdict is `UNKNOWN`, and
+we spend **no sandbox time** and **never** fall back to a scenario match.
+`UNKNOWN` call sites get sandbox confirmation; `NOT_REACHABLE` requires the
+non-attacker-controlled input source be identified. Every report carries a
+coverage/source disclaimer. Rationale: a hand-curated map or scenario fallback
+reintroduces exactly the false positives / silent misses the pivot exists to
+remove.
+
+## ADR-011 — Python migration of MCP servers (uniformity standard)
+**Status:** accepted
+All `agent/` runtime code is Python. The two existing MCP servers
+(`cve-feed-server/index.mjs`, `local-sandbox-server/index.mjs`) are migrated to
+Python (`agent/mcp/cve_feed_server.py`, `agent/mcp/local_sandbox_server.py`)
+with identical tool contracts, plus a new Python analyzer (`agent/analyzer/`).
+Rationale: redundancy up front but a durable standard for all future MCP
+servers and analyzer code. Node remains allowed only in the non-runtime
+scaffolding (opencode skills/config, qodo tooling), not in the pipeline.
+
+## ADR-012 — Mandatory sandbox + image teardown after every run
+**Status:** accepted
+After each investigation, the orchestrator always runs a teardown stage:
+`sandbox_stop` the session container and prune built images. Rationale: sandbox
+containers and images consume real host resources; leaking them across many
+scans would exhaust the host and is a hard rule (see AGENTS.md / plan.md §9).
+
+## ADR-013 — Intermittent small PRs + Qodo review loop
+**Status:** accepted
+Changes land in small, intermittent PRs (not one large diff) so each is easy to
+understand and to Qodo-review. After a PR opens, load `qodo-get-rules` before
+coding and `qodo-pr-resolver` when resolving findings; after each finding is
+fixed, reply on the thread and send `/review`, looping until Qodo reports clean
+code before the human merges. Rationale: smaller diffs review faster and catch
+issues earlier; the loop keeps every PR clean before merge.
+
+## ADR-014 — Lean run-graph (run spec + status store), no graph framework
+**Status:** accepted
+The pipeline is a DAG (fan-out reproducers, judge→reproducer loop, approval
+gate) but we do **not** adopt a graph/DAG framework. Instead each run is a
+**run spec** (nodes = skills, edges = handoffs, gates, retries) plus a
+**per-node status store** (`run-spec.json` / `run-status.json` under
+`data/output/<repo>/`). The orchestrator walks the graph through the harness,
+and the status store + TrueForge per-turn events provide the per-skill
+interaction/observability surface. Rationale (option A): a lean, frameworkless
+representation gives us graph semantics and auditable per-node detail without
+the complexity, dependency, and risk of a generic graph runtime for what is a
+mostly-linear pipeline with one fan-out.
+
+## ADR-015 — Memory & token strategy: files as memory, telemetry, eval-gated compression
+**Status:** accepted
+**Memory is files, not stores.** Durable state lives under `data/output/<repo>/`
+(files audit, survive, resume via one small state file). Working memory is the
+run graph + artifact pointers; nodes are self-contained (state, not history).
+We explicitly do **not** add Redis or a vector-DB now: structured state is
+queried by field from files. An optional *local, file-based* embedding index
+over prior outputs for cross-run semantic recall is deferred as an eval-gated
+future idea.
+**Token budget.** Three ordered levers: fetch less (read-through protocol;
+dep-pin short-circuits most pairs), cache more (stable prompt prefix; Python
+scripts do token-heavy grunt work via `sandbox_exec`), and write/read tiny
+(≤15-line summaries; artifacts carry detail). The run-status store records
+`total_tokens`/request count per node so it doubles as a quota dashboard.
+Retries (cap 3) re-run the narrow node only, never from the analyzer up.
+**Compression tooling is deferred behind measurement.** The local
+input-compression proxy (caveman) is considered only *after* telemetry shows
+where spend is and only if it beats our own baseline; its output-purpose skill
+is skipped (we are already terse and it can net-negative). Judge and approval
+reasoning stay in full prose (security reasoning untouched).
+Rationale: our structural levers (read less, cache, node-artifacts) dominate any
+compression hack, and nothing is adopted before the telemetry we just added
+shows it earns its place.
+
+## ADR-016 — Security posture: hardened sandbox, external-content-as-data, secrets never in sandbox
+**Status:** accepted
+**Sandbox hardening.** The `local-sandbox` Python server defaults are hardened:
+containers run `--network none`, as a **non-root user**, **without `--privileged`**,
+**without `/var/run/docker.sock`**, with **resource limits** (CPU/mem/timeout),
+**minimal/controlled mounts**, and read-only root FS where possible. `.env`,
+`.git`, credentials, and `data/output/` are **never** mounted or copied into
+build context or exec containers — secrets never reach untrusted exploit code.
+The `sandbox_build` (network for deps) / `sandbox_exec` (offline) boundary stays
+strict so a hostile PoC cannot reach the network at runtime.
+**External content is data, not instructions.** Repo files, CVE/OSV advisory
+text, and sandbox logs are untrusted (potentially prompt-injected). Skills never
+obey instructions embedded in scanned content; the analyzer/reproducer operate
+on deterministic-script outputs, and the judge reviews evidence with provenance.
+**Stronger isolation** (e.g. microVMs) is a deferred eval, not a blocker.
+Rationale: PatchProof runs untrusted exploit code and ships patches, so it must
+not be less secure than the code it audits; secrets and host access stay out of
+the sandbox, and external content is never trusted as instructions.

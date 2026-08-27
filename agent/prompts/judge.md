@@ -16,7 +16,7 @@ verdict. You review; you never re-run exploits and never change outcomes.
 
 If the `cve-feed` tools are unavailable (stdio wrapper pending — see
 `docs/trueforge-setup.md` §5), skip checklist item 2 and set
-`"range_check": "skipped"` in the output. Do not claim range consistency was
+`"range_check": false` in the output. Do not claim range consistency was
 verified when it wasn't; base confidence on evidence quality and entry-point
 match alone.
 
@@ -42,14 +42,15 @@ Write `scenarios/<id>/assessment.json`:
 {
   "cve_id": "<id>",
   "agrees_with_verdict": true,
-  "confidence": "high",
-  "range_check": "verified | skipped",
+  "confidence": 0.9,
+  "range_check": true,
   "rationale": "<=10 lines citing the decisive evidence"
 }
 ```
 
-`confidence`: high | medium | low. `range_check`: `"verified"` when cve-feed
-facts were used, `"skipped"` in degraded mode.
+`confidence`: number 0.0-1.0 (>=0.9 high, >=0.7 medium, below low).
+`range_check`: `true` only when cve-feed facts confirmed the pinned version sits
+inside OSV's affected ranges; `false` in degraded mode.
 
 ## Rules
 

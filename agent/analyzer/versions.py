@@ -3,6 +3,10 @@
 Serves the dep-pin short-circuit: decide whether a repo's pinned version of a
 package falls inside an advisory's affected range. No external dependency;
 handles the common PEP 440-style specifiers used by OSV/CVE advisories.
+
+Prerelease semantics: ``1.0rc1`` sorts BEFORE ``1.0`` (a release candidate is
+older than the final release), so a ``< 1.0`` range includes vulnerable
+prereleases instead of wrongly marking them out of scope.
 """
 
 import re
@@ -10,49 +14,68 @@ from functools import total_ordering
 
 _NUM_RE = re.compile(r"(\d+|[a-zA-Z]+)")
 
+# Pre-release tokens ranked: a smaller rank sorts older.
+_PRE_RANK = {"dev": 0, "a": 1, "alpha": 1, "b": 2, "beta": 2, "pre": 2,
+             "preview": 2, "c": 3, "rc": 3}
+
+
+def _parse(text):
+    """Return (num_parts, pre_rank or None, pre_parts)."""
+    tokens = _NUM_RE.findall(str(text).strip().lower())
+    nums, pre, pre_nums = [], None, []
+    for tok in tokens:
+        if tok.isdigit():
+            (pre_nums if pre is not None else nums).append(int(tok))
+        elif pre is not None:
+            pre_nums.append(tok)
+        elif tok in _PRE_RANK:
+            pre = _PRE_RANK[tok]
+        else:
+            nums.append(tok)
+    return nums, pre, pre_nums
+
 
 @total_ordering
 class _Version:
     def __init__(self, text):
         self.text = text
-        self.parts = _parse_parts(text)
+        self.nums, self.pre, self.pre_nums = _parse(text)
 
     def __eq__(self, other):
-        return isinstance(other, _Version) and _compare(_to(other), self.parts) == 0
+        return _cmp(self, other) == 0
 
     def __lt__(self, other):
-        return isinstance(other, _Version) and _compare(_to(other), self.parts) < 0
+        return _cmp(self, other) < 0
 
     def __repr__(self):
         return f"Version({self.text!r})"
 
 
-def _to(other):
-    return other if isinstance(other, _Version) else _Version(other)
-
-
-def _compare(a, b):
-    """Compare two part-lists numerically where possible, lexically otherwise."""
+def _mixed_compare(a, b):
+    """Compare part lists holding ints and/or strings."""
     for x, y in zip(a, b):
         if x == y:
             continue
-        xnum = isinstance(x, int)
-        ynum = isinstance(y, int)
-        if xnum and ynum:
-            return -1 if x < y else 1
+        xnum, ynum = isinstance(x, int), isinstance(y, int)
         if xnum != ynum:
             return -1 if xnum else 1
         return -1 if x < y else 1
-    if len(a) == len(b):
-        return 0
-    return -1 if len(a) < len(b) else 1
+    return (len(a) > len(b)) - (len(a) < len(b))
 
 
-def _parse_parts(text):
-    parts = []
-    for raw in _NUM_RE.findall(str(text).strip()):
-        parts.append(int(raw) if raw.isdigit() else raw)
-    return parts
+def _cmp(a, b):
+    if not isinstance(b, _Version):
+        b = _Version(b)
+    c = _mixed_compare(a.nums, b.nums)
+    if c:
+        return c
+    if a.pre == b.pre:
+        return _mixed_compare(a.pre_nums, b.pre_nums)
+    if a.pre is None:
+        return 1
+    if b.pre is None:
+        return -1
+    return (a.pre > b.pre) - (a.pre < b.pre)
 
 
 def parse_version(text):
@@ -60,7 +83,7 @@ def parse_version(text):
 
 
 def _clause_matches(op, ver, pinned):
-    c = _compare(_to(pinned).parts, ver.parts)
+    c = _cmp(pinned, ver)
     if op == "==":
         return c == 0
     if op == "!=":
@@ -74,7 +97,8 @@ def _clause_matches(op, ver, pinned):
     if op == ">=":
         return c >= 0
     if op == "~=":
-        return c >= 0 and _to(pinned).parts[: max(1, len(ver.parts) - 1)] == ver.parts[: max(1, len(ver.parts) - 1)]
+        prefix = ver.nums[:max(1, len(ver.nums) - 1)]
+        return c >= 0 and pinned.nums[:len(prefix)] == prefix
     return True
 
 
