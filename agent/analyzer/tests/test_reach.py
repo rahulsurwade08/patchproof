@@ -597,7 +597,7 @@ def test_gen_context_accepts_python_listener_loop(tmp_path):
         "import tornado.ioloop\n"
         "import tornado.web\n"
         "app = tornado.web.Application([])\n"
-        "app.listen(8888)\n"
+        "app.listen(8888, '127.0.0.1')\n"
         "tornado.ioloop.IOLoop.current().start()\n"))
     result = gen_context.generate(str(repo), str(repo))
     assert result["start_command"] == ["python", "main.py"]
@@ -615,5 +615,31 @@ def test_unrelated_literal_after_call_not_static(tmp_path):
     rec, _ = _run(repo, tmp_path)
     # the checked-in literal is OUTSIDE the yaml.load(data) call span, and
     # the call's provenance is unknown — must not be a false NOT_REACHABLE
+    site = next(c for c in rec["call_sites_scanned"] if "yaml.load(data)" in c["symbol"])
+    assert site["input_source"] != "NOT_REACHABLE"
+
+
+def test_gen_context_rejects_all_interface_python_bind(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), (
+        "import tornado.ioloop\nimport tornado.web\n"
+        "app = tornado.web.Application([])\n"
+        "app.listen(8888)\n"
+        "tornado.ioloop.IOLoop.current().start()\n"))
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
+
+
+def test_comment_bracket_does_not_extend_call_span(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"), (
+        "import yaml\n"
+        "def handle(data):\n"
+        "    cfg = yaml.load(data)  # (\n"
+        "    other = yaml.safe_load(open('config.yaml'))\n"))
+    _write(os.path.join(repo, "config.yaml"), "k: v\n")
+    rec, _ = _run(repo, tmp_path)
     site = next(c for c in rec["call_sites_scanned"] if "yaml.load(data)" in c["symbol"])
     assert site["input_source"] != "NOT_REACHABLE"

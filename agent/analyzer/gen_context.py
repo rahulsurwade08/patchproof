@@ -103,6 +103,9 @@ _PY_SELF_SERVING_RE = re.compile(
     r"uvicorn\.run\(|run_app\(|app\.run\(|serve_forever\(|create_server\(|"
     r"make_server\(")
 _PY_LISTEN_RE = re.compile(r"\.listen\(")
+_PY_LISTEN_LOCAL_RE = re.compile(
+    r"\.listen\(\s*(?:\d+|['\"][\w.]+['\"])\s*,\s*['\"]"
+    r"(?:127\.0\.0\.1|localhost|::1)['\"]")
 _PY_LOOP_RE = re.compile(r"serve_forever\(|IOLoop|run_forever\(|\.start\(")
 _NODE_LISTEN_RE = re.compile(
     r"\.listen\(\s*(?:\d+|['\"][\w.]+['\"])\s*,\s*['\"]"
@@ -132,12 +135,24 @@ def _derive_start_command(entry, repo_path):
     except OSError:
         text = ""
     if runner == "python":
-        self_serving = (_PY_SELF_SERVING_RE.search(text)
-                        or (_PY_LISTEN_RE.search(text)
-                            and _PY_LOOP_RE.search(text)))
+        if _PY_LISTEN_RE.search(text):
+            # A .listen() must bind loopback explicitly (tornado-style
+            # binds default to all interfaces); runners like uvicorn.run/
+            # run_app/serve_forever default to 127.0.0.1 safely.
+            self_serving = (_PY_LISTEN_LOCAL_RE.search(text)
+                            and _PY_LOOP_RE.search(text))
+        else:
+            self_serving = _PY_SELF_SERVING_RE.search(text)
     else:
         self_serving = _NODE_LISTEN_RE.search(text)
     if not self_serving:
+        if runner == "python" and _PY_LISTEN_RE.search(text) and \
+                not _PY_LISTEN_LOCAL_RE.search(text):
+            raise ValueError(
+                f"cannot prove a safe serving command for {entry}: a "
+                f".listen() call exists but does not bind 127.0.0.1/"
+                f"localhost — sandbox services must bind loopback only; "
+                f"fix the bind or supply the startup command explicitly")
         if runner == "node":
             if ".listen(" in text:
                 raise ValueError(

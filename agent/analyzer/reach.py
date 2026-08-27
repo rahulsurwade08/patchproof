@@ -183,27 +183,46 @@ def _file_is_code(fname):
 _CONTEXT_WINDOW = 8
 
 
-def _call_span(lines, lineno, max_lines=30):
+def _call_span(lines, lineno, lang="py", max_lines=30):
     """Return the vulnerable call's actual expression text: the call line
-    plus continuation lines until delimiters balance (string literals and
-    escapes are skipped while counting). Bounds the evidence to the call
-    itself instead of a fixed number of following lines."""
+    plus continuation lines until delimiters balance. String literals,
+    escapes, and COMMENTS (py #..., js //... and /*...*/) are skipped while
+    counting, so bracket characters in comments cannot extend the span."""
     span = [lines[lineno - 1]]
+    state = {"quote": None, "block": False}
 
     def net_depth(text, depth):
-        quote = None
         i = 0
         while i < len(text):
             ch = text[i]
-            if quote:
+            if state["block"]:
+                if text[i:i + 2] == "*/":
+                    state["block"] = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if state["quote"]:
                 if ch == "\\":
                     i += 2
                     continue
-                if ch == quote:
-                    quote = None
-            elif ch in "'\"":
-                quote = ch
-            elif ch in "([{":
+                if ch == state["quote"]:
+                    state["quote"] = None
+                i += 1
+                continue
+            if lang == "js" and text[i:i + 2] in ("//", "/*"):
+                if text[i:i + 2] == "/*":
+                    state["block"] = True
+                    i += 2
+                    continue
+                return depth  # // comment: rest of line ignored
+            if lang == "py" and ch == "#":
+                return depth  # comment: rest of line ignored
+            if ch in "'\"":
+                state["quote"] = ch
+                i += 1
+                continue
+            if ch in "([{":
                 depth += 1
             elif ch in ")]}":
                 depth -= 1
@@ -253,7 +272,8 @@ def _find_call_sites(repo_path, funcs, pkg):
                 window = "".join(lines[lineno:lineno + _CONTEXT_WINDOW])
                 # Continuation lines: a multiline call's own arguments live
                 # here, so checked-in literals on them count for the call.
-                span = _call_span(lines, lineno)
+                lang = "js" if fname.endswith((".js", ".ts", ".jsx", ".tsx")) else "py"
+                span = _call_span(lines, lineno, lang)
                 if _is_direct_call(line, funcs, pkg):
                     direct.append(_collected_site(rel, lineno, line, context + window, span))
                 elif pkg and _is_pkg_reference(line, pkg):
