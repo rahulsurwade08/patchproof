@@ -403,10 +403,35 @@ def test_gen_context_nested_npm_project(tmp_path):
     result = gen_context.generate(str(repo), str(repo))
     assert result["entry"] == os.path.join("frontend", "server.js")
     dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert "COPY frontend/package.json frontend/package.json" in dockerfile
-    assert "COPY frontend/package-lock.json frontend/package-lock.json" in dockerfile
+    assert 'COPY ["frontend/package.json", "frontend/package.json"]' in dockerfile
+    assert 'COPY ["frontend/package-lock.json", "frontend/package-lock.json"]' in dockerfile
     assert "RUN cd frontend && npm ci" in dockerfile
     assert 'CMD ["node", "frontend/server.js"]' in dockerfile
+
+
+def test_gen_context_persists_start_command(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), "print('hi')\n")
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["start_command"] == ["python", "main.py"]
+    ctx_file = os.path.join(str(repo), "patchproof-build-context.json")
+    assert os.path.isfile(ctx_file)
+    saved = json.load(open(ctx_file, encoding="utf-8"))
+    assert saved["start_command"] == ["python", "main.py"]
+    assert saved["build_context"] == os.path.abspath(str(repo))
+
+
+def test_gen_context_quoting_survives_spaces(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "front end", "package.json"), json.dumps(
+        {"dependencies": {"yaml": "1.10.0"}}))
+    _write(os.path.join(repo, "front end", "server.js"), "console.log('hi')\n")
+    gen_context.generate(str(repo), str(repo))
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    assert 'COPY ["front end/package.json", "front end/package.json"]' in dockerfile
+    assert "RUN cd 'front end' && npm install" in dockerfile
+    assert 'CMD ["node", "front end/server.js"]' in dockerfile
 
 
 def test_gen_context_fails_without_entry(tmp_path):

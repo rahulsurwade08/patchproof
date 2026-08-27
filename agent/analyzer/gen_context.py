@@ -21,6 +21,7 @@ Never runs exploit code; this only generates build context.
 import argparse
 import json
 import os
+import shlex
 import shutil
 import sys
 
@@ -56,22 +57,28 @@ def _detect_manifest(repo_path):
     return None, None
 
 
+def _copy(src, dst=None):
+    """Dockerfile JSON-array COPY — safe for paths with spaces/metachars."""
+    dst = dst or src
+    return "COPY " + json.dumps([src, dst])
+
+
 def _install_block(manifest_name, manifest_rel, ctx_root):
     if manifest_name == "requirements":
-        return [f"COPY {manifest_rel} {manifest_rel}",
-                f"RUN pip install --no-cache-dir -r {manifest_rel}"]
+        return [_copy(manifest_rel),
+                f"RUN pip install --no-cache-dir -r {shlex.quote(manifest_rel)}"]
     if manifest_name == "package.json":
         manifest_dir = os.path.dirname(manifest_rel)
         lockfiles = [f for f in ("package-lock.json", "npm-shrinkwrap.json",
                                  "yarn.lock", "pnpm-lock.yaml")
                      if os.path.isfile(os.path.join(ctx_root, manifest_dir, f))]
-        lines = [f"COPY {manifest_rel} {manifest_rel}"]
-        lines += [f"COPY {os.path.join(manifest_dir, f) if manifest_dir else f} {os.path.join(manifest_dir, f) if manifest_dir else f}"
+        lines = [_copy(manifest_rel)]
+        lines += [_copy(os.path.join(manifest_dir, f) if manifest_dir else f)
                   for f in lockfiles]
         install = "npm ci --omit=dev" if lockfiles else "npm install --omit=dev"
         # Manifest scanning is recursive: the Node project root is the
         # manifest's directory, not necessarily the context root.
-        lines.append(f"RUN cd {manifest_dir} && {install}" if manifest_dir
+        lines.append(f"RUN cd {shlex.quote(manifest_dir)} && {install}" if manifest_dir
                      else f"RUN {install}")
         return lines
     if manifest_name == "pyproject.toml":
@@ -134,14 +141,23 @@ def generate(repo_path, out_dir=None, force=False):
                            "venv", ".venv", "__pycache__", "node_modules",
                            "data", "output")) + "\n", force)
 
-    return {
+    # The sandbox start command overrides the Dockerfile CMD, so persist the
+    # validated startup command for the reproducer to consume (it cannot
+    # assume `uvicorn main:app` for arbitrary repos).
+    start_command = [runner, entry]
+    context_record = {
         "dockerfile": os.path.join(out_dir, "Dockerfile"),
         "base_image": base,
         "entry": entry,
+        "start_command": start_command,
         "dependency_manifest": manifest_path,
         "build_context": out_dir,
         "generated": True,
     }
+    _write_file(os.path.join(out_dir, "patchproof-build-context.json"),
+                json.dumps(context_record, indent=2, ensure_ascii=False) + "\n", force)
+
+    return context_record
 
 
 def main(argv=None):

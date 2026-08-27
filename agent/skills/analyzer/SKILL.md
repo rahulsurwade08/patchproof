@@ -61,7 +61,12 @@ python agent/analyzer/gen_context.py <repo-path> [--out <dir>]
 It derives a minimal `Dockerfile` + entry from the repo layout (fixes the
 dvpwa `context_path` gap) and **fails explicitly** when no runnable entry can
 be derived — it never emits a Dockerfile pointing at a phantom entry file.
-Confirm the generated entry point is the real app before building.
+Confirm the generated entry point is the real app before building, then
+**persist the generator's JSON output (contains the validated
+`start_command`) to `data/output/<repo>/build-context.json`** and hand that
+start command to the reproducer: sandbox startup overrides the Dockerfile
+`CMD`, so the reproducer MUST launch the service with this command instead of
+assuming `uvicorn main:app` (scenario-fixture default only).
 
 ## Rules
 
