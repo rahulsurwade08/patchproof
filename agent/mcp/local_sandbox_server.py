@@ -129,15 +129,31 @@ def start_container(name, network="none", image=IMAGE):
             "--cpus", "1",
             "-w", "/srv",
             image,
-            "sh", "-c", "sleep infinity",
+            # busybox-safe AND indefinite: `sleep infinity` is rejected by
+            # old busybox (alpine3.8), and a single bounded sleep would
+            # expire long sessions — a loop is neither.
+            "sh", "-c", "while :; do sleep 3600; done",
         ])
+        last_state = "unknown"
         if started["code"] == 0:
-            return
+            # Verify it actually STAYS up: old busybox (alpine3.8) rejects
+            # `sleep infinity`, which would exit the container immediately
+            # and leave exec with "container is not running".
+            import time
+            time.sleep(0.5)
+            inspect = docker(["inspect", "-f",
+                              "{{.State.Running}} {{.State.ExitCode}}", name])
+            last_state = inspect["stdout"].strip() or last_state
+            if inspect["code"] == 0 and last_state.startswith("true"):
+                return
         # Another caller may have created it between our rm and run — re-check.
         inspect = docker(["inspect", "-f", "{{.State.Running}}", name])
         if inspect["code"] == 0 and inspect["stdout"].strip() == "true":
             return
-    raise RuntimeError(f"failed to start container {name} after 3 attempts")
+        last_state = inspect["stdout"].strip() or last_state
+    raise RuntimeError(
+        f"failed to start container {name} after 3 attempts "
+        f"(last state: {last_state})")
 
 
 def ensure_container(session, network="none", image=IMAGE):
