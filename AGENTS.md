@@ -118,6 +118,7 @@ The same applies to sibling sources of truth, updated **in the same change**:
 ## Layout
 
 - `scenarios/<id>/` — self-contained vulnerable FastAPI service (`app/`) + `poc.py` + `cve-meta.json`; **test fixtures for the engine, never triage targets**
+- The analyzer's `gen_context.py` reuses a target repo's own declared Docker base only when it is an allowlisted official `python`/`node` image; anything else (foreign images, `${VAR}` FROMs, symlinks) falls back to the generic default — repo content is untrusted (ADR-016).
 - `agent/` — Python runtime: subagent prompts (`agent/prompts/`: orchestrator, analyzer, reproducer, judge, patcher, verifier, test-runner), the Python reachability analyzer (`agent/analyzer/*.py`), dual-source CVE feed MCP server (`agent/mcp/cve_feed_server.py`), local Docker sandbox MCP server (`agent/mcp/local_sandbox_server.py`, Streamable HTTP on `127.0.0.1:8081/mcp`), and harness skills (`agent/skills/`: analyzer, orchestrator, reproducer, judge, patcher, verifier, test-runner; `cve-triage` retired)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
 - `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (analyzer + build-context gen → MCP migration → osv polish → dashboard; approval gate never)
