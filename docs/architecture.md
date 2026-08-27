@@ -1,5 +1,14 @@
 # Architecture
 
+## Core Principle: Harness-Only Execution
+
+**ALL testing, exploitation, and verification happens through the MCP sandbox harness.** This is the product's core value proposition — proving CVE exploitability in an isolated sandbox, never on the host.
+
+- Orchestrator coordinates; subagents execute via `sandbox_build`/`sandbox_exec`/`sandbox_write`/`sandbox_read`/`sandbox_stop`
+- Never build Docker images, run pip install, or execute Python scripts directly on the host
+- When subagents fail, find another way through the harness — don't fall back to local execution
+- The only exception: `scripts/run_poc_local.sh` is the CI/human path, not the product path
+
 ## Pipeline
 
 ```

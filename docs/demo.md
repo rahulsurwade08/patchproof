@@ -2,6 +2,8 @@
 
 End-to-end run of PatchProof. Everything is localhost-only; nothing hosted.
 
+**CRITICAL: All execution goes through the MCP sandbox harness.** The orchestrator coordinates; subagents execute via `sandbox_build`/`sandbox_exec`/`sandbox_write`/`sandbox_read`/`sandbox_stop`. Never run exploits, build Docker images, or execute code directly on the host.
+
 ## 0. Prerequisites
 
 - `.env` filled from `.env.example` (OpenRouter key, GitHub token)

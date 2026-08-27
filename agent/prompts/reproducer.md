@@ -32,3 +32,4 @@ run exploit code on the host.
   environment, not the payload. Payload changes require cve-meta justification.
 - Max 3 attempts total, then return FAILED with the blocking reason.
 - Raw output goes to sandbox files; you quote only the decisive lines.
+- **NEVER fall back to local execution** — if sandbox tools fail, report the failure to the orchestrator. Do not run Docker commands, pip install, or Python scripts directly on the host. The harness is the product.
