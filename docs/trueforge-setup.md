@@ -65,8 +65,9 @@ Attach the `local-sandbox` server to **every agent that executes code**
 
 MCP servers in TrueForge are remote-URL only (header auth / OAuth); local stdio
 servers are not supported. Our dual-source feed server
-(`agent/mcp/cve-feed-server/index.mjs`) speaks stdio and therefore needs an
-HTTP (streamable) transport wrapper before it can be registered.
+(`agent/mcp/cve_feed_server.py` — Python port; the Node `index.mjs` was
+retired in PR #26) speaks stdio and therefore needs an HTTP (streamable)
+transport wrapper before it can be registered in TrueForge.
 
 Tools it exposes:
 

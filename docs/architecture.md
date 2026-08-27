@@ -59,7 +59,7 @@
 | Judge | `agent/prompts/judge.md` | LLM-as-a-judge: reviews verdict evidence quality/consistency, writes `assessment.json`, never flips outcomes |
 | Patcher | `agent/prompts/patcher.md` | Dependency bump + test suite in sandbox + evidence PR |
 | Verifier | `agent/prompts/verifier.md` | Post-approval re-verification against staging |
-| cve-feed | `agent/mcp/cve_feed_server.py` (Python; **migrating from** `index.mjs`) | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
+| cve-feed | `agent/mcp/cve_feed_server.py` (Python stdio; Node `index.mjs` retired in PR #26) | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
 | github-mcp | GitHub connector from the TrueForge catalog (`docs/trueforge-setup.md`) | Repos, PRs, evidence comments |
 | local-sandbox | `agent/mcp/local_sandbox_server.py` (Python; **migrating from** `index.mjs`, Streamable HTTP, `127.0.0.1:8081/mcp`) | Keyless execution sandbox: `sandbox_build` + `sandbox_exec/write/read/stop` (offline) |
 | Test-runner | `agent/prompts/test-runner.md` + `scripts/run_gate_before_push.sh` + `scripts/install-hooks.sh` | Subagent gate: `sandbox_build` image + `sandbox_exec` pytest + PoC → `test_gate.json`; tracked pre-push hook installer |
