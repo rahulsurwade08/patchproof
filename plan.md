@@ -54,7 +54,9 @@ loop empirically, per (repo + advisory):
 6. **Judge** — LLM reviews evidence quality and range consistency; annotates
    (`assessment.json`) but never flips the outcome.
 7. **Approval gate** — deploying the fix to staging is irreversible → agent pauses
-   for human approval (never skippable).
+   for human approval (never skippable). Patch PRs themselves are merged by the
+   agent once Qodo-clean + tests green + traceability posted (merge authority,
+   2026-08-27); staging deploy approval stays human-only.
 8. **Verifier** — after approval, re-runs the original PoC against staging to
    confirm the vulnerability is dead.
 9. **Teardown (hard rule)** — after each run, `sandbox_stop` the session container
@@ -317,8 +319,10 @@ target and must not be less secure than the code it audits.
 
 **Supply chain & the patches we ship**
 - Pinned versions in our own lockfiles; auto-generated patches run the test
-  suite, Qodo review, and the human approval gate before merge — a poisoned
-  "fix" is caught before shipping. Runs never auto-merge without approval.
+  suite and Qodo review before merge — a poisoned "fix" is caught before
+  shipping. Patch PRs merge only when Qodo-clean + tests green + traceability posted +
+  README evidence current (merge authority, 2026-08-27); the staging-deploy
+  approval gate is never skipped.
 
 **Host hygiene**
 - Python MCP servers bind to `127.0.0.1` only and refuse unknown/uninvited

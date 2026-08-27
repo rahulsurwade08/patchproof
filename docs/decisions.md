@@ -132,8 +132,13 @@ Changes land in small, intermittent PRs (not one large diff) so each is easy to
 understand and to Qodo-review. After a PR opens, load `qodo-get-rules` before
 coding and `qodo-pr-resolver` when resolving findings; after each finding is
 fixed, reply on the thread and send `/review`, looping until Qodo reports clean
-code before the human merges. Rationale: smaller diffs review faster and catch
-issues earlier; the loop keeps every PR clean before merge.
+code before merge. **Amended 2026-08-27 (maintainer grant):** the agent merges
+the PR itself once (a) Qodo reports clean, (b) the test suite passes, and (c)
+the traceability record AND the README "Qodo Code Review Evidence" entry are
+posted — using a merge commit. The staging-deploy approval gate remains
+human-only, and the maintainer may take over any merge at any time.
+Rationale: smaller diffs review faster and catch issues earlier; the loop
+keeps every PR clean before merge.
 
 ## ADR-014 — Lean run-graph (run spec + status store), no graph framework
 **Status:** accepted
