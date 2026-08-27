@@ -48,6 +48,29 @@ def _find_entry(repo_path):
     return None
 
 
+def _detect_base_image(repo_path):
+    """Reuse the base the repo itself declares (Dockerfile*, first FROM).
+
+    Legacy apps (e.g. dvpwa) pin python:alpine3.8-era bases their
+    requirements actually build on; a generic python:3.11-slim default would
+    fail those installs. Falls back to None (caller picks the default).
+    """
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in _SKIP]
+        for fname in files:
+            if not (fname == "Dockerfile" or fname.startswith("Dockerfile.")):
+                continue
+            try:
+                with open(os.path.join(root, fname), encoding="utf-8",
+                          errors="replace") as fh:
+                    for line in fh:
+                        if line.startswith("FROM "):
+                            return line.split(None, 1)[1].strip()
+            except OSError:
+                continue
+    return None
+
+
 def _detect_manifest(repo_path):
     found = deps.scan_repo(repo_path)
     for kind in ("requirements", "pyproject.toml", "package.json"):
@@ -205,7 +228,8 @@ def generate(repo_path, out_dir=None, force=False):
             f"explicitly instead of generating a Dockerfile that cannot start")
     manifest_name, manifest_path = _detect_manifest(repo_path)
     is_py = entry.endswith(".py")
-    base = "python:3.11-slim" if is_py else "node:20-slim"
+    base = _detect_base_image(repo_path) or (
+        "python:3.11-slim" if is_py else "node:20-slim")
     runner = "python" if is_py else "node"
     start_command = _derive_start_command(entry, repo_path)
 

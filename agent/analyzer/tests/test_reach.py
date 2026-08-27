@@ -464,6 +464,18 @@ def test_gen_context_fails_without_serving_command(tmp_path):
         gen_context.generate(str(repo), str(repo))
 
 
+def test_gen_context_reuses_repo_declared_base(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo, body="old-pin==1.0\n")
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:alpine3.8\nRUN echo legacy\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["base_image"] == "python:alpine3.8"
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    assert dockerfile.startswith("FROM python:alpine3.8")
+
+
 def test_gen_context_fails_without_entry(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
