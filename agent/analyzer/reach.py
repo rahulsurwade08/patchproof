@@ -262,16 +262,24 @@ def _checked_in_file_literal(context, site_rel, repo_path):
 
 
 def _classify_site(site, repo_path):
-    """Classify a call site's input source using its context window.
+    """Classify a call site's input source.
 
-    Returns REACHABLE / NOT_REACHABLE / UNKNOWN. Checked-in file evidence
-    wins over generic indicator substrings; network provenance must match a
-    concrete source expression; everything else stays UNKNOWN.
+    Returns REACHABLE / NOT_REACHABLE / UNKNOWN. Static evidence is tied to
+    the vulnerable call's own line (a quoted checked-in file literal in the
+    call arguments); network provenance matches concrete source expressions
+    anywhere in the context window. When both appear — or neither does — the
+    site is UNKNOWN: conflicting or missing evidence never disables
+    sandboxing.
     """
-    context = site.get("context") or site["symbol"]
-    if _checked_in_file_literal(context, site["file"], repo_path):
+    call_line = site["symbol"]
+    context = site.get("context") or call_line
+    has_static = _checked_in_file_literal(call_line, site["file"], repo_path)
+    has_network = any(rx.search(context) for rx in _NETWORK_RES)
+    if has_static and has_network:
+        return "UNKNOWN"
+    if has_static:
         return "NOT_REACHABLE"
-    if any(rx.search(context) for rx in _NETWORK_RES):
+    if has_network:
         return "REACHABLE"
     return "UNKNOWN"
 
@@ -337,6 +345,10 @@ def _select_dep(repo_path, packages):
 
 
 def reach(repo_path, advisory, out_dir):
+    # Normalize once: realpath comparisons inside the trace require an
+    # absolute root, and relative CLI args (".", "sub/../repo") must not
+    # crash the containment check.
+    repo_path = os.path.realpath(os.path.abspath(repo_path))
     packages = advisory.get("packages") or []
     record = {
         "cve_id": advisory["cve_id"],
