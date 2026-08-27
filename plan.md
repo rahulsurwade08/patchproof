@@ -320,8 +320,9 @@ target and must not be less secure than the code it audits.
 **Supply chain & the patches we ship**
 - Pinned versions in our own lockfiles; auto-generated patches run the test
   suite and Qodo review before merge — a poisoned "fix" is caught before
-  shipping. Patch PRs merge only when Qodo-clean + tests green (merge
-  authority, 2026-08-27); the staging-deploy approval gate is never skipped.
+  shipping. Patch PRs merge only when Qodo-clean + tests green + traceability posted +
+  README evidence current (merge authority, 2026-08-27); the staging-deploy
+  approval gate is never skipped.
 
 **Host hygiene**
 - Python MCP servers bind to `127.0.0.1` only and refuse unknown/uninvited

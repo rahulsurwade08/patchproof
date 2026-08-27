@@ -78,8 +78,8 @@ must be running and attached to each executing subagent.
     - `exploitable: false` → write state CLOSED as NOT AFFECTED with the
       evidence line. This is a first-class outcome, not a failure.
 11. **Gate** — after the patcher's PR is Qodo-clean + tests green +
-    traceability posted, merge it (merge authority, 2026-08-27) and delete
-    its branch. Then STOP: staging deploy is irreversible — ask the human
+    traceability posted AND its README "Qodo Code Review Evidence" entry is
+    current, merge it (merge authority, 2026-08-27) and delete its branch. Then STOP: staging deploy is irreversible — ask the human
     for explicit deploy approval. Do not deploy without an explicit yes.
 12. **Verify** — after human deploy approval and deploy, hand to verifier.
     Report final status in ≤10 lines.
