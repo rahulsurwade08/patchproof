@@ -93,9 +93,12 @@ _COPY_IGNORE = (".git", "venv", ".venv", "__pycache__", "node_modules",
 
 # Evidence the entry starts its own server loop (safe to exec directly) —
 # Python and Node alike.
-_SELF_SERVING_RE = re.compile(
-    r"uvicorn\.run\(|run_app\(|app\.run\(|\.listen\(|serve_forever\(|"
-    r"create_server\(|createServer\(|fastify\(|new\s+Server\(")
+# Server-loop evidence. Python: dedicated server-runner calls. Node: ONLY an
+# explicit .listen() call proves serving — createServer()/fastify() alone
+# construct without listening and the process would exit.
+_PY_SELF_SERVING_RE = re.compile(
+    r"uvicorn\.run\(|run_app\(|app\.run\(|serve_forever\(|create_server\(")
+_NODE_LISTEN_RE = re.compile(r"\.listen\(")
 # Evidence the entry exposes an ASGI/WSGI application object (needs a server
 # launcher — `python entry.py` would define the app and exit).
 _APP_OBJECT_RE = re.compile(
@@ -120,7 +123,9 @@ def _derive_start_command(entry, repo_path):
             text = fh.read()
     except OSError:
         text = ""
-    if not _SELF_SERVING_RE.search(text):
+    self_serving = (_NODE_LISTEN_RE.search(text) if runner == "node"
+                    else _PY_SELF_SERVING_RE.search(text))
+    if not self_serving:
         if runner == "node":
             raise ValueError(
                 f"cannot prove a serving command for {entry}: the script "
@@ -179,12 +184,14 @@ def generate(repo_path, out_dir=None, force=False):
         copy_rest = ["COPY . /srv"]
 
     lines = [f"FROM {base}", "WORKDIR /srv"]
-    lines += install_lines + copy_rest
     if start_command[0] == "uvicorn":
         # App-object derivation emits a uvicorn launch, but the repo's own
-        # requirements may not include it — install the launcher explicitly
-        # or the persisted command fails on first use.
+        # requirements may not include it. Install BEFORE the repo deps so a
+        # pinned uvicorn (uvicorn==0.29.0) re-asserts itself during
+        # `pip install -r requirements.txt` and the vulnerable environment
+        # stays intact; only a repo that never pins uvicorn keeps ours.
         lines.append('RUN pip install --no-cache-dir "uvicorn>=0.30"')
+    lines += install_lines + copy_rest
     lines.append(f"CMD {json.dumps(start_command)}")
 
     _write_file(os.path.join(out_dir, "Dockerfile"), "\n".join(lines) + "\n", force)

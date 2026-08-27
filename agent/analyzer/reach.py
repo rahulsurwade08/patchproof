@@ -183,9 +183,10 @@ def _file_is_code(fname):
 _CONTEXT_WINDOW = 8
 
 
-def _collected_site(rel, lineno, line, context):
+def _collected_site(rel, lineno, line, context, continuation):
     return {"file": rel, "line": lineno, "symbol": line.strip()[:160],
-            "context": (context or line).strip()[:600]}
+            "context": (context or line).strip()[:600],
+            "continuation": (continuation or "").strip()[:300]}
 
 
 def _find_call_sites(repo_path, funcs, pkg):
@@ -213,10 +214,13 @@ def _find_call_sites(repo_path, funcs, pkg):
                 if low.lstrip().startswith(("def ", "async def ", "@app.", "@router.", "@bp.")):
                     context = line
                 window = "".join(lines[lineno:lineno + _CONTEXT_WINDOW])
+                # Continuation lines: a multiline call's own arguments live
+                # here, so checked-in literals on them count for the call.
+                continuation = "".join(lines[lineno:lineno + 2])
                 if _is_direct_call(line, funcs, pkg):
-                    direct.append(_collected_site(rel, lineno, line, context + window))
+                    direct.append(_collected_site(rel, lineno, line, context + window, continuation))
                 elif pkg and _is_pkg_reference(line, pkg):
-                    pkg_sites.append(_collected_site(rel, lineno, line, context + window))
+                    pkg_sites.append(_collected_site(rel, lineno, line, context + window, continuation))
     return direct, pkg_sites
 
 
@@ -273,7 +277,10 @@ def _classify_site(site, repo_path):
     """
     call_line = site["symbol"]
     context = site.get("context") or call_line
-    has_static = _checked_in_file_literal(call_line, site["file"], repo_path)
+    # Static evidence covers the call line and its immediate continuation
+    # (multiline calls), NOT the whole window.
+    has_static = _checked_in_file_literal(
+        call_line + "\n" + site.get("continuation", ""), site["file"], repo_path)
     has_network = any(rx.search(context) for rx in _NETWORK_RES)
     if has_static and has_network:
         return "UNKNOWN"

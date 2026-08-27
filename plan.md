@@ -171,6 +171,10 @@ Honesty rules (ADR-010):
 - `NOT_REACHABLE` requires the input source be identified and non-attacker-controlled.
 - **No hardcoded CVE data; no scenario fallback.**
 - Every report carries the coverage/source disclaimer.
+- Static evidence is tied to the vulnerable call's own arguments (call line +
+  immediate multiline continuation); **conflicting evidence — static literal
+  and network provenance both present — resolves to `UNKNOWN` and gates
+  sandbox time**, never to `NOT_REACHABLE`.
 
 ## 6. Run graph (lean orchestration, no framework)
 

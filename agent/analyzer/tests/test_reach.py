@@ -543,3 +543,37 @@ def test_cmd_json_escapes_sensitive_entry_paths(tmp_path):
     import json as j
     parsed = j.loads(cmd_line[4:])
     assert parsed[0] == "python"
+
+
+def test_gen_context_rejects_node_constructor_without_listen(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "package.json"), json.dumps(
+        {"dependencies": {"express": "4.19.0"}}))
+    _write(os.path.join(repo, "server.js"),
+           "const http = require('http');\nhttp.createServer(() => {});\n")
+    with pytest.raises(ValueError):
+        gen_context.generate(str(repo), str(repo))
+
+
+def test_multiline_static_call_not_reachable(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "loader.py"), (
+        "import yaml\n"
+        "cfg = yaml.load(\n"
+        "    open('config.yaml'))\n"))
+    _write(os.path.join(repo, "config.yaml"), "k: v\n")
+    rec, _ = _run(repo, tmp_path)
+    assert rec["verdict"] == "NOT_REACHABLE"
+    assert rec["needs_sandbox"] is False
+
+
+def test_uvicorn_launcher_install_precedes_repo_deps(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo, body="fastapi==0.115.0\nuvicorn==0.29.0\n")
+    _write(os.path.join(repo, "main.py"),
+           "from fastapi import FastAPI\napp = FastAPI()\n")
+    gen_context.generate(str(repo), str(repo))
+    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
+    assert dockerfile.index("pip install --no-cache-dir \"uvicorn") < \
+        dockerfile.index("pip install --no-cache-dir -r")
