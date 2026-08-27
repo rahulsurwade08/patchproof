@@ -54,7 +54,7 @@ def _find_entry(repo_path):
 # untrusted (ADR-016) and must not pick executable image content such as a
 # database or arbitrary registry image for the sandbox runtime.
 _BASE_ALLOWLIST_RE = re.compile(
-    r"^(python|node)(:[\w.\-]+)?(@sha256:[A-Za-z0-9]+)?$")
+    r"^(python|node)(:[A-Za-z0-9][A-Za-z0-9._-]*)?(@sha256:[a-f0-9]{64})?$")
 _FROM_RE = re.compile(r"^\s*FROM\s+(\S+)", re.I)
 # Marker written into every generated Dockerfile so the detector skips our
 # own artifacts on re-runs (a generated file must never become the source
@@ -68,7 +68,7 @@ def _detect_base_image(repo_path, entry_lang):
     Priority: the canonical `Dockerfile`, then runtime-suffixed variants
     (`.app`/`.web`/...) — never a db/builder file. A candidate is accepted
     only when its first FROM resolves to an allowlisted python/node image
-    matching the entry language; `FROM \${VAR}` is unresolvable here and is
+    matching the entry language; `FROM ${VAR}` is unresolvable here and is
     skipped. Legacy apps (e.g. dvpwa) pin python:alpine3.8-era bases their
     requirements actually build on; a generic default would fail those.
     """
