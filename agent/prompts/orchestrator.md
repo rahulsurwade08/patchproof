@@ -63,7 +63,7 @@ investigation. You coordinate; subagents execute.
 image (`python:3.11-slim`) does not contain scenario dependencies — omitting
 `image` silently creates an empty container.
 
-The `local-sandbox` server (`python agent/mcp/local_sandbox_server.py &`)
+The `local-sandbox` server (`python3 agent/mcp/local_sandbox_server.py &`)
 must be running and attached to each executing subagent.
 
 9. **Judge** — for each verdict, spawn the judge subagent

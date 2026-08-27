@@ -38,7 +38,7 @@ Code execution runs through our own keyless sandbox MCP server (no cloud
 providers, no accounts):
 
 ```bash
-python agent/mcp/local_sandbox_server.py &   # serves http://127.0.0.1:8081/mcp
+python3 agent/mcp/local_sandbox_server.py &   # serves http://127.0.0.1:8081/mcp
 ```
 
 Register it once (remote-URL server, no auth):

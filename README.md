@@ -92,7 +92,7 @@ Docker containers with networking disabled, one per investigation (service and
 PoC share it). Zero cloud accounts. Start it before a harness run:
 
 ```bash
-python agent/mcp/local_sandbox_server.py &
+python3 agent/mcp/local_sandbox_server.py &
 ```
 
 Requires only Docker. See [docs/trueforge-setup.md](docs/trueforge-setup.md).
