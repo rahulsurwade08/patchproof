@@ -124,6 +124,22 @@ def test_osv_get_quotes_vuln_id(monkeypatch):
     assert "GHSA%3Fa%3Db" in captured["url"]
 
 
+def test_stdio_server_replies_to_explicit_null_id():
+    reqs = [
+        json.dumps({"jsonrpc": "2.0", "id": None, "method": "initialize",
+                    "params": {}}) + "\n",
+        json.dumps({"jsonrpc": "2.0", "method": "notifications/x"}) + "\n",
+    ]
+    proc = _spawn(reqs)
+    assert proc.returncode == 0, proc.stderr[-300:]
+    replies = [json.loads(l) for l in proc.stdout.strip().splitlines()]
+    # explicit "id": null is a real request (answered with id null); the
+    # key-less notification is ignored
+    assert len(replies) == 1
+    assert replies[0]["id"] is None
+    assert replies[0]["result"]["protocolVersion"] == "2024-11-05"
+
+
 def test_stdio_server_ignores_non_object_json():
     reqs = [
         json.dumps([1, 2, 3]) + "\n",      # valid JSON array: ignored

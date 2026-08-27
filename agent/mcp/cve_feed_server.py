@@ -275,8 +275,10 @@ def main():
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(msg, dict) or msg.get("id") is None:
+        if not isinstance(msg, dict) or "id" not in msg:
             continue  # notifications and non-object payloads: ignore
+        # NOTE: an explicit JSON-RPC "id": null is a real request — the
+        # retired Node server replied to it with id: null; keep that fidelity.
         try:
             result = dispatch(msg.get("method"), msg.get("params") or {})
             _send({"jsonrpc": "2.0", "id": msg["id"], "result": result})
