@@ -110,4 +110,15 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import signal
+
+    def _timeout_handler(signum, frame):
+        print("PoC exceeded 60s hard timeout", file=sys.stderr)
+        sys.exit(4)
+
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(60)
+    try:
+        sys.exit(main())
+    finally:
+        signal.alarm(0)
