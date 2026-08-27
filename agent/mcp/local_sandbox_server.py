@@ -141,6 +141,12 @@ def start_container(name, network="none", image=IMAGE):
 
 
 def ensure_container(session, network="none", image=IMAGE):
+    if network != "none":
+        # Enforce BEFORE the reuse path: an existing container created with a
+        # named network must never be silently reused for offline work.
+        raise RuntimeError(
+            "only network 'none' is permitted for sandbox runtime containers; "
+            "sandbox_exec/sandbox_write must stay offline (isolation contract)")
     name = container_name(session)
 
     def ensure():
@@ -326,12 +332,14 @@ def tool_call(name, args=None):
                 ctx_root = os.path.realpath(tmp_dir)
                 for rel, content in files.items():
                     rel = str(rel)
-                    if os.path.isabs(rel) or rel.startswith("..") \
-                            or ".." in rel.split("/"):
+                    if os.path.isabs(rel):
                         raise RuntimeError(
                             f"files key escapes build context: {rel}")
+                    # realpath + prefix check is the real guard: it accepts
+                    # dot-prefixed names like '..env' while rejecting any
+                    # key that actually resolves outside the context.
                     dest = os.path.realpath(os.path.join(tmp_dir, rel))
-                    if not dest.startswith(ctx_root + os.sep):
+                    if dest != ctx_root and not dest.startswith(ctx_root + os.sep):
                         raise RuntimeError(
                             f"files key escapes build context: {rel}")
                     os.makedirs(os.path.dirname(dest) or ctx_root,

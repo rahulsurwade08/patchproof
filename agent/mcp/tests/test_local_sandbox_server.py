@@ -124,6 +124,35 @@ def test_runtime_container_rejects_named_network(monkeypatch):
                                        "network": "infra_default"})
 
 
+def test_named_network_rejected_even_on_reuse(monkeypatch):
+    """A leftover network-connected container must never be reused."""
+    called = {"inspect": False}
+
+    def fake_docker(args, timeout_ms=120000, input_text=None):
+        called["inspect"] = True
+        return {"code": 0, "stdout": "true\\n", "stderr": ""}
+
+    monkeypatch.setattr(srv, "docker", fake_docker)
+    with pytest.raises(RuntimeError):
+        srv.ensure_container("s", "infra_default", srv.IMAGE)
+    assert not called["inspect"]  # rejected before any reuse check
+
+
+def test_build_allows_dot_prefixed_filenames(monkeypatch, tmp_path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11-slim\n")
+    captured = {}
+
+    def fake_docker(args, timeout_ms=120000, input_text=None):
+        ctx = args[-1]
+        captured["env"] = open(ctx + "/..env").read()
+        return {"code": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(srv, "docker", fake_docker)
+    srv.tool_call("sandbox_build", {
+        "tag": "t", "context_path": str(tmp_path), "files": {"..env": "A=1"}})
+    assert captured["env"] == "A=1"
+
+
 def test_runtime_container_defaults_apply(monkeypatch):
     seen = {}
 
