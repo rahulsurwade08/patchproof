@@ -44,10 +44,14 @@ def test_sql_injection_auth_bypass():
     assert data.get("authenticated") is True, f"Expected auth bypass, got {data}"
 
 
-def test_sql_injection_drop_table():
-    """DVPWA vulnerability: string formatting allows DROP TABLE."""
-    payload = "Robert'); DROP TABLE students; --"
-    resp = client.post("/students", json={"name": payload})
+def test_sql_injection_search_exfiltration():
+    """DVPWA vulnerability: string formatting allows data exfiltration via search.
+
+    An always-true WHERE clause injected through the search parameter
+    dumps all records, proving the SQL injection vector.
+    """
+    client.post("/students", json={"name": "Bob"})
+    resp = client.get("/search?q=' OR '1'='1")
     data = resp.json()
-    # Either the inject succeeds or returns an error (both prove the vuln)
-    assert data.get("ok") or data.get("error"), f"Unexpected response: {data}"
+    results = data.get("results", [])
+    assert len(results) > 0, f"Expected exfiltrated records, got {data}"

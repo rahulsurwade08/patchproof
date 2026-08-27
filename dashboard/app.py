@@ -26,7 +26,58 @@ SCENARIOS_DIR = ROOT / "scenarios"
 EVENT_LOG: list[dict] = []
 
 
+def _record_event(event_type: str, message: str) -> None:
+    """Append an event to the in-memory log (called by producers)."""
+    EVENT_LOG.append({
+        "type": event_type,
+        "message": message,
+        "ts": time.strftime("%H:%M:%S"),
+    })
+    if len(EVENT_LOG) > 200:
+        del EVENT_LOG[: len(EVENT_LOG) - 100]
+
+
+def _scan_events_from_files() -> None:
+    """Populate EVENT_LOG by reading scenario verdict/gate files."""
+    seen = set()
+    for d in sorted(SCENARIOS_DIR.iterdir()):
+        if not d.is_dir() or d.name.startswith("_"):
+            continue
+        gate_path = d / "test_gate.json"
+        verdict_path = d / "verdict.json"
+
+        gate = {}
+        if gate_path.exists():
+            try:
+                gate = json.loads(gate_path.read_text())
+            except Exception:
+                pass
+
+        verdict = {}
+        if verdict_path.exists():
+            try:
+                verdict = json.loads(verdict_path.read_text())
+            except Exception:
+                pass
+
+        key = f"{d.name}:{json.dumps(gate, sort_keys=True)}:{json.dumps(verdict, sort_keys=True)}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if gate.get("passed"):
+            if verdict.get("exploitable"):
+                _record_event("exploit", f"{d.name}: EXPLOITABLE — {verdict.get('evidence', '')[:80]}")
+            elif verdict.get("exploitable") is False:
+                _record_event("pass", f"{d.name}: NOT AFFECTED")
+            else:
+                _record_event("pass", f"{d.name}: tests pass")
+        elif gate:
+            _record_event("fail", f"{d.name}: tests FAIL — {gate.get('summary', '')[:60]}")
+
+
 def _scan_scenarios() -> list[dict]:
+    _scan_events_from_files()
     scenarios = []
     for d in sorted(SCENARIOS_DIR.iterdir()):
         if not d.is_dir() or d.name.startswith("_"):

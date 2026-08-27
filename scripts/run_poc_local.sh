@@ -79,8 +79,8 @@ if [ "$poc_exit" -eq 124 ]; then
   poc_exit=4
 fi
 
-docker cp "$CONTAINER":/srv/verdict.json "$ROOT/scenarios/$SCENARIO/verdict.json" 2>/dev/null || true
-docker cp "$CONTAINER":/srv/assessment.json "$ROOT/scenarios/$SCENARIO/assessment.json" 2>/dev/null || true
+docker exec "$CONTAINER" cat /srv/verdict.json > "$ROOT/scenarios/$SCENARIO/verdict.json" 2>/dev/null || true
+docker exec "$CONTAINER" cat /srv/assessment.json > "$ROOT/scenarios/$SCENARIO/assessment.json" 2>/dev/null || true
 
 echo "--- verdict.json ---"
 cat "$ROOT/scenarios/$SCENARIO/verdict.json" 2>/dev/null || echo "(not written)"

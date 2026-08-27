@@ -29,7 +29,7 @@ cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 # shellcheck disable=SC2046
-docker run -d --name "$CONTAINER" --network host \
+docker run -d --name "$CONTAINER" --network none \
   --entrypoint sh patchproof-test-$SCENARIO \
   -c "uvicorn main:app --host 127.0.0.1 --port 8000 & sleep $TIMEOUT" \
   >/dev/null 2>&1

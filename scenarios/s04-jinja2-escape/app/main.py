@@ -23,12 +23,14 @@ def format_filter(value, fmt="", **kwargs):
     """Custom filter that calls str.format() — common pattern in real apps.
 
     CVE-2024-56326: the sandbox only intercepts format() calls made through
-    Jinja2's call_method.  When the filter invokes value.format() directly,
+    Jinja2's call_method → inspect_format_method → SandboxedFormatter.
+    When the filter invokes value.format() directly in native Python,
     Python's C-level format engine resolves ``{0.__class__…}`` without ever
     touching the sandbox, breaking out completely.
 
-    Patch: must rewrite filter to NOT call .format() on user input, AND
-    upgrade jinja2 to >=3.1.5 which strengthens inspect_format_method.
+    Patch: must rewrite filter to NOT call .format() on user input AND
+    upgrade jinja2 to >=3.1.5 which strengthens inspect_format_method
+    for the case where format() IS called through the sandbox.
     """
     if fmt:
         if hasattr(value, "format"):
