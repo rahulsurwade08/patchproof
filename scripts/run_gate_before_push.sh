@@ -60,6 +60,23 @@ if [ ! -d "$SCENARIO_DIR" ]; then
   exit 1
 fi
 
+# Acceptance gate: S04 requires S01 and S05 to be passing first.
+if [ "$SCENARIO" = "s04-jinja2-escape" ]; then
+  for prereq in s01-pyyaml-rce s05-negative-case; do
+    gate="$ROOT/scenarios/$prereq/test_gate.json"
+    if [ ! -f "$gate" ]; then
+      echo "FAIL: acceptance gate — $prereq test_gate.json missing" >&2
+      write_gate false 2 1 "exploitable=false" "acceptance gate: $prereq missing"
+      exit 2
+    fi
+    if ! python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get('passed') or d.get('pass') else 1)" "$gate" 2>/dev/null; then
+      echo "FAIL: acceptance gate — $prereq has not passed" >&2
+      write_gate false 2 1 "exploitable=false" "acceptance gate: $prereq failed"
+      exit 2
+    fi
+  done
+fi
+
 # Read scenario contract
 EXPECTED="AFFECTED"
 POC_REL="poc.py"

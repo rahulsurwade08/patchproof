@@ -33,8 +33,8 @@ loop empirically:
 | Location | `~/Projects/patchproof` |
 | Team | Solo |
 | Scenario stack | Python only |
-| Core scenarios | S1 PyYAML RCE (CVE-2020-14343) · S5 negative case (same CVE, safe usage) |
-| Stretch scenario | S4 Jinja2 sandbox escape (stub only) |
+| Core scenarios | S1 PyYAML RCE (CVE-2020-14343) · S5 negative case (same CVE, safe usage) · S4 Jinja2 sandbox escape (CVE-2024-56326) |
+| Scenario S4 | S4 Jinja2 sandbox escape (CVE-2024-56326) — sandbox_escape via fmt filter, fully operational |
 | UI | Thin live dashboard, built after the core loop works; TrueForge chat UI is the fallback surface |
 | Models | OpenRouter free models via BYOK; assume ~50 req/day ceiling until tested |
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
@@ -110,7 +110,7 @@ Capability map:
 |---|---|
 | Flaky PoC generation | Ship pre-baked verified PoCs with each scenario |
 | Weak tool-calling on free models | Deterministic scripts do mechanical steps; narrow scope at S1+S5 |
-| Time overrun | Cut order: S4 → S5 automation depth → dashboard. Approval gate never cut |
+| Time overrun | Cut order: S5 automation depth → dashboard. Approval gate never cut |
 
 ## 8. Pointers
 

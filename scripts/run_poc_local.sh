@@ -23,6 +23,21 @@ CONTAINER="patchproof-$SCENARIO-poc-$$"
 
 [ -d "$APP_DIR" ] || { echo "unknown scenario: $SCENARIO" >&2; exit 2; }
 
+# Acceptance gate: S04 requires S01 and S05 to be passing first.
+if [ "$SCENARIO" = "s04-jinja2-escape" ]; then
+  for prereq in s01-pyyaml-rce s05-negative-case; do
+    gate="$ROOT/scenarios/$prereq/test_gate.json"
+    if [ ! -f "$gate" ]; then
+      echo "FAIL: acceptance gate — $prereq test_gate.json missing" >&2
+      exit 2
+    fi
+    if ! python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get('passed') or d.get('pass') else 1)" "$gate" 2>/dev/null; then
+      echo "FAIL: acceptance gate — $prereq has not passed" >&2
+      exit 2
+    fi
+  done
+fi
+
 # Resolve the PoC script from the scenario contract (s05 reuses s01's).
 POC_REL=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['poc_contract']['script'])" "$ROOT/scenarios/$SCENARIO/cve-meta.json")
 POC_PATH="$ROOT/scenarios/$SCENARIO/$POC_REL"
@@ -65,6 +80,7 @@ if [ "$poc_exit" -eq 124 ]; then
 fi
 
 docker cp "$CONTAINER":/srv/verdict.json "$ROOT/scenarios/$SCENARIO/verdict.json" 2>/dev/null || true
+docker cp "$CONTAINER":/srv/assessment.json "$ROOT/scenarios/$SCENARIO/assessment.json" 2>/dev/null || true
 
 echo "--- verdict.json ---"
 cat "$ROOT/scenarios/$SCENARIO/verdict.json" 2>/dev/null || echo "(not written)"
