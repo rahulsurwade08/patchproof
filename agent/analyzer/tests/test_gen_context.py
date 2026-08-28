@@ -530,3 +530,47 @@ def test_fallback_allows_official_library_registry_form(tmp_path):
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     assert result["fallback_dockerfile"] == "Dockerfile.app"
+
+
+def test_fallback_reads_full_file_for_final_from(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    # >20KB of comments BEFORE a foreign runtime FROM: old readlines(20000)
+    # would truncate it; the final FROM must still be seen and rejected
+    pad = "# " + ("x" * 22000) + "\n"
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.11-slim AS build\nRUN true\n" + pad +
+           "FROM nginx:1.25\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_rejects_digest_base(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python@sha256:abc123\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_rejects_empty_tag_base(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_allows_tagged_official_node_base(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM node:20-slim\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] == "Dockerfile.app"

@@ -96,7 +96,7 @@ server.js does not match server.js.backup, and no shell expansion
 entry raw). Use a portable probe (find's default -print, which
 BusyBox/Alpine also supports — do NOT rely on GNU find -printf):
 sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <the fallback
-build's session>, command: "find / -type f 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-quote-and-backslash>' 'index($0,e)==length($0)-length(e)+1 {print}'"},
+build's session>, command: "find / -type f 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-quote-and-backslash>' 'length($0)>=length(e) && index($0,e)==length($0)-length(e)+1 {print}'"},
 where <FALLBACK_IMAGE_TAG> is the exact image tag from the tier-2
 sandbox_build above (never the default python:3.11-slim, and same session).
 This emits a path iff it ENDS with the recorded relative entry (no depth
