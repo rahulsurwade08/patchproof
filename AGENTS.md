@@ -33,6 +33,10 @@ scripts/install-hooks.sh                             # install git pre-push hook
 # Dashboard (live-status UI)
 cd dashboard && pip install -r requirements.txt
 uvicorn app:app --port 8080
+
+# Dashboard test suite (run from dashboard/; install dev deps once)
+pip install -r requirements-dev.txt
+python -m pytest test_dashboard.py -q
 ```
 
 ## Hard rules

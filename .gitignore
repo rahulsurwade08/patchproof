@@ -20,9 +20,13 @@ data/output/
 scenarios/*/verdict.json
 scenarios/*/test_gate.json
 scenarios/*/state.json
+dashboard/test_gate.json
 
 # Harness session artifacts (repo root only)
 /session-*
 
 # Local agent skills (never publish)
 .agents/
+
+# qodo-skills lockfile (generated, not required in VCS)
+skills-lock.json

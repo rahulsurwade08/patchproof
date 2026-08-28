@@ -12,6 +12,11 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SCENARIO_DIR="$ROOT/scenarios/$SCENARIO/app"
 SCENARIO_META="$ROOT/scenarios/$SCENARIO/cve-meta.json"
 GATE_FILE="$ROOT/scenarios/$SCENARIO/test_gate.json"
+if [ "$SCENARIO" = "dashboard" ]; then
+  DASH_DIR="$ROOT/dashboard"
+  IMAGE_TAG="patchproof-dashboard-test"
+  GATE_FILE="$ROOT/dashboard/test_gate.json"
+fi
 MCP_URL="http://127.0.0.1:8081/mcp"
 TIMEOUT=60
 
@@ -42,7 +47,7 @@ except Exception as e:
 }
 
 json_field() {
-  python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], sys.argv[2]))' "$1" "$2"
+  python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2], sys.argv[3]))' "$1" "$2" "$3"
 }
 
 # --- Precondition checks ---
@@ -52,6 +57,50 @@ if ! python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1
   echo "Start it with: python3 agent/mcp/local_sandbox_server.py &" >&2
   write_gate false 2 1 "exploitable=false" "MCP server unreachable"
   exit 2
+fi
+
+# --- Dashboard test gate (sandbox-only) ---
+# Runs the dashboard pytest suite in a dedicated image built from the
+# dashboard's declared test dependencies (requirements-dev.txt). Kept ahead
+# of the scenario-specific preconditions because "dashboard" is not a
+# scenario: there is no cve-meta.json, PoC, or S01/S05 acceptance gate.
+if [ "$SCENARIO" = "dashboard" ]; then
+  echo "Running dashboard test gate via local-sandbox MCP..."
+
+  echo "Step: Building dashboard test image via sandbox_build..."
+  DASH_BUILD=$(mcp_call "sandbox_build" "{\"tag\":\"$IMAGE_TAG\",\"context_path\":\"$DASH_DIR\",\"dockerfile\":\"Dockerfile.patchproof\",\"no_cache\":false}")
+  DASH_BUILD_EXIT=$(json_field "$DASH_BUILD" "exit_code" "1")
+  if [ "$DASH_BUILD_EXIT" != "0" ]; then
+    echo "FAIL: dashboard sandbox_build failed (exit $DASH_BUILD_EXIT)" >&2
+    json_field "$DASH_BUILD" "output" "" | tail -20 >&2 || true
+    write_gate false 3 1 "exploitable=false" "dashboard build failed"
+    exit 3
+  fi
+  echo "  Image built: $IMAGE_TAG"
+
+  echo "Step: Running dashboard pytest via sandbox_exec..."
+  SESSION_DASH="gate-dashboard-$$"
+  trap 'mcp_call "sandbox_stop" "{\"session\":\"$SESSION_DASH\"}" >/dev/null 2>&1 || true' EXIT
+  DASH_TEST=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_DASH\",\"command\":\"python -m pytest test_dashboard.py -q\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}")
+  DASH_TEST_EXIT=$(json_field "$DASH_TEST" "exit_code" "1")
+  DASH_TEST_STDOUT=$(json_field "$DASH_TEST" "stdout" "")
+  DASH_TEST_STDERR=$(json_field "$DASH_TEST" "stderr" "")
+  if [ "$DASH_TEST_EXIT" = "124" ]; then
+    echo "FAIL: dashboard pytest timeout ($TIMEOUT s)" >&2
+    echo "$DASH_TEST_STDOUT" | tail -20 >&2 || true
+    [ -n "$DASH_TEST_STDERR" ] && echo "$DASH_TEST_STDERR" | tail -20 >&2 || true
+    write_gate false 4 1 "exploitable=false" "dashboard pytest timeout ($TIMEOUT s)"
+    exit 4
+  elif [ "$DASH_TEST_EXIT" != "0" ]; then
+    echo "FAIL: dashboard pytest exit $DASH_TEST_EXIT" >&2
+    echo "$DASH_TEST_STDOUT" | tail -20 >&2 || true
+    [ -n "$DASH_TEST_STDERR" ] && echo "$DASH_TEST_STDERR" | tail -20 >&2 || true
+    write_gate false "$DASH_TEST_EXIT" 1 "exploitable=false" "dashboard pytest failed (exit $DASH_TEST_EXIT)"
+    exit "$DASH_TEST_EXIT"
+  fi
+  write_gate true 0 0 "exploitable=false" "dashboard tests pass (MCP sandbox)"
+  echo "PASS: dashboard gate passed"
+  exit 0
 fi
 
 if [ ! -d "$SCENARIO_DIR" ]; then

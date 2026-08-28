@@ -15,8 +15,23 @@ cat > "$HOOK_FILE" << 'HOOK'
 # Mandatory pre-push sandbox-only gate.
 # Blocks push unless run_gate_before_push.sh passes for each changed scenario.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SCENARIOS=$(git diff --name-only HEAD@{1} HEAD -- 'scenarios/' 2>/dev/null | cut -d/ -f1 | sort -u)
+CHANGED=$(mktemp)
+trap 'rm -f "$CHANGED"' EXIT
+if [ -t 0 ]; then
+  git diff --name-only HEAD@{1} HEAD 2>/dev/null > "$CHANGED" || true
+else
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ -z "$local_sha" ] || echo "$local_sha" | grep -q "^0*$"; then continue; fi
+    case "$remote_sha" in
+      0000000000000000000000000000000000000000*|"") empty=$(git hash-object -t tree /dev/null); git diff --name-only "$empty" "$local_sha" 2>/dev/null >> "$CHANGED" || true ;;
+      *) git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null >> "$CHANGED" || true ;;
+    esac
+  done
+fi
+SCENARIOS=$(grep "^scenarios/" "$CHANGED" 2>/dev/null | cut -d/ -f2 | sort -u)
+DASH_CHANGED=$(grep -q "^dashboard/" "$CHANGED" 2>/dev/null && echo "1" || true)
 [ -z "$SCENARIOS" ] && SCENARIOS="s01-pyyaml-rce"
+[ -n "$DASH_CHANGED" ] && SCENARIOS="dashboard $SCENARIOS"
 
 for S in $SCENARIOS; do
   echo "Pre-push gate: $S"
