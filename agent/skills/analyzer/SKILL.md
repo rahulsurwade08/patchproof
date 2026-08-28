@@ -80,9 +80,13 @@ entry's full RELATIVE path, matched as a FIXED end-of-path string — no
 glob/regex interpretation, anchored to the END of the path so
 server.js does not match server.js.backup, and no shell expansion
 (single-quote context; replace every ' with '"'"' before embedding; never
-interpolate the entry raw).
-`sandbox_exec "find / -type f -printf '%p\n' 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-single-quoted>' 'index($0,e)==length($0)-length(e)+1 {print}'"`,
-which emits a path iff it ENDS with the recorded relative entry (no depth
+interpolate the entry raw). Use a portable probe (find's default -print,
+which BusyBox/Alpine also supports — do NOT rely on GNU find -printf):
+sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <the fallback
+build's session>, command: "find / -type f 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-single-quoted>' 'index($0,e)==length($0)-length(e)+1 {print}'"},
+where <FALLBACK_IMAGE_TAG> is the exact image tag from the tier-2
+sandbox_build above (never the default python:3.11-slim, and same session).
+This emits a path iff it ENDS with the recorded relative entry (no depth
 cap, so deep trees are found; glob chars like * ? [ ] \ and '.' are literal
 in awk's substring test; prefixes/substring matches are rejected). Require
 EXACTLY ONE match: cd to its directory and start the service
