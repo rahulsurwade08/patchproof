@@ -218,6 +218,42 @@ def test_build_applies_files_overrides_to_temp_copy(monkeypatch, tmp_path):
     assert captured["dockerfile"].startswith("FROM")
 
 
+def test_build_passes_dockerfile_flag(monkeypatch, tmp_path):
+    (tmp_path / "Dockerfile.app").write_text("FROM python:3.9-slim\n")
+    captured = {}
+
+    def fake_docker(args, timeout_ms=120000, input_text=None):
+        captured["args"] = args
+        return {"code": 0, "stdout": "built\n", "stderr": ""}
+
+    monkeypatch.setattr(srv, "docker", fake_docker)
+    srv.tool_call("sandbox_build", {"tag": "t", "context_path": str(tmp_path),
+                                    "dockerfile": "Dockerfile.app"})
+    a = captured["args"]
+    assert a[a.index("-f") + 1] == "Dockerfile.app"
+
+
+def test_build_rejects_escaping_dockerfile(monkeypatch, tmp_path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.9-slim\n")
+    monkeypatch.setattr(srv, "docker",
+                        lambda *a, **k: {"code": 0, "stdout": "", "stderr": ""})
+    with pytest.raises(RuntimeError):
+        srv.tool_call("sandbox_build", {"tag": "t", "context_path": str(tmp_path),
+                                        "dockerfile": "../evil/Dockerfile"})
+    with pytest.raises(RuntimeError):
+        srv.tool_call("sandbox_build", {"tag": "t", "context_path": str(tmp_path),
+                                        "dockerfile": "/etc/Dockerfile"})
+
+
+def test_build_rejects_missing_dockerfile(monkeypatch, tmp_path):
+    (tmp_path / "Dockerfile").write_text("FROM python:3.9-slim\n")
+    monkeypatch.setattr(srv, "docker",
+                        lambda *a, **k: {"code": 0, "stdout": "", "stderr": ""})
+    with pytest.raises(RuntimeError):
+        srv.tool_call("sandbox_build", {"tag": "t", "context_path": str(tmp_path),
+                                        "dockerfile": "Dockerfile.app"})
+
+
 # --------------------------------------------------------- HTTP via server
 
 @pytest.fixture(scope="module")
