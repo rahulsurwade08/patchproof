@@ -313,58 +313,50 @@ def detect_runtime_version(repo_path, lang, manifest_path=None):
 
 
 def _final_workdir(dockerfile_path):
-    """Final-stage WORKDIR of a Dockerfile (stage-aware, relative-chained,
-    variable workdirs unresolved → None). Returns None when the final stage
-    does NOT declare a WORKDIR: the implicit '/' assumption is wrong for a
-    fallback Dockerfile that COPYs the app into another directory (e.g.
-    /app), so tier-two must locate the entry rather than start from '/'.
-    Also None when the file is absent/unreadable."""
+    """Final-stage WORKDIR of a Dockerfile, or None when the final stage does
+    NOT resolve to a declared WORKDIR. The final path is "known" only when a
+    stage actually declares one: an absent WORKDIR, a variable WORKDIR
+    (`${...}`) or a relative WORKDIR that follows an unresolved one leaves the
+    stage unknown so tier-two locates the entry via probe instead of assuming
+    '/'. Inheritance carries the referenced stage's known/path state. None
+    also when the file is absent/unreadable."""
     if not dockerfile_path or not os.path.isfile(dockerfile_path):
         return None
     stage_workdirs = {}
-    current = "/"
     current_name = None
-    last_was_var = False
-    final_declared = False
+    current_known = False
+    current = ""
     try:
         with open(dockerfile_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 parts = line.split()
                 if parts and parts[0].upper() == "FROM":
                     if current_name:
-                        stage_workdirs[current_name] = current
+                        stage_workdirs[current_name] = (current_known, current)
                     real = [p for p in parts[1:] if not p.startswith("--")]
                     img = real[0] if real else ""
                     current_name = real[2] if len(real) > 2 \
                         and real[1].upper() == "AS" else None
                     if img in stage_workdirs:
-                        current = stage_workdirs[img]
-                        final_declared = True
-                    elif "$" not in img:
-                        current = "/"
-                        final_declared = False
-                    last_was_var = False
+                        current_known, current = stage_workdirs[img]
+                    else:
+                        current_known, current = False, ""
                     continue
                 if not parts or parts[0].upper() != "WORKDIR":
                     continue
                 val = parts[1].strip('"') if len(parts) > 1 else ""
                 if "$" in val:
-                    last_was_var = True
-                    continue
-                last_was_var = False
-                final_declared = True
-                current = val if val.startswith("/") else \
-                    os.path.join(current, val)
+                    current_known, current = False, ""
+                elif val.startswith("/"):
+                    current_known, current = True, val
+                elif current_known:
+                    current = os.path.join(current, val)
+                # else: relative after an unknown base stays unknown
         if current_name:
-            stage_workdirs[current_name] = current
+            stage_workdirs[current_name] = (current_known, current)
     except OSError:
         return None
-    # A trailing variable WORKDIR is unresolvable — record None (the
-    # skill/prompt documents the probe procedure) instead of a stale path.
-    if last_was_var:
-        return None
-    # No WORKDIR declared in the final stage: the entry location is unknown.
-    return current if final_declared else None
+    return current if current_known else None
 
 
 _MAX_DOCKERFILE_LINES = 200_000  # bounded read: far exceeds any real

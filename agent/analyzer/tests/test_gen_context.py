@@ -649,3 +649,53 @@ def test_fallback_workdir_none_when_no_workdir_declared(tmp_path):
     result = gen_context.generate(str(repo), str(repo))
     assert result["fallback_dockerfile"] == "Dockerfile.app"
     assert result["fallback_workdir"] is None
+
+
+def test_fallback_rejects_stage_inheritance_runtime_base(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    # the runtime (final) FROM is a named stage, not an allowlisted official
+    # python/node image, so the fallback must NOT be recorded
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.11-slim AS build\nWORKDIR /app\n"
+           "FROM build\nCMD [\"python\", \"main.py\"]\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_workdir_none_when_inherited_undeclared_is_internal(tmp_path):
+    # direct unit test of _final_workdir: an inherited stage that never
+    # declares a WORKDIR must yield None (unknown), never the implicit root
+    import tempfile, os as _os
+    d = tmp_path / "df"
+    d.mkdir()
+    f = d / "Dockerfile"
+    f.write_text("FROM python:3.11-slim AS build\nCOPY . /app\nFROM build\n")
+    assert gen_context._final_workdir(str(f)) is None
+
+
+def test_fallback_workdir_none_after_variable_then_relative(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    # a relative WORKDIR after a variable WORKDIR cannot be resolved (its
+    # base is unknown), so the final workdir must be None, not "/app"
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.11-slim\nWORKDIR ${BASE}\nWORKDIR app\n"
+           "CMD [\"python\", \"main.py\"]\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] == "Dockerfile.app"
+    assert result["fallback_workdir"] is None
+
+
+def test_fallback_workdir_resolves_then_relative(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    # absolute WORKDIR then a relative WORKDIR resolves normally
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.11-slim\nWORKDIR /base\nWORKDIR app\n"
+           "CMD [\"python\", \"main.py\"]\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_workdir"] == "/base/app"
