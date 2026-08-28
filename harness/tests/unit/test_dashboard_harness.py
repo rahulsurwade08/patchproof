@@ -1,7 +1,9 @@
-"""Tests for the PatchProof dashboard backend.
+"""Tests for the PatchProof dashboard backend — centralized harness copy.
 
-Run from the dashboard/ directory:
-    python -m pytest test_dashboard.py -q
+Centralized under harness/tests/unit — run via:
+    python -m pytest harness/tests/unit/test_dashboard_harness.py -q
+Original remains at dashboard/test_dashboard.py for Docker gate
+(python -m pytest test_dashboard.py -q from dashboard/).
 
 The tests are hermetic: SCENARIOS_DIR is monkeypatched to an empty temp dir
 so the app owns no real scenario state, and the module-level EVENT_LOG /
