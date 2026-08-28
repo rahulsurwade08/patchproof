@@ -85,7 +85,7 @@ curl http://127.0.0.1:8081/mcp -X POST -d '{"jsonrpc":"2.0","method":"tools/call
 
 ## 4. Verification after every change (harness-driven)
 
-- `python3 -m pytest agent/analyzer/tests agent/mcp/tests dashboard/test_dashboard.py -q` → 155 passed (harness skills work even when harness down — deterministic Python).
+- `python3 -m pytest harness/tests/unit -q` → 155 passed (harness skills work even when harness down — deterministic Python); `harness/tests/integration` drives scenarios/demo-app via `http://[::1]:8790`.
 - `bash scripts/run_gate_before_push.sh s01-pyyaml-rce` → `PASS: gate passed` (requires `local_sandbox_server.py` at `127.0.0.1:8081/mcp`).
 - `docker ps -aq --filter label=patchproof-sbx=1` = 0, `rg -i "sk-or-v1|ghp_|github_pat"` only redaction code, `git log --all -- .env` empty.
 - Chat UI: session **Turns** shows `sandbox_build`/`sandbox_exec` with `image` param, **Generative UI** shows `verdict.json`, approval checkpoint pauses before `verifier`.
