@@ -170,18 +170,19 @@ scripts do token-heavy grunt work via `sandbox_exec`), and write/read tiny
 `total_tokens`/request count per node so it doubles as a quota dashboard.
 Retries (cap 3) re-run the narrow node only, never from the analyzer up.
 **Compression tooling is deferred behind measurement.** The local
-input-compression proxy (caveman) is considered only *after* telemetry shows
+input-compression proxy is considered only *after* telemetry shows
 where spend is and only if it beats our own baseline; its output-purpose skill
 is skipped (we are already terse and it can net-negative). Judge and approval
 reasoning stay in full prose (security reasoning untouched).
 Rationale: our structural levers (read less, cache, node-artifacts) dominate any
 compression hack, and nothing is adopted before the telemetry we just added
 shows it earns its place.
-**Supersession (maintainer, 2026-08-28):** the **communication-style** portion is
-superseded — caveman input/output is now a mandatory AGENTS.md hard rule on every
-session/model (see AGENTS.md Hard rules). The **compression-technique** deferral
-(input-compression proxy as a token lever, adopted only after telemetry proves it
-beats baseline) is unchanged. Judge and approval reasoning stay in full prose.
+**Supersession (maintainer, 2026-08-28):** the **compression-technique** and
+**communication-style** deferrals both stand — the input-compression proxy (and any
+mandatory terse-communication style) is not adopted; it is revisited only after
+telemetry shows where spend is and only if it beats baseline. Judge and approval
+reasoning stay in full prose. (A short-lived experiment that briefly made a
+terse-communication style a hard rule was reverted the same day.)
 
 ## ADR-016 — Security posture: hardened sandbox, external-content-as-data, secrets never in sandbox
 **Status:** accepted

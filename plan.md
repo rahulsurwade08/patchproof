@@ -264,8 +264,8 @@ Per-node model-token budget (estimates):
 - **Retry policy (cap 3):** on a low-confidence / disagreeing judge, retry the
   **narrow node only** (e.g. the reproducer), keeping prior node artifacts —
   never re-run from the analyzer up.
-- **Caveman (deferred, eval-gated):** the local input-compression proxy is a
-  candidate, but only adopted **after telemetry shows where spend is** and only
+- **Input-compression proxy (deferred, eval-gated):** the local input-compression
+  proxy is a candidate, but only adopted **after telemetry shows where spend is** and only
   if it measures better than our own baseline. Keep judge + approval reasoning in
   full prose (security reasoning untouched). Not a core dependency now (ADR-015).
 
