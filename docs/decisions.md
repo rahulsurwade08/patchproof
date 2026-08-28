@@ -38,10 +38,9 @@ Rationale: deterministic outcomes stay tamper-proof while weak-evidence cases
 
 ## ADR-008 — Keyless local Docker sandbox MCP server + host-side build boundary (updated)
 **Status:** accepted (updated PR #13)
-**Status:** accepted (supersedes the Daytona-based sandbox setup)
-TrueForge's only built-in sandbox provider is a paid cloud service, which is
-incompatible with an open-source project (and, as of June 2026, Daytona's core
-went closed-source). PatchProof therefore ships its own `local-sandbox` MCP
+**Status:** accepted (supersedes the paid cloud sandbox setup)
+TrueForge's built-in sandbox provider is a paid cloud service, which is
+incompatible with an open-source project. PatchProof therefore ships its own `local-sandbox` MCP
 server (Streamable HTTP, `127.0.0.1:8081/mcp`): disposable `--network none`
 Docker containers — one per investigation so service and PoC share `/tmp` —
 with resource limits, credential redaction, ownership labels, crash-recovery
@@ -53,10 +52,6 @@ execution path for open-source users and CI.
   isolation (stronger than Docker), no daemon or account, official MCP server,
   OCI-image compatible. Recommended future upgrade for stronger isolation;
   requires KVM on Linux / Apple Silicon on macOS, currently beta.
-- **Nightona** (AGPL-3.0): community fork of the last open Daytona release,
-  self-hosted via Docker Compose/Helm. API-compatible with Daytona v0.190.0,
-  but TrueForge's built-in provider hardcodes the cloud endpoint, so it cannot
-  be used through the native integration anyway.
 - **Beam/beta9** (AGPL-3.0) and **E2B infra** (Apache-2.0): capable but require
   Kubernetes/Nomad operations far beyond this project's scope.
 

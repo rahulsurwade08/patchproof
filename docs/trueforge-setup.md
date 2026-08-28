@@ -83,3 +83,7 @@ explicitly marked `"demo": true` (via `scripts/fake_cve_injector.py`, trusted
 local demo) may proceed without a cross-check, recorded as
 `legitimacy: "demo-bypass"` in state.json. Once registered, triage runs
 `cve_cross_check` on every advisory.
+
+## 6. Loop plan
+
+For the combined harness wiring + Chat UI work loop (Initial Setup + Chat UI SDK, cut-order, verification via `http://[::1]:8790` / `127.0.0.1:8081/mcp`), see `docs/harness-loop-plan.md` — the single loop the agent follows. The intermediate `docs/harness-patchproof-setup.md` and `docs/harness-chat-ui-plan.md` were merged into that loop and removed.
