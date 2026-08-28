@@ -74,20 +74,23 @@ argument) and `fallback_dockerfile` (the repo's own declared Dockerfile, if
 any). Build the primary first; if its dependency install fails, escalate:
 re-run `sandbox_build` with `dockerfile: <fallback_dockerfile>` (the repo's
 own declared Dockerfile recorded in patchproof-build-context.json). Start the
-service by `cd`-ing into the app's directory BEFORE running the recorded
-`start_command` in the same `sh -c` invocation — sandbox_exec forces the
-working directory to /srv, so running the recorded command alone would start
-from the wrong directory and lose the app path. When `fallback_workdir` is a
-known path, start with `cd '<fallback_workdir>' && <start_command>`; when it
-is null (no declared WORKDIR, or a variable WORKDIR) locate the app by
-searching the running container for the entry's full RELATIVE path, matched
-as a FIXED end-of-path string — no
+service by cd-ing to the APP ROOT, then running the recorded `start_command`
+there, in the same `sh -c` — sandbox_exec forces the working directory to
+/srv, so running from the wrong directory would lose the app path.
+`start_command` is an argv array expressed RELATIVE to the app root; build
+the shell line by single-quote-escaping EACH element (replace every ' with
+'"'"'; never interpolate raw) and joining with spaces — this keeps arguments
+containing spaces/metachars intact and prevents shell injection.
+- When `fallback_workdir` is a known path, cd into it:
+  `cd '<escaped-fallback-workdir>' && <escaped-argv-joined>`.
+- When it is null (no declared WORKDIR, or a variable WORKDIR), locate the
+  entry file by searching the running container for the entry's full
+  RELATIVE path, matched as a FIXED end-of-path string — no
 glob/regex interpretation, anchored to the END of the path so
 server.js does not match server.js.backup, and no shell expansion
 (single-quote context AND awk string-literal context; replace every ' with
 '"'"' AND every backslash \ with \\ before embedding; never
-interpolate the entry raw). Use a portable probe (find's default -print,
-which BusyBox/Alpine also supports — do NOT rely on GNU find -printf):
+interpolate the entry raw). Probe (portable, no GNU find -printf):
 sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <the fallback
 build's session>, command: "find / -type f 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-quote-and-backslash>' 'length($0)>=length(e) && index($0,e)==length($0)-length(e)+1 {print}'"},
 where <FALLBACK_IMAGE_TAG> is the exact image tag from the tier-2
@@ -95,9 +98,13 @@ sandbox_build above (never the default python:3.11-slim, and same session).
 This emits a path iff it ENDS with the recorded relative entry (no depth
 cap, so deep trees are found; glob chars like * ? [ ] \ and '.' are literal
 in awk's substring test; prefixes/substring matches are rejected). Require
-EXACTLY ONE match: `cd` into that directory and run the recorded
-`start_command` there in the same `sh -c` (e.g. `cd '<located-dir>' &&
-<start_command>`), starting the service only then; if zero or several
+EXACTLY ONE match. The APP ROOT is the located entry path with the entry's
+recorded RELATIVE components stripped (a located /app/src/main.py with
+entry src/main.py gives app root /app): cd into that root — NOT the entry's
+immediate directory, because start_command already contains the relative
+subpath and doubling it (cd .../src then run python src/main.py) would
+break nested entries:
+`cd '<escaped-app-root>' && <escaped-argv-joined>`; if zero or several
 candidates match (ambiguous), do not guess —
 report the candidates in the summary and mark the start UNKNOWN), and REPORT the escalation in the reproducer summary. A failed build is reported honestly
 as a build failure — never as a vulnerability verdict.
