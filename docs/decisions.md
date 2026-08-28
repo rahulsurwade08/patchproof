@@ -196,3 +196,34 @@ on deterministic-script outputs, and the judge reviews evidence with provenance.
 Rationale: PatchProof runs untrusted exploit code and ships patches, so it must
 not be less secure than the code it audits; secrets and host access stay out of
 the sandbox, and external content is never trusted as instructions.
+
+## ADR-017 — Two-tier sandbox build: synthesized minimal first, repo Dockerfile as explicit escalation
+**Status:** accepted
+
+**Context.** Arbitrary repos need a sandbox image their pinned dependencies
+actually install on. Legacy apps (e.g. dvpwa: psycopg2 2.7, 2018-era pins)
+require period-correct base images and build tooling that a synthesized
+minimal Dockerfile cannot guess; conversely, executing a repository's own
+Dockerfile verbatim lets repo-controlled RUN/ADD instructions run during the
+network-enabled build phase (ADR-016 calls repo content untrusted data).
+
+**Decision.** Two tiers, explicitly ordered:
+1. **Primary (trusted):** gen_context synthesizes `Dockerfile.patchproof` —
+   an official `python:<ver>-slim` / `node:<ver>-slim` base matched to the
+   repo's runtime version plus our own uniform install lines (build tooling
+   layer included). No repository-controlled Dockerfile instructions execute.
+2. **Escalation (documented residual risk):** when the primary install
+   fails, the reproducer escalates to the repo's OWN declared Dockerfile
+   (recorded as `fallback_dockerfile` in patchproof-build-context.json and
+   built via sandbox_build's `-f`). Its RUN steps execute at build time with
+   network access — accepted because (a) the equivalent risk already exists
+   in tier 1 (repo-pinned dependencies execute setup.py code during pip
+   install), (b) the escalation is per-run, explicitly reported in the
+   reproducer summary, and (c) the resulting image still runs offline.
+
+**Consequences.** Modern repos never execute repo-controlled build steps.
+Legacy repos require the tier-2 escalation to reproduce at all; the
+escalation is auditable from patchproof-build-context.json and the
+reproducer summary. A failed tier-1 build is reported honestly as a build
+failure — never as a vulnerability verdict.
+

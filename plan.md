@@ -46,6 +46,7 @@ loop empirically, per (repo + advisory):
 4. **Reproducer** (only if REACHABLE/UNKNOWN warrants it) — build-context gen then
    `sandbox_build` a pinned image, then exploit the exact reachable path inside the
    offline TrueForge sandbox (`sandbox_exec`) — never on the host.
+   - **Two-tier build (ADR-017):** the generated `Dockerfile.patchproof` (version-matched minimal base) is the primary; if its dependency install fails, the reproducer escalates to the repo's own declared Dockerfile (`fallback_dockerfile`) and reports the escalation.
    - Exploit fails / not reachable → case closed **NOT AFFECTED**, alert dismissed.
    - Exploit succeeds → patcher bumps the dependency, builds a patched image,
      runs the test suite in the sandbox, opens a PR with exploit output as evidence.

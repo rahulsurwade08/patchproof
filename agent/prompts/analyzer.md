@@ -77,6 +77,60 @@ sandbox_build {tag: ..., context_path: ..., dockerfile: "Dockerfile.patchproof"}
 reproducer MUST pass the same `dockerfile` argument and run the start
 command from the recorded workdir.
 
+
+## Two-tier build (ADR-017)
+
+`patchproof-build-context.json` records `dockerfile_name`
+(`Dockerfile.patchproof` — build it via sandbox_build's `dockerfile`
+argument) and `fallback_dockerfile` (the repo's own declared Dockerfile, if
+any). Build the primary first; if its dependency install fails, escalate:
+re-run `sandbox_build` with `dockerfile: <fallback_dockerfile>` (the repo's
+own declared Dockerfile recorded in patchproof-build-context.json). Start the
+service by cd-ing to the APP ROOT, then running the recorded `start_command`
+there, in the same `sh -c` — sandbox_exec forces the working directory to
+/srv, so running from the wrong directory would lose the app path.
+`start_command` is an argv array expressed RELATIVE to the app root; build
+the shell line by single-quote-escaping EACH element (replace every ' with
+'"'"'; never interpolate raw) and joining with spaces — this keeps arguments
+containing spaces/metachars intact and prevents shell injection.
+The APP ROOT is where the repository was COPIED, which the Dockerfile's
+WORKDIR does NOT prove (WORKDIR /opt/runtime can coexist with COPY . /srv/app).
+Always locate it from the entry file: search the running container for the
+entry's full RELATIVE path, matched as a FIXED end-of-path string — no
+glob/regex interpretation, anchored to the END of the path so
+server.js does not match server.js.backup, and no shell expansion
+(single-quote context AND awk string-literal context: replace every ' with
+'"'"' AND every backslash \ with \\ before embedding; never interpolate the
+entry raw). Recorded `fallback_workdir` may seed the search but must never be
+trusted as the app root. Probe (portable, no GNU find -printf); include
+both regular files and symlinks, since entry detection accepts symlinked
+entries:
+sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <LOGICAL-SESSION-LABEL>, command: "find / \( -type f -o -type l \) 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-quote-and-backslash>' 'length($0)>=length(e) && index($0,e)==length($0)-length(e)+1 {print}'"},
+where <FALLBACK_IMAGE_TAG> is the exact image tag from the tier-2
+sandbox_build above (never the default python:3.11-slim) and must be passed
+as `image` on this first sandbox_exec; <LOGICAL-SESSION-LABEL> is a session
+label YOU choose — make it unique per run (derived from the repo/run
+identity, e.g. "<repo>-fallback", never a bare "fallback", because
+sandbox_exec maps the label directly to a persistent container, so a reused
+generic label could collide with a stale or concurrent investigation) —
+sandbox_build returns no session, only the built tag.
+This emits a path iff it ENDS with the recorded relative entry (no depth
+cap, so deep trees are found; glob chars like * ? [ ] \ and '.' are literal
+in awk's substring test; prefixes/substring matches are rejected). Require
+EXACTLY ONE match. The APP ROOT = the located entry path with the entry's
+recorded RELATIVE components stripped (a located /srv/app/src/main.py with
+entry src/main.py gives app root /srv/app): cd into that root — NOT the
+entry's immediate directory, because start_command already contains the
+relative subpath and doubling it (cd .../src then run python src/main.py)
+would break nested entries:
+`cd '<escaped-app-root>' && <escaped-argv-joined>`; if zero or several
+candidates match (ambiguous), do not guess —
+report the candidates in the summary and mark the start UNKNOWN), and REPORT the escalation in the reproducer summary. A failed build is reported honestly
+as a build failure — never as a vulnerability verdict. Note: sandbox_exec
+runs `docker exec`, which never invokes the image's ENTRYPOINT/CMD (those
+apply only at `docker run`/container creation), so a fallback Dockerfile's
+ENTRYPOINT does not intercept the probe or the startup command.
+
 ## Verdict semantics (honesty rules)
 
 - **NOT_REACHABLE** (high conf): package not pinned, pinned outside the
