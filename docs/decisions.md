@@ -155,7 +155,7 @@ the complexity, dependency, and risk of a generic graph runtime for what is a
 mostly-linear pipeline with one fan-out.
 
 ## ADR-015 — Memory & token strategy: files as memory, telemetry, eval-gated compression
- **Status:** accepted (communication-style portion superseded — see below)
+ **Status:** accepted
 **Memory is files, not stores.** Durable state lives under `data/output/<repo>/`
 (files audit, survive, resume via one small state file). Working memory is the
 run graph + artifact pointers; nodes are self-contained (state, not history).
