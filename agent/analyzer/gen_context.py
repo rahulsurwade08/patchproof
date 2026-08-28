@@ -337,25 +337,41 @@ def generate(repo_path, out_dir=None, force=False):
         lines += directives
         lines.append(_GENERATED_MARKER)
         lines += content_lines
-        # WORKDIR is resolved within the FINAL stage only, following
-        # Docker's relative-path semantics; variable workdirs are
-        # unresolvable here and keep the previous value.
-        in_final = False
-        resolved = "/srv"
+        # WORKDIR resolution follows Docker: each FROM resets to the base
+        # image's (unknown → "/") or inherits a NAMED prior stage's final
+        # workdir; relative WORKDIRs chain; variable workdirs are
+        # unresolvable here and keep the current value. The last stage's
+        # end state is the final image's workdir.
+        stage_workdirs = {}
+        current = "/"
+        current_name = None
         for line in content_lines:
             stripped = line.strip()
-            if stripped.upper().startswith("FROM"):
-                in_final = True
-                resolved = "/srv"  # each stage starts from its base default
+            parts = stripped.split()
+            if parts and parts[0].upper() == "FROM":
+                # a stage's INHERITED workdir is its END state — flush it
+                # under the stage's name before starting the new stage
+                if current_name:
+                    stage_workdirs[current_name] = current
+                real = [p for p in parts[1:] if not p.startswith("--")]
+                img = real[0] if real else ""
+                current_name = real[2] if len(real) > 2 \
+                    and real[1].upper() == "AS" else None
+                if img in stage_workdirs:
+                    current = stage_workdirs[img]  # named-stage inheritance
+                elif "${" not in img:
+                    current = "/"  # base image workdir unknown → default
                 continue
-            if not in_final or not stripped.upper().startswith("WORKDIR"):
+            if not parts or parts[0].upper() != "WORKDIR":
                 continue
-            val = stripped.split(None, 1)[1].strip().strip('"')
+            val = parts[1].strip('"') if len(parts) > 1 else ""
             if "${" in val:
                 continue
-            resolved = val if val.startswith("/") else \
-                os.path.join(resolved, val)
-        workdir = resolved
+            current = val if val.startswith("/") else \
+                os.path.join(current, val)
+        if current_name:
+            stage_workdirs[current_name] = current  # flush the last stage
+        workdir = current
         # A repo ENTRYPOINT would turn our CMD into its arguments — clear it
         # so the validated start command is the container's executable.
         if any(l.strip().upper().startswith("ENTRYPOINT")

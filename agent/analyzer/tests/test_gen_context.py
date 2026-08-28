@@ -331,7 +331,9 @@ def test_inherited_entrypoint_cleared(tmp_path):
     dockerfile = open(_pf(repo), encoding="utf-8").read()
     assert "ENTRYPOINT []" in dockerfile
     cmd = next(l for l in dockerfile.splitlines() if l.startswith("CMD "))
-    assert json.loads(cmd[4:]) == ["python", "main.py"]
+    parsed = json.loads(cmd[4:])
+    # the inherited entrypoint is cleared; the start command still runs
+    assert parsed[:1] == ["sh"] and "python main.py" in parsed[2]
 
 
 def test_workdir_scoped_to_final_stage_and_relative_resolution(tmp_path):
@@ -343,8 +345,37 @@ def test_workdir_scoped_to_final_stage_and_relative_resolution(tmp_path):
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo), force=True)
     # only the FINAL stage's workdir chain applies, relative steps resolve
-    assert result["workdir"] == "/srv/build-out/sub"
+    assert result["workdir"] == "/build-out/sub"  # fresh FROM: base workdir default
     dockerfile = open(_pf(repo), encoding="utf-8").read()
     cmd = next(l for l in dockerfile.splitlines() if l.startswith("CMD "))
     assert json.loads(cmd[4:]) == ["sh", "-c",
-                                   "cd /srv/build-out/sub && python main.py"]
+                                   "cd /build-out/sub && python main.py"]
+
+
+def test_workdir_inherits_named_stage_and_resets_per_from(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"), (
+        "FROM python:3.9-slim AS build\nWORKDIR /build\n"
+        "FROM build AS runtime\nWORKDIR out\n"
+        "FROM python:3.9-slim\nWORKDIR /srv/app\n"))
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo), force=True)
+    # the FINAL stage sets /srv/app (the /build and inherited/out workdirs
+    # belong to earlier stages)
+    assert result["workdir"] == "/srv/app"
+    dockerfile = open(_pf(repo), encoding="utf-8").read()
+    cmd = next(l for l in dockerfile.splitlines() if l.startswith("CMD "))
+    assert json.loads(cmd[4:]) == ["sh", "-c", "cd /srv/app && python main.py"]
+
+
+def test_workdir_inherits_named_stage_without_own_workdir(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"), (
+        "FROM python:3.9-slim AS build\nWORKDIR /build\n"
+        "FROM build\n"))
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo), force=True)
+    # FROM build inherits the named stage's workdir
+    assert result["workdir"] == "/build"
