@@ -175,19 +175,18 @@ def ensure_container(session, network="none", image=IMAGE):
             cfg = docker(["inspect",
                           "-f", "{{.Config.Image}}|"
                                 "{{range $k,$v := .NetworkSettings.Networks}}"
-                                "{{$k}}{{end}}", name])
-            img, _, nets = cfg["stdout"].strip().partition("|")
+                                "{{println $k}}{{end}}", name])
+            img, _, nets_raw = cfg["stdout"].strip().partition("|")
             want_net = network if network != "none" else "none"
-            nets_list = [n for n in nets.split(",") if n]
-            ok_image = img == image
-            # Runtime containers are ALWAYS started with --network none
-            # (start_container hard-rejects any named network), so no named
-            # network can legitimately be attached here. For the none case the
-            # reuse is always network-safe, regardless of how Docker renders
-            # the "none" key (empty map, literal "none" key, or even name
-            # concatenation) — so never compare the rendered network text.
-            ok_net = want_net == "none" or want_net in nets_list
-            if not ok_image or not ok_net:
+            # Delimit network keys with newlines so key boundaries survive;
+            # parsing must never rely on the concatenated rendering (e.g. keys
+            # "no","ne" must not be misread as the single key "none").
+            nets = {n for n in nets_raw.splitlines() if n}
+            # A --network none container reports no named networks: an empty
+            # set, or a literal "none" key on some Docker versions.
+            net_match = (want_net == "none" and (not nets or nets == {"none"})) \
+                or (want_net != "none" and want_net in nets)
+            if img != image or not net_match:
                 docker(["rm", "-f", name])
                 start_container(name, network, image)
             return

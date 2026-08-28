@@ -138,7 +138,7 @@ def test_ensure_container_reuses_literal_none_network_key(monkeypatch):
     assert not any(a[:2] == ["rm", "-f"] for a in calls)
 
 
-def test_ensure_container_none_net_ignores_rendered_net_text(monkeypatch):
+def test_ensure_container_reject_concat_named_networks(monkeypatch):
     calls = []
 
     def fake_docker(args, timeout_ms=120000, input_text=None):
@@ -147,15 +147,14 @@ def test_ensure_container_none_net_ignores_rendered_net_text(monkeypatch):
         if "Running" in joined:
             return {"code": 0, "stdout": "true\n", "stderr": ""}
         if "Config.Image" in joined:
-            # The "none" rendering is untrustworthy (e.g. concat of "no","ne"
-            # into "none"); reuse decision for --network none must never depend
-            # on the rendered network text.
-            return {"code": 0, "stdout": "patchproof-ok|no,ne\n", "stderr": ""}
+            # Keys "no" and "ne" concatenate to "none" in a no-delimiter
+            # rendering; they must NOT be treated as the none network.
+            return {"code": 0, "stdout": "patchproof-ok|no\nne\n", "stderr": ""}
         return {"code": 0, "stdout": "", "stderr": ""}
 
     monkeypatch.setattr(srv, "docker", fake_docker)
     srv.ensure_container("s", "none", "patchproof-ok")
-    assert not any(a[:2] == ["rm", "-f"] for a in calls)
+    assert any(a[:2] == ["rm", "-f"] for a in calls)
 
 
 def test_runtime_container_rejects_named_network(monkeypatch):
