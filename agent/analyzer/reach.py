@@ -417,7 +417,7 @@ def _select_dep(repo_path, packages):
     scan = deps.scan_repo(repo_path)
     in_scope = out_scope = unknown = None
     for adv in packages:
-        ranges = [r for r in adv["ranges"] if r]
+        ranges = list(adv["ranges"] or [])
         versions_list = adv.get("versions") or []
         eco = (adv.get("ecosystem") or "").strip().lower()
         # Ecosystem-aware lookup: same-named package from another ecosystem
@@ -448,11 +448,15 @@ def _select_dep(repo_path, packages):
                     unknown = (adv["name"], entry, scan, ranges, "unknown")
                 continue
             # OSV: version affected if enumerated OR in any listed range.
+            # "" sentinel from _osv_affected_packages means all versions.
             by_versions = any(
                 versions.version_in_range(entry["version"], f"== {v}")
                 for v in versions_list) if versions_list else False
-            by_ranges = any(versions.version_in_range(entry["version"], r)
-                            for r in ranges) if ranges else False
+            if "" in ranges:
+                by_ranges = True
+            else:
+                by_ranges = any(versions.version_in_range(entry["version"], r)
+                                for r in ranges) if ranges else False
             if versions_list or ranges:
                 affected = by_versions or by_ranges
             else:

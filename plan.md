@@ -178,6 +178,7 @@ Honesty rules (ADR-010):
   immediate multiline continuation); **conflicting evidence — static literal
   and network provenance both present — resolves to `UNKNOWN` and gates
   sandbox time**, never to `NOT_REACHABLE`.
+- **Dependency scope**: `_select_dep` is ecosystem-aware (`pypi`/`pip`/`python` → Python manifests only, `npm` → `package.json` only, empty → unrestricted, unsupported non-empty → no match) and treats OSV `versions` and `ranges` as alternatives (`by_versions OR by_ranges`; `""` sentinel from `{introduced:"0"}` means all versions).
 
 ## 6. Run graph (lean orchestration, no framework)
 
