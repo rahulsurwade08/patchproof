@@ -231,7 +231,7 @@ def test_build_passes_dockerfile_flag(monkeypatch, tmp_path):
     srv.tool_call("sandbox_build", {"tag": "t", "context_path": str(tmp_path),
                                     "dockerfile": "Dockerfile.app"})
     a = captured["args"]
-    assert a[a.index("-f") + 1] == "Dockerfile.app"
+    assert a[a.index("-f") + 1].endswith("Dockerfile.app")  # validated absolute path
 
 
 def test_build_rejects_escaping_dockerfile(monkeypatch, tmp_path):
