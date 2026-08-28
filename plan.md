@@ -280,7 +280,7 @@ Per-node model-token budget (estimates):
 | OSV/CVE.org unavailable or no symbol data | Honest `UNKNOWN`, no sandbox time, no scenario fallback, no invented symbols |
 | Resource leak (docker images/containers) | Mandatory teardown stage: `sandbox_stop` + image prune after each run (hard rule) |
 | MCP migration regression (Node→Python) | Keep behavior identical; port the two entry tests (cve cross-check; build+exec) before integrating |
-| Time overrun | Cut order: analyzer (Python) + build-context gen → MCP migration → osv wiring polish → dashboard. Approval gate never cut |
+| Time overrun | Cut order: analyzer (Python) + build-context gen → MCP migration → osv wiring polish → dashboard. Approval gate never cut — **all four cut-order items completed 2026-08-28** (analyzer + gen_context, Python MCP servers, OSV _select_dep polish, dashboard hermetic suite + gate) |
 
 ## 10. Security posture
 
