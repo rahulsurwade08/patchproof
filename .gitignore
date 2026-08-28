@@ -32,6 +32,5 @@ dashboard/test_gate.json
 skills-lock.json
 
 # Harness feedback loop (private, iterative review — do not commit)
-feedback-issues.md
+# Only the single root file feedback-issues.md is private; other feedback-*.md docs should remain visible
 /feedback-issues.md
-/feedback-*.md
