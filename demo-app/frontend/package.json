@@ -1,0 +1,14 @@
+{
+  "name": "docuflow-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "lodash": "4.17.20",
+    "axios": "1.15.0",
+    "marked": "4.0.9"
+  },
+  "scripts": {
+    "build": "echo 'no build \u2014 static html/js, served via FastAPI /static'",
+    "test": "echo 'no frontend tests \u2014 see backend tests'"
+  }
+}

