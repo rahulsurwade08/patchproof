@@ -16,7 +16,9 @@ cat > "$HOOK_FILE" << 'HOOK'
 # Blocks push unless run_gate_before_push.sh passes for each changed scenario.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCENARIOS=$(git diff --name-only HEAD@{1} HEAD -- 'scenarios/' 2>/dev/null | cut -d/ -f1 | sort -u)
+DASH_CHANGED=$(git diff --name-only HEAD@{1} HEAD -- 'dashboard/' 2>/dev/null)
 [ -z "$SCENARIOS" ] && SCENARIOS="s01-pyyaml-rce"
+[ -n "$DASH_CHANGED" ] && SCENARIOS="dashboard $SCENARIOS"
 
 for S in $SCENARIOS; do
   echo "Pre-push gate: $S"
