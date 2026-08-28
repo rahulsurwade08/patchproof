@@ -62,19 +62,28 @@ def _osv_affected_packages(affected_list):
         name = (aff.get("package") or {}).get("name")
         if not name:
             continue
+        ecosystem = (aff.get("package") or {}).get("ecosystem") or ""
+        versions = [str(v) for v in (aff.get("versions") or [])]
         ranges = []
         for r in (aff.get("ranges") or []):
             introduced = None
             for ev in (r.get("events") or []):
                 if "introduced" in ev:
                     introduced = ev["introduced"]
-                elif introduced is not None and ("fixed" in ev or "limit" in ev):
-                    hi = ev.get("fixed", ev.get("limit"))
-                    ranges.append(f">= {introduced}, < {hi}")
+                elif introduced is not None and ("fixed" in ev or "limit" in ev
+                                                 or "last_affected" in ev):
+                    if "last_affected" in ev:
+                        # OSV last_affected is an INCLUSIVE ceiling
+                        ranges.append(f">= {introduced}, <= {ev['last_affected']}")
+                    else:
+                        hi = ev.get("fixed", ev.get("limit"))
+                        ranges.append(f">= {introduced}, < {hi}")
                     introduced = None
             if introduced is not None:
                 ranges.append("" if introduced == "0" else f">= {introduced}")
-        packages.append({"name": name, "ranges": ranges})
+        packages.append({"name": name, "ranges": ranges,
+                         "versions": versions,
+                         "ecosystem": ecosystem})
     return packages
 
 
@@ -409,14 +418,32 @@ def _select_dep(repo_path, packages):
     in_scope = out_scope = unknown = None
     for adv in packages:
         ranges = [r for r in adv["ranges"] if r]
-        entries = deps.find_package(scan, adv["name"]) or []
+        versions_list = adv.get("versions") or []
+        eco = (adv.get("ecosystem") or "").strip().lower()
+        # Ecosystem-aware lookup: a same-named package from another
+        # ecosystem must not be evaluated against this advisory.
+        if eco in ("pypi", "pip", "python"):
+            entries = [e for e in (deps.find_package(scan, adv["name"]) or [])
+                       if e["manifest"] != "package.json"] or                       [e for e in (deps.find_package(scan, adv["name"]) or [])
+                       if e["manifest"] != "package.json"]
+        elif eco == "npm":
+            entries = [e for e in (deps.find_package(scan, adv["name"]) or [])
+                       if e["manifest"] == "package.json"]
+        else:
+            entries = deps.find_package(scan, adv["name"]) or []
         for entry in entries:
             if not entry["pinned"]:
                 if unknown is None:
                     unknown = (adv["name"], entry, scan, ranges, "unknown")
                 continue
-            affected = (any(versions.version_in_range(entry["version"], r)
-                            for r in ranges) if ranges else True)
+            if versions_list:
+                # Exact-enumerated affected versions: no range events apply.
+                affected = any(
+                    versions.version_in_range(entry["version"], f"== {v}")
+                    for v in versions_list)
+            else:
+                affected = (any(versions.version_in_range(entry["version"], r)
+                                for r in ranges) if ranges else True)
             if affected and in_scope is None:
                 in_scope = (adv["name"], entry, scan, ranges, "in-scope")
             elif not affected and out_scope is None:
