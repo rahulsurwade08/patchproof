@@ -249,6 +249,10 @@ TOOLS = [
                 },
                 "no_cache": {"type": "boolean",
                              "description": "force fresh build (bypass Docker layer cache)"},
+                "dockerfile": {"type": "string",
+                               "description": ("Dockerfile name RELATIVE to the context "
+                                               "(default 'Dockerfile'), e.g. 'Dockerfile.app' "
+                                               "or 'Dockerfile.patchproof'")},
             },
             "required": ["tag", "context_path"],
         },
@@ -366,6 +370,24 @@ def tool_call(name, args=None):
             build_args = ["build", "-t", str(args["tag"])]
             if args.get("no_cache"):
                 build_args.append("--no-cache")
+            dockerfile = args.get("dockerfile")
+            if dockerfile:
+                rel = str(dockerfile)
+                if (os.path.isabs(rel) or ".." in rel.split(os.sep)
+                        or ".." in rel.split("/")):
+                    raise RuntimeError(f"dockerfile path escapes context: {rel}")
+                # realpath containment: an in-context symlink must not
+                # resolve to a file outside the build context.
+                ctx_root = os.path.realpath(context)
+                resolved = os.path.realpath(os.path.join(context, rel))
+                if not resolved.startswith(ctx_root + os.sep):
+                    raise RuntimeError(f"dockerfile path escapes context: {rel}")
+                if not os.path.isfile(resolved):
+                    raise RuntimeError(f"dockerfile not found in context: {rel}")
+                # Absolute path: docker resolves -f against the server's CWD
+                # (docker() sets no cwd), so a bare relative name could pick
+                # up a same-named file outside the validated context.
+                build_args += ["-f", resolved]
             build_args.append(context)
             res = docker(build_args, timeout_ms=600000)
             return {"exit_code": res["code"],
