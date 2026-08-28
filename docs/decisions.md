@@ -155,7 +155,7 @@ the complexity, dependency, and risk of a generic graph runtime for what is a
 mostly-linear pipeline with one fan-out.
 
 ## ADR-015 — Memory & token strategy: files as memory, telemetry, eval-gated compression
-**Status:** accepted
+ **Status:** accepted (communication-style portion superseded — see below)
 **Memory is files, not stores.** Durable state lives under `data/output/<repo>/`
 (files audit, survive, resume via one small state file). Working memory is the
 run graph + artifact pointers; nodes are self-contained (state, not history).
@@ -177,6 +177,11 @@ reasoning stay in full prose (security reasoning untouched).
 Rationale: our structural levers (read less, cache, node-artifacts) dominate any
 compression hack, and nothing is adopted before the telemetry we just added
 shows it earns its place.
+**Supersession (maintainer, 2026-08-28):** the **communication-style** portion is
+superseded — caveman input/output is now a mandatory AGENTS.md hard rule on every
+session/model (see AGENTS.md Hard rules). The **compression-technique** deferral
+(input-compression proxy as a token lever, adopted only after telemetry proves it
+beats baseline) is unchanged. Judge and approval reasoning stay in full prose.
 
 ## ADR-016 — Security posture: hardened sandbox, external-content-as-data, secrets never in sandbox
 **Status:** accepted
