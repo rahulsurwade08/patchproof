@@ -350,7 +350,7 @@ def _final_workdir(dockerfile_path):
                 elif val.startswith("/"):
                     current_known, current = True, val
                 elif current_known:
-                    current = os.path.join(current, val)
+                    current = os.path.normpath(os.path.join(current, val))
                 # else: relative after an unknown base stays unknown
         if current_name:
             stage_workdirs[current_name] = (current_known, current)

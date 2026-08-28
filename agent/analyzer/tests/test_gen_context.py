@@ -699,3 +699,14 @@ def test_fallback_workdir_resolves_then_relative(tmp_path):
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     assert result["fallback_workdir"] == "/base/app"
+
+
+def test_fallback_workdir_normalizes_dotdot_traversal(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.11-slim\nWORKDIR /base\nWORKDIR ../app\n"
+           "CMD [\"python\", \"main.py\"]\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_workdir"] == "/app"
