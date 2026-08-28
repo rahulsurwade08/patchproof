@@ -384,7 +384,10 @@ def tool_call(name, args=None):
                     raise RuntimeError(f"dockerfile path escapes context: {rel}")
                 if not os.path.isfile(resolved):
                     raise RuntimeError(f"dockerfile not found in context: {rel}")
-                build_args += ["-f", rel]
+                # Absolute path: docker resolves -f against the server's CWD
+                # (docker() sets no cwd), so a bare relative name could pick
+                # up a same-named file outside the validated context.
+                build_args += ["-f", resolved]
             build_args.append(context)
             res = docker(build_args, timeout_ms=600000)
             return {"exit_code": res["code"],
