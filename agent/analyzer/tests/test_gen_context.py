@@ -447,3 +447,25 @@ def test_fallback_workdir_none_on_variable_workdir(tmp_path):
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     assert result["fallback_workdir"] is None
+
+
+def test_exact_maintenance_pin_yields_no_hint(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "pyproject.toml"),
+           '[project]\nrequires-python = "==3.10.5"\n')
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    # exact patch pin can't map to a major.minor image tag without violating
+    # PEP440 exact matching -> no hint (fail open; pip enforces on install)
+    assert result["runtime_version"] == "3.11"
+
+
+def test_multiline_python_requires_honored(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "setup.py"),
+           "python_requires=(\n    \">=3.9,<3.12\"\n)\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["runtime_version"] == "3.9"  # >=3.9,<3.12 -> floor 3.9

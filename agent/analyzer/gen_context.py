@@ -159,11 +159,12 @@ def _py_requires(repo_path, manifest_path=None):
     checked first (nested apps), then repo-root files. Commented-out
     declarations are ignored (line-anchored)."""
     spec = [
-        ("setup.cfg", re.compile(r"^\s*python_requires\s*=.*$", re.M)),
-        ("setup.py", re.compile(r"^\s*python_requires\s*=.*$", re.M)),
-        ("pyproject.toml", re.compile(r"^\s*requires-python\s*=.*$", re.M)),
+        ("setup.cfg", re.compile(r"^\s*python_requires\s*=", re.M)),
+        ("setup.py", re.compile(r"^\s*python_requires\s*=", re.M)),
+        ("pyproject.toml", re.compile(r"^\s*requires-python\s*=", re.M)),
     ]
-    cmp_re = re.compile(r"(>=|<=|!=|>|<|==|\^|~=)?\s*(\d+)\.(\d+)")
+    # (op?, full-version (major.minor[.patch]))
+    cmp_re = re.compile(r"(>=|<=|!=|>|<|==|\^|~=)?\s*(\d+)\.(\d+)(?:\.(\d+))?")
     candidates = []
     if manifest_path and os.path.basename(manifest_path) in (
             "pyproject.toml", "setup.py", "setup.cfg"):
@@ -175,23 +176,35 @@ def _py_requires(repo_path, manifest_path=None):
         if rx is None or not os.path.isfile(path):
             continue
         try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                m = rx.search(fh.read(20000))
+            text = open(path, encoding="utf-8", errors="replace").read(20000)
         except OSError:
             continue
+        m = rx.search(text)
         if not m:
             continue
-        comparators = cmp_re.findall(m.group(0))
+        # capture the field's value as a window spanning subsequent lines so
+        # multiline declarations (python_requires=(\n">=3.12"\n)) are seen
+        window = text[m.start():m.start() + 256]
+        comparators = cmp_re.findall(window)
         if not comparators:
-            continue  # no usable constraint on the line
+            continue  # no usable constraint
 
         lo = hi = None
         lo_inc = hi_inc = True
+        exact_patch = False
         exact = None
-        for op, M, mn in comparators:
+        for op, M, mn, pt in comparators:
+            has_patch = op == "==" and pt
             v = (int(M), int(mn))
             if op == "==":
-                exact = v
+                if has_patch:
+                    # exact maintenance-release pin (==3.10.5): the image layer
+                    # only expresses major.minor, and Requires-Python exact
+                    # matching rejects a differing interpreter -> no hint
+                    # (fail open; pip enforces honestly at install time)
+                    exact_patch = True
+                elif not exact_patch:
+                    exact = v
             elif op == "!=":
                 continue  # exclusions: not representable as an interval
             elif op == ">":
@@ -207,6 +220,8 @@ def _py_requires(repo_path, manifest_path=None):
             else:  # ^ ~= : floor
                 lo = v if lo is None or v > lo else lo
 
+        if exact_patch:
+            return None  # exact maintenance pin not expressible as an image tag
         if exact is not None:
             if lo is not None and (exact < lo or (exact == lo and not lo_inc)):
                 return None
