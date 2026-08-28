@@ -65,6 +65,18 @@ sandbox_build {tag: ..., context_path: ..., dockerfile: "Dockerfile.patchproof"}
 reproducer MUST pass the same `dockerfile` argument and run the start
 command from the recorded workdir.
 
+
+## Two-tier build (ADR-017)
+
+`patchproof-build-context.json` records `dockerfile_name`
+(`Dockerfile.patchproof` — build it via sandbox_build's `dockerfile`
+argument) and `fallback_dockerfile` (the repo's own declared Dockerfile, if
+any). Build the primary first; if its dependency install fails, escalate:
+re-run `sandbox_build` with `dockerfile: <fallback_dockerfile>` (the repo's
+own declared Dockerfile recorded in patchproof-build-context.json) and
+REPORT the escalation in the reproducer summary. A failed build is reported honestly
+as a build failure — never as a vulnerability verdict.
+
 ## Verdict semantics (honesty rules)
 
 - **NOT_REACHABLE (high conf)** — package not pinned, pinned out of the
