@@ -710,3 +710,17 @@ def test_fallback_workdir_normalizes_dotdot_traversal(tmp_path):
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     assert result["fallback_workdir"] == "/app"
+
+
+# ------------------------------------------------------------- entry discovery
+
+def test_find_entry_finds_valid_nested_entry(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(str(repo), "src", "main.py"), _SELF_SERVING_APP)
+    assert gen_context._find_entry(str(repo)) == os.path.join("src", "main.py")
+
+
+def test_find_entry_rejects_control_char_paths(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(str(repo), "a\nb", "main.py"), _SELF_SERVING_APP)
+    assert gen_context._find_entry(str(repo)) is None

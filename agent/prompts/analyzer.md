@@ -109,8 +109,11 @@ sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <LOGICAL-SESSION-LABEL
 where <FALLBACK_IMAGE_TAG> is the exact image tag from the tier-2
 sandbox_build above (never the default python:3.11-slim) and must be passed
 as `image` on this first sandbox_exec; <LOGICAL-SESSION-LABEL> is a session
-label YOU choose (e.g. "fallback") — sandbox_build returns no session, only
-the built tag.
+label YOU choose — make it unique per run (derived from the repo/run
+identity, e.g. "<repo>-fallback", never a bare "fallback", because
+sandbox_exec maps the label directly to a persistent container, so a reused
+generic label could collide with a stale or concurrent investigation) —
+sandbox_build returns no session, only the built tag.
 This emits a path iff it ENDS with the recorded relative entry (no depth
 cap, so deep trees are found; glob chars like * ? [ ] \ and '.' are literal
 in awk's substring test; prefixes/substring matches are rejected). Require

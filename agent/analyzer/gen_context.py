@@ -72,7 +72,10 @@ def _find_entry(repo_path):
         dirs[:] = [d for d in dirs if d not in _SKIP]
         for fname in files:
             if fname in _ENTRY_CANDIDATES:
-                return os.path.relpath(os.path.join(root, fname), repo_path)
+                rel = os.path.relpath(os.path.join(root, fname), repo_path)
+                if any(ord(ch) < 32 or ord(ch) == 127 for ch in rel):
+                    continue
+                return rel
     return None
 
 
