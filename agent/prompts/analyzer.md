@@ -88,8 +88,9 @@ re-run `sandbox_build` with `dockerfile: <fallback_dockerfile>` (the repo's
 own declared Dockerfile recorded in patchproof-build-context.json), run the
 start command from the recorded `fallback_workdir` (when it is null — a
 variable WORKDIR — locate it by searching the running container for the
-entry's full RELATIVE path, quoted for the shell:
-`sandbox_exec "find / -type f -path '*/<entry-rel-path>' 2>/dev/null"`,
+entry's full RELATIVE path, escaped for the shell single-quote context
+before embedding (never interpolate it raw; replace every ' with '"'"').
+`sandbox_exec "find / -type f -path '*/<ENTRY-REL-PATH-ESCAPED>' 2>/dev/null"`,
 which matches a suffix of the recorded relative entry (no depth cap, so
 deep trees are found; same-named files elsewhere do not match the relative
 path). Require EXACTLY ONE match: cd to its directory and start the service
