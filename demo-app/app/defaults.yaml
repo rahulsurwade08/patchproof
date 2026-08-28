@@ -1,0 +1,8 @@
+# Static defaults — loaded at startup via yaml.safe_load (NOT_REACHABLE)
+# Scanner flags pyyaml pin, but PatchProof proves this site not attacker-controlled.
+app:
+  name: DocuFlow
+  theme: light
+  defaults:
+    page_size: 20
+    lang: en

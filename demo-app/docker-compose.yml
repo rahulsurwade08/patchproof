@@ -1,0 +1,10 @@
+services:
+  demo-app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./demo.db
+    volumes:
+      - ./app:/srv/app  # hot reload for demo; production uses baked image
+      - ./frontend:/srv/frontend
