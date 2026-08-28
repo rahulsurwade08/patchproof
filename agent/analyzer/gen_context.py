@@ -148,14 +148,20 @@ def _py_version_files(repo_path):
 
 
 def _py_requires(repo_path):
-    """Version floor from setup.py/pyproject python_requires (best effort)."""
-    for name in ("setup.py", "setup.cfg", "pyproject.toml"):
+    """Version floor from the python_requires / requires-python FIELD only
+    (never a dependency's own constraint)."""
+    spec = [
+        ("setup.cfg", re.compile(r"python_requires\s*=\s*[\"']?(?:>=?\s*)?(\d+)\.(\d+)")),
+        ("setup.py", re.compile(r"python_requires\s*=\s*[\"'](?:>=?\s*)?(\d+)\.(\d+)")),
+        ("pyproject.toml", re.compile(r"requires-python\s*=\s*[\"'](?:>=?\s*)?(\d+)\.(\d+)")),
+    ]
+    for name, rx in spec:
         path = os.path.join(repo_path, name)
         if not os.path.isfile(path):
             continue
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
-                m = _PY_REQUIRES_RE.search(fh.read(20000))
+                m = rx.search(fh.read(20000))
         except OSError:
             continue
         if m:
@@ -163,24 +169,23 @@ def _py_requires(repo_path):
     return None
 
 
-def _node_engines(repo_path):
-    path = os.path.join(repo_path, "package.json")
-    if not os.path.isfile(path):
+def _node_engines(manifest_path):
+    """Node version hint from the package.json `engines.node` field
+    (operator-aware: upper bounds/exclusions name no usable runtime;
+    node image tags are major-only)."""
+    if not manifest_path or not manifest_path.endswith("package.json"):
         return None
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(manifest_path, encoding="utf-8") as fh:
             engines = (json.load(fh).get("engines") or {})
         raw = engines.get("node") or ""
     except (OSError, ValueError):
         return None
-    m = re.search(r"(>=|<=|!=|>|<|\^|~=)?\s*(\d+)(?:\.(\d+))?", raw)
+    m = re.search(r"(>=|<=|!=|>|<|\^|~=)?\s*(\d+)", raw)
     if not m:
         return None
-    op = m.group(1)
-    if op in ("<", "<=", "!="):
-        # An upper bound / exclusion names no usable runtime version.
+    if m.group(1) in ("<", "<=", "!="):
         return None
-    # node image tags are major-only (node:20-slim, not node:20.1-slim)
     return m.group(2)
 
 
@@ -213,7 +218,7 @@ def _pick_version(hints, default):
     return default
 
 
-def detect_runtime_version(repo_path, lang):
+def detect_runtime_version(repo_path, lang, manifest_path=None):
     """Return the major[.minor] version the repo actually runs, or the
     tool default. Precedence: first concrete hint wins in this order —
     declared Dockerfile runtime-stage tag, .python-version / runtime.txt
@@ -225,81 +230,48 @@ def detect_runtime_version(repo_path, lang):
     else:
         hints = [_tag_version_for("node",
                                   _dockerfile_from_tags(repo_path)),
-                 _node_engines(repo_path)]
+                 _node_engines(manifest_path)
+                 or _node_engines(os.path.join(repo_path, "package.json"))]
     return _pick_version(hints, _DEFAULT_ + "_X" if False else
                          (_DEFAULT_PY if lang == "py" else _DEFAULT_NODE))
 
 
-def _py_version_files(repo_path):
-    """Version hints from .python-version / runtime.txt."""
-    for marker in (".python-version", "runtime.txt"):
-        path = os.path.join(repo_path, marker)
-        if os.path.isfile(path):
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fh:
-                    text = fh.read(200)
-            except OSError:
-                continue
-            m = _PY_VERSION_FILE_RE.search(text)
-            if m:
-                return f"{m.group(1)}.{m.group(2)}"
-    return None
-
-
-def _py_requires(repo_path):
-    """Version floor from setup.py/pyproject python_requires (best effort)."""
-    for name in ("setup.py", "setup.cfg", "pyproject.toml"):
-        path = os.path.join(repo_path, name)
-        if not os.path.isfile(path):
-            continue
-        try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                m = _PY_REQUIRES_RE.search(fh.read(20000))
-        except OSError:
-            continue
-        if m:
-            return f"{m.group(1)}.{m.group(2)}"
-    return None
-
-
-def _node_engines(repo_path):
-    path = os.path.join(repo_path, "package.json")
-    if not os.path.isfile(path):
+def _final_workdir(dockerfile_path):
+    """Final-stage WORKDIR of a Dockerfile (stage-aware, relative-chained,
+    variable workdirs unresolved → None); None when absent."""
+    if not dockerfile_path or not os.path.isfile(dockerfile_path):
         return None
+    stage_workdirs = {}
+    current = "/"
+    current_name = None
     try:
-        with open(path, encoding="utf-8") as fh:
-            engines = (json.load(fh).get("engines") or {})
-        raw = engines.get("node") or ""
-    except (OSError, ValueError):
+        with open(dockerfile_path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                parts = line.split()
+                if parts and parts[0].upper() == "FROM":
+                    if current_name:
+                        stage_workdirs[current_name] = current
+                    real = [p for p in parts[1:] if not p.startswith("--")]
+                    img = real[0] if real else ""
+                    current_name = real[2] if len(real) > 2 \
+                        and real[1].upper() == "AS" else None
+                    if img in stage_workdirs:
+                        current = stage_workdirs[img]
+                    elif "$" not in img:
+                        current = "/"
+                    continue
+                if not parts or parts[0].upper() != "WORKDIR":
+                    continue
+                val = parts[1].strip('"') if len(parts) > 1 else ""
+                if "$" in val:
+                    continue
+                current = val if val.startswith("/") else \
+                    os.path.join(current, val)
+        if current_name:
+            stage_workdirs[current_name] = current
+    except OSError:
         return None
-    m = re.search(r"(>=|<=|!=|>|<|\^|~=)?\s*(\d+)(?:\.(\d+))?", raw)
-    if not m:
-        return None
-    op = m.group(1)
-    if op in ("<", "<=", "!="):
-        # An upper bound / exclusion names no usable runtime version.
-        return None
-    # node image tags are major-only (node:20-slim, not node:20.1-slim)
-    return m.group(2)
-
-
-def _tag_version_for(lang, tag_pairs):
-    for t_lang, tag in tag_pairs:
-        if t_lang != lang or not tag:
-            continue
-        if lang == "python":
-            m = _TAG_PLAIN_VERSION_RE.match(tag)
-            if m:
-                return m.group(1) if not m.group(2) \
-                    else f"{m.group(1)}.{m.group(2)}"
-            m = _TAG_PY_VERSION_RE.match(tag)
-            if m:  # alpine3.8 / slim-buster3.7 style year tags
-                return f"3.{m.group(2)}" if m.group(1) == "3" else None
-        else:
-            m = _TAG_PLAIN_VERSION_RE.match(tag)
-            if m:
-                return m.group(1) if not m.group(2) else f"{m.group(1)}.{m.group(2)}"
-    return None
+    return current
 
 
 def _first_declared_dockerfile(repo_path):
@@ -519,10 +491,13 @@ def generate(repo_path, out_dir=None, force=False):
     # escalates to the repo's OWN declared Dockerfile via the -f argument —
     # an explicit, documented escalation of the build-time trust boundary.
     fallback = _first_declared_dockerfile(repo_path)
+    fallback_workdir = _final_workdir(
+        os.path.join(repo_path, fallback)) if fallback else None
     context_record = {
         "dockerfile": os.path.join(out_dir, "Dockerfile.patchproof"),
         "dockerfile_name": "Dockerfile.patchproof",
         "fallback_dockerfile": fallback,
+        "fallback_workdir": fallback_workdir,
         "base_image": base,
         "runtime_version": version,
         "workdir": "/srv",

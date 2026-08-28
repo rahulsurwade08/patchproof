@@ -202,13 +202,15 @@ def test_node_synth_has_no_apt_layer(tmp_path):
 def test_fallback_dockerfile_recorded_when_declared(tmp_path):
     repo = tmp_path / "app"
     _require(repo)
-    _write(os.path.join(repo, "Dockerfile.app"), "FROM python:alpine3.8\n")
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:alpine3.8\nWORKDIR /app\n")
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     # synthesized stays primary; the repo's own definition is the
-    # documented escalation when its install fails
+    # documented escalation when its install fails (with its workdir)
     assert result["source"] == "synthesized"
     assert result["fallback_dockerfile"] == "Dockerfile.app"
+    assert result["fallback_workdir"] == "/app"
 
 
 def test_no_fallback_when_no_declared_dockerfile(tmp_path):
