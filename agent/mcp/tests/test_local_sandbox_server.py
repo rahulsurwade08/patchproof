@@ -243,6 +243,11 @@ def test_build_rejects_escaping_dockerfile(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         srv.tool_call("sandbox_build", {"tag": "t", "context_path": str(tmp_path),
                                         "dockerfile": "/etc/Dockerfile"})
+    # in-context symlink resolving OUTSIDE the context is rejected
+    os.symlink("/etc/passwd", tmp_path / "Dockerfile.link")
+    with pytest.raises(RuntimeError):
+        srv.tool_call("sandbox_build", {"tag": "t", "context_path": str(tmp_path),
+                                        "dockerfile": "Dockerfile.link"})
 
 
 def test_build_rejects_missing_dockerfile(monkeypatch, tmp_path):

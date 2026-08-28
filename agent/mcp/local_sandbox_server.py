@@ -376,7 +376,13 @@ def tool_call(name, args=None):
                 if (os.path.isabs(rel) or ".." in rel.split(os.sep)
                         or ".." in rel.split("/")):
                     raise RuntimeError(f"dockerfile path escapes context: {rel}")
-                if not os.path.isfile(os.path.join(context, rel)):
+                # realpath containment: an in-context symlink must not
+                # resolve to a file outside the build context.
+                ctx_root = os.path.realpath(context)
+                resolved = os.path.realpath(os.path.join(context, rel))
+                if not resolved.startswith(ctx_root + os.sep):
+                    raise RuntimeError(f"dockerfile path escapes context: {rel}")
+                if not os.path.isfile(resolved):
                     raise RuntimeError(f"dockerfile not found in context: {rel}")
                 build_args += ["-f", rel]
             build_args.append(context)
