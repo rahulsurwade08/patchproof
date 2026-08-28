@@ -30,3 +30,8 @@ dashboard/test_gate.json
 
 # qodo-skills lockfile (generated, not required in VCS)
 skills-lock.json
+
+# Harness feedback loop (private, iterative review — do not commit)
+feedback-issues.md
+/feedback-issues.md
+/feedback-*.md
