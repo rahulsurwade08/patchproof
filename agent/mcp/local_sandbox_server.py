@@ -181,8 +181,12 @@ def ensure_container(session, network="none", image=IMAGE):
             # Docker inspect reports empty NetworkSettings.Networks for
             # --network none containers, so treat empty nets as matching.
             nets_list = [n for n in nets.split(",") if n]
-            net_match = (not nets_list) if want_net == "none" \
-                else (want_net in nets_list)
+            # --network none may be reported as an empty map OR as a literal
+            # "none" key depending on the Docker version. Both mean "no named
+            # network" and must match, else every ensure_container recreates the
+            # container (wiping write/exec state between calls).
+            net_match = (not nets_list or nets_list == ["none"]) \
+                if want_net == "none" else (want_net in nets_list)
             if img != image or not net_match:
                 docker(["rm", "-f", name])
                 start_container(name, network, image)
