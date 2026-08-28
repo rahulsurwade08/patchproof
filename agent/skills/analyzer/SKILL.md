@@ -51,6 +51,20 @@ UNKNOWN) — the MCP path is preferred because the legitimacy verdict is
 produced by the dedicated dual-source server rather than a convenience
 fallback.
 
+## Build context -> sandbox_build
+
+The generated definition is always `Dockerfile.patchproof` (the repo's own
+`Dockerfile*` files are never overwritten). Pass it explicitly when building:
+
+```
+sandbox_build {tag: ..., context_path: ..., dockerfile: "Dockerfile.patchproof"}
+```
+
+`patchproof-build-context.json` (written beside it) records
+`dockerfile_name`, `workdir`, and the validated `start_command` — the
+reproducer MUST pass the same `dockerfile` argument and run the start
+command from the recorded workdir.
+
 ## Verdict semantics (honesty rules)
 
 - **NOT_REACHABLE (high conf)** — package not pinned, pinned out of the

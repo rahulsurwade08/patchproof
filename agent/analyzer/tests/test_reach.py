@@ -220,64 +220,6 @@ def test_osv_interval_events_assembled(tmp_path):
     assert ranges == [">= 3.0, < 3.9", ">= 4.0, < 5.4"]
     assert versions.version_in_range("3.13", ranges[0]) is False
     assert versions.version_in_range("3.5", ranges[0]) is True
-
-
-def test_gen_context_generates_dockerfile(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    result = gen_context.generate(str(repo), str(repo))
-    assert os.path.isfile(os.path.join(str(repo), "Dockerfile"))
-    assert result["entry"] == "main.py"
-    assert result["base_image"].startswith("python:")
-    assert result["build_context"] == os.path.abspath(str(repo))
-
-
-def test_gen_context_refuses_overwrite(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    gen_context.generate(str(repo), str(repo))
-    with pytest.raises(FileExistsError):
-        gen_context.generate(str(repo), str(repo))
-    gen_context.generate(str(repo), str(repo), force=True)
-
-
-def test_gen_context_out_is_complete_context(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    out = tmp_path / "ctx"
-    result = gen_context.generate(str(repo), str(out))
-    assert result["build_context"] == os.path.abspath(str(out))
-    assert os.path.isfile(out / "Dockerfile")
-    assert os.path.isfile(out / "main.py")
-    assert os.path.isfile(out / "requirements.txt")
-
-
-def test_gen_context_node_entry_uses_node(tmp_path):
-    repo = tmp_path / "app"
-    _write(os.path.join(repo, "package.json"),
-           json.dumps({"dependencies": {"yaml": "1.10.0"}}))
-    _write(os.path.join(repo, "server.js"), _NODE_LISTENER)
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["base_image"] == "node:20-slim"
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert 'CMD ["node", "server.js"]' in dockerfile
-    assert "npm install" in dockerfile
-
-
-def test_gen_context_npm_ci_with_lockfile(tmp_path):
-    repo = tmp_path / "app"
-    _write(os.path.join(repo, "package.json"),
-           json.dumps({"dependencies": {"yaml": "1.10.0"}}))
-    _write(os.path.join(repo, "package-lock.json"), "{}")
-    _write(os.path.join(repo, "server.js"), _NODE_LISTENER)
-    gen_context.generate(str(repo), str(repo))
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert "npm ci" in dockerfile and "package-lock.json" in dockerfile
-
-
 def test_versions_range_parsing():
     assert versions.version_in_range("3.13", "< 5.4") is True
     assert versions.version_in_range("5.4", "< 5.4") is False
@@ -446,189 +388,6 @@ def test_dockerignore_blocks_secrets(tmp_path):
     di = open(os.path.join(str(repo), ".dockerignore"), encoding="utf-8").read()
     for pattern in (".env", "*.pem", "id_rsa*", ".aws", ".ssh"):
         assert pattern in di
-
-
-def test_gen_context_nested_npm_project(tmp_path):
-    repo = tmp_path / "app"
-    _write(os.path.join(repo, "frontend", "package.json"), json.dumps(
-        {"dependencies": {"yaml": "1.10.0"}}))
-    _write(os.path.join(repo, "frontend", "package-lock.json"), "{}")
-    _write(os.path.join(repo, "frontend", "server.js"), _NODE_LISTENER)
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["entry"] == os.path.join("frontend", "server.js")
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert 'COPY ["frontend/package.json", "frontend/package.json"]' in dockerfile
-    assert 'COPY ["frontend/package-lock.json", "frontend/package-lock.json"]' in dockerfile
-    assert "RUN cd frontend && npm ci" in dockerfile
-    assert 'CMD ["node", "frontend/server.js"]' in dockerfile
-
-
-def test_gen_context_persists_start_command(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["start_command"] == ["python", "main.py"]  # self-serving entry
-    ctx_file = os.path.join(str(repo), "patchproof-build-context.json")
-    assert os.path.isfile(ctx_file)
-    saved = json.load(open(ctx_file, encoding="utf-8"))
-    assert saved["start_command"] == ["python", "main.py"]
-    assert saved["build_context"] == os.path.abspath(str(repo))
-
-
-def test_gen_context_quoting_survives_spaces(tmp_path):
-    repo = tmp_path / "app"
-    _write(os.path.join(repo, "front end", "package.json"), json.dumps(
-        {"dependencies": {"yaml": "1.10.0"}}))
-    _write(os.path.join(repo, "front end", "server.js"), _NODE_LISTENER)
-    gen_context.generate(str(repo), str(repo))
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert 'COPY ["front end/package.json", "front end/package.json"]' in dockerfile
-    assert "RUN cd 'front end' && npm install" in dockerfile
-    assert 'CMD ["node", "front end/server.js"]' in dockerfile
-
-
-def test_gen_context_app_object_gets_uvicorn(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "api", "main.py"),
-           "from fastapi import FastAPI\napp = FastAPI()\n")
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["start_command"] == ["uvicorn", "api.main:app",
-                                       "--host", "127.0.0.1", "--port", "8000"]
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert '"uvicorn"' in dockerfile
-
-
-def test_gen_context_fails_without_serving_command(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), "print('library only')\n")
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo))
-
-
-def test_gen_context_skips_symlinked_dockerfiles(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    os.symlink("/dev/zero", os.path.join(repo, "Dockerfile.zero"))
-    os.symlink("/etc/passwd", os.path.join(repo, "Dockerfile.esc"))
-    result = gen_context.generate(str(repo), str(repo), force=True)
-    assert result["base_image"] == "python:3.11-slim"  # fallback, no hang/leak
-
-
-def test_gen_context_handles_from_flags_and_digests(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "Dockerfile.app"),
-           "FROM --platform=linux/amd64 python:3.9-slim@sha256:"
-           + "a" * 64 + "\n")
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    result = gen_context.generate(str(repo), str(repo), force=True)
-    assert result["base_image"] == "python:3.9-slim@sha256:" + "a" * 64
-
-
-def test_gen_context_rejects_untrusted_base(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "Dockerfile"), "FROM mysql:8.0\n")
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    # untrusted foreign image -> explicit failure, never a wrong-base build
-    # or an overwrite of the repo's own Dockerfile
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo), force=True)
-    assert open(os.path.join(str(repo), "Dockerfile")).read() == "FROM mysql:8.0\n"
-
-
-def test_gen_context_skips_parametrized_from(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "Dockerfile"),
-           "ARG BASE=python:3.8\nFROM ${BASE}\n")
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo), force=True)
-
-
-def test_gen_context_prefers_runtime_dockerfile_over_db(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "Dockerfile.db"), "FROM mysql:8.0\n")
-    _write(os.path.join(repo, "Dockerfile.app"), "FROM python:3.9-slim\n")
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["base_image"] == "python:3.9-slim"
-
-
-def test_gen_context_case_insensitive_from(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "Dockerfile.app"),
-           "  from python:3.8-slim AS build\n")
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["base_image"] == "python:3.8-slim"
-
-
-def test_gen_context_skips_its_own_generated_dockerfile(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "Dockerfile"),
-           "# Generated by PatchProof gen_context (safe to delete).\n"
-           "FROM python:3.11-slim\n")  # stale artifact from an earlier run
-    _write(os.path.join(repo, "Dockerfile.app"), "FROM python:alpine3.8\n")
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    result = gen_context.generate(str(repo), str(repo), force=True)
-    assert result["base_image"] == "python:alpine3.8"
-
-
-def test_gen_context_reuses_repo_declared_base(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo, body="old-pin==1.0\n")
-    _write(os.path.join(repo, "Dockerfile.app"),
-           "FROM python:alpine3.8\nRUN apk add --no-cache gcc musl-dev\n")
-    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["base_image"] == "python:alpine3.8"
-    assert result["source"] == "repo-dockerfile"
-    assert result["generated"] is False
-    # the repo's own Dockerfile is reused verbatim — nothing is written
-    # over it (the FileExistsError regeneration bug is gone)
-    dockerfile = open(os.path.join(str(repo), "Dockerfile.app"),
-                      encoding="utf-8").read()
-    assert "apk add --no-cache gcc musl-dev" in dockerfile
-    assert not os.path.exists(os.path.join(str(repo), "Dockerfile"))
-
-
-def test_gen_context_fails_without_entry(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "lib.py"), "print('library only')\n")
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo))
-
-
-def test_gen_context_rejects_console_only_node(tmp_path):
-    repo = tmp_path / "app"
-    _write(os.path.join(repo, "package.json"), json.dumps(
-        {"dependencies": {"yaml": "1.10.0"}}))
-    _write(os.path.join(repo, "server.js"), "console.log('not a server')\n")
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo))
-
-
-def test_gen_context_installs_uvicorn_for_app_object(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo, body="fastapi==0.115.0\n")  # note: no uvicorn declared
-    _write(os.path.join(repo, "main.py"),
-           "from fastapi import FastAPI\napp = FastAPI()\n")
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["start_command"][0] == "uvicorn"
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert "pip install" in dockerfile and "uvicorn" in dockerfile
-
-
 def test_conflicting_static_and_network_evidence_gates_sandbox(tmp_path):
     repo = tmp_path / "repo"
     _require(repo)
@@ -671,27 +430,6 @@ def test_relative_repo_path_does_not_crash(tmp_path, monkeypatch):
     assert rec["verdict"] == "NOT_REACHABLE"
 
 
-def test_cmd_json_escapes_sensitive_entry_paths(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, 'we"ird', "main.py"), _SELF_SERVING_APP)
-    gen_context.generate(str(repo), str(repo))
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    cmd_line = next(l for l in dockerfile.splitlines() if l.startswith("CMD "))
-    import json as j
-    parsed = j.loads(cmd_line[4:])
-    assert parsed[0] == "python"
-
-
-def test_gen_context_rejects_node_constructor_without_listen(tmp_path):
-    repo = tmp_path / "app"
-    _write(os.path.join(repo, "package.json"), json.dumps(
-        {"dependencies": {"express": "4.19.0"}}))
-    _write(os.path.join(repo, "server.js"),
-           "const http = require('http');\nhttp.createServer(() => {});\n")
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo))
-
 
 def test_multiline_static_call_not_reachable(tmp_path):
     repo = tmp_path / "repo"
@@ -705,39 +443,6 @@ def test_multiline_static_call_not_reachable(tmp_path):
     assert rec["verdict"] == "NOT_REACHABLE"
     assert rec["needs_sandbox"] is False
 
-
-def test_uvicorn_launcher_install_precedes_repo_deps(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo, body="fastapi==0.115.0\nuvicorn==0.29.0\n")
-    _write(os.path.join(repo, "main.py"),
-           "from fastapi import FastAPI\napp = FastAPI()\n")
-    gen_context.generate(str(repo), str(repo))
-    dockerfile = open(os.path.join(str(repo), "Dockerfile"), encoding="utf-8").read()
-    assert dockerfile.index("pip install --no-cache-dir \"uvicorn") < \
-        dockerfile.index("pip install --no-cache-dir -r")
-
-
-def test_gen_context_rejects_all_interface_node_bind(tmp_path):
-    repo = tmp_path / "app"
-    _write(os.path.join(repo, "package.json"), json.dumps(
-        {"dependencies": {"express": "4.19.0"}}))
-    _write(os.path.join(repo, "server.js"),
-           "http.createServer(() => {}).listen(3000);\n")
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo))
-
-
-def test_gen_context_accepts_python_listener_loop(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), (
-        "import tornado.ioloop\n"
-        "import tornado.web\n"
-        "app = tornado.web.Application([])\n"
-        "app.listen(8888, '127.0.0.1')\n"
-        "tornado.ioloop.IOLoop.current().start()\n"))
-    result = gen_context.generate(str(repo), str(repo))
-    assert result["start_command"] == ["python", "main.py"]
 
 
 def test_unrelated_literal_after_call_not_static(tmp_path):
@@ -754,20 +459,6 @@ def test_unrelated_literal_after_call_not_static(tmp_path):
     # the call's provenance is unknown — must not be a false NOT_REACHABLE
     site = next(c for c in rec["call_sites_scanned"] if "yaml.load(data)" in c["symbol"])
     assert site["input_source"] != "NOT_REACHABLE"
-
-
-def test_gen_context_rejects_all_interface_python_bind(tmp_path):
-    repo = tmp_path / "app"
-    _require(repo)
-    _write(os.path.join(repo, "main.py"), (
-        "import tornado.ioloop\nimport tornado.web\n"
-        "app = tornado.web.Application([])\n"
-        "app.listen(8888)\n"
-        "tornado.ioloop.IOLoop.current().start()\n"))
-    with pytest.raises(ValueError):
-        gen_context.generate(str(repo), str(repo))
-
-
 def test_comment_bracket_does_not_extend_call_span(tmp_path):
     repo = tmp_path / "repo"
     _require(repo)

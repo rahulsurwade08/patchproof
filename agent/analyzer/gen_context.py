@@ -271,6 +271,11 @@ def _derive_start_command(entry, repo_path):
 
 
 def _write_file(path, content, force):
+    if os.path.islink(path):
+        # A repo-controlled symlink at the target name would be followed on
+        # write (truncating its target, possibly outside the repo) — refuse.
+        raise RuntimeError(
+            f"{path} is a symlink; refusing to write through it")
     if os.path.exists(path) and not force:
         raise FileExistsError(
             f"{path} already exists; refusing to overwrite target files "
@@ -280,6 +285,19 @@ def _write_file(path, content, force):
 
 
 def generate(repo_path, out_dir=None, force=False):
+    """Build a sandbox-ready context at out_dir. NEVER touches the repo's
+    own Dockerfile*: the working definition is always written as
+    `Dockerfile.patchproof` (built via sandbox_build's -f support), so
+    repo files are never overwritten and suffixed variants work.
+
+    Source selection:
+      - declared + allowlisted final-stage base  -> reuse VERBATIM (its RUN
+        steps — apk/apt build tooling — make pinned deps installable);
+        the image's WORKDIR is recorded and the start command runs there.
+      - declared but unusable                    -> synthesize the generic
+        default (fallback; no ValueError).
+      - none declared                            -> synthesize.
+    """
     repo_path = os.path.abspath(repo_path)
     out_dir = os.path.abspath(out_dir) if out_dir else repo_path
 
@@ -302,72 +320,122 @@ def generate(repo_path, out_dir=None, force=False):
     start_command = _derive_start_command(entry, repo_path)
     detected = _detect_base_image(repo_path, "py" if is_py else "js")
 
-    if not detected and _repo_declares_unusable_dockerfile(repo_path):
-        # The repo already ships Dockerfile* definitions but none has an
-        # allowlisted official python/node base — an explicit failure beats
-        # silently overwriting the repo's own file with the wrong base
-        # (repo content is untrusted, ADR-016).
-        raise ValueError(
-            f"repo declares Dockerfile* files but none has an allowlisted "
-            f"official python/node base; supply a usable build context or "
-            f"base explicitly")
+    lines = []
+    workdir = "/srv"
     if detected:
         base, declared_rel = detected
-        # The repo already HAS a usable build definition: never regenerate
-        # or overwrite it (writing to the canonical path is what caused the
-        # FileExistsError). Return the existing context as-is.
-        return {
-            "dockerfile": os.path.join(repo_path, declared_rel),
-            "base_image": base,
-            "entry": entry,
-            "start_command": start_command,
-            "dependency_manifest": manifest_path,
-            "build_context": repo_path,
-            "source": "repo-dockerfile",
-            "generated": False,
-        }
-    base = "python:3.11-slim" if is_py else "node:20-slim"
-
-    if manifest_path and manifest_name == "pyproject.toml":
-        install_lines = ["COPY . /srv", "RUN pip install --no-cache-dir ."]
-        copy_rest = []
+        # Verbatim reuse: the repo's own RUN steps (apk/apt build tooling)
+        # are exactly what make its pinned dependencies installable.
+        with open(os.path.join(repo_path, declared_rel), encoding="utf-8") as fh:
+            declared_content = fh.read()
+        content_lines = declared_content.rstrip("\n").split("\n")
+        # Parser directives (# syntax=/# escape=) must stay at the very top:
+        # hoist leading comment/directive lines ahead of our marker.
+        directives = []
+        while content_lines and content_lines[0].lstrip().startswith("#"):
+            directives.append(content_lines.pop(0))
+        lines += directives
+        lines.append(_GENERATED_MARKER)
+        lines += content_lines
+        # WORKDIR resolution follows Docker: each FROM resets to the base
+        # image's (unknown → "/") or inherits a NAMED prior stage's final
+        # workdir; relative WORKDIRs chain; variable workdirs are
+        # unresolvable here and keep the current value. The last stage's
+        # end state is the final image's workdir.
+        stage_workdirs = {}
+        current = "/"
+        current_name = None
+        for line in content_lines:
+            stripped = line.strip()
+            parts = stripped.split()
+            if parts and parts[0].upper() == "FROM":
+                # a stage's INHERITED workdir is its END state — flush it
+                # under the stage's name before starting the new stage
+                if current_name:
+                    stage_workdirs[current_name] = current
+                real = [p for p in parts[1:] if not p.startswith("--")]
+                img = real[0] if real else ""
+                current_name = real[2] if len(real) > 2 \
+                    and real[1].upper() == "AS" else None
+                if img in stage_workdirs:
+                    current = stage_workdirs[img]  # named-stage inheritance
+                elif "${" not in img:
+                    current = "/"  # base image workdir unknown → default
+                continue
+            if not parts or parts[0].upper() != "WORKDIR":
+                continue
+            val = parts[1].strip('"') if len(parts) > 1 else ""
+            if "$" in val:  # ${VAR} and $VAR are both unresolvable here
+                continue
+            current = val if val.startswith("/") else \
+                os.path.join(current, val)
+        if current_name:
+            stage_workdirs[current_name] = current  # flush the last stage
+        workdir = current
+        # A repo ENTRYPOINT would turn our CMD into its arguments — clear it
+        # so the validated start command is the container's executable.
+        if any(l.strip().upper().startswith("ENTRYPOINT")
+               for l in content_lines):
+            lines.append("ENTRYPOINT []")
+        source = "repo-dockerfile"
     else:
-        install_lines = _install_block(manifest_name, manifest_path, out_dir) if manifest_path else []
-        copy_rest = ["COPY . /srv"]
+        base = "python:3.11-slim" if is_py else "node:20-slim"
+        source = "synthesized"
+        lines.append(_GENERATED_MARKER)
+        lines.append(f"FROM {base}")
+        lines.append("WORKDIR /srv")
+        if start_command[0] == "uvicorn":
+            # App-object derivation emits a uvicorn launch, but the repo's
+            # own requirements may not include it. Install BEFORE the repo
+            # deps so a pinned uvicorn (uvicorn==0.29.0) re-asserts itself
+            # during `pip install -r requirements.txt` and the vulnerable
+            # environment stays intact.
+            lines.append('RUN pip install --no-cache-dir "uvicorn>=0.30"')
+        if manifest_path and manifest_name == "pyproject.toml":
+            lines += ["COPY . /srv", "RUN pip install --no-cache-dir ."]
+        else:
+            install_lines = (_install_block(manifest_name, manifest_path,
+                                            out_dir) if manifest_path else [])
+            lines += install_lines + ["COPY . /srv"]
 
-    lines = [_GENERATED_MARKER, f"FROM {base}", "WORKDIR /srv"]
-    if start_command[0] == "uvicorn":
-        # App-object derivation emits a uvicorn launch, but the repo's own
-        # requirements may not include it. Install BEFORE the repo deps so a
-        # pinned uvicorn (uvicorn==0.29.0) re-asserts itself during
-        # `pip install -r requirements.txt` and the vulnerable environment
-        # stays intact; only a repo that never pins uvicorn keeps ours.
-        lines.append('RUN pip install --no-cache-dir "uvicorn>=0.30"')
-    lines += install_lines + copy_rest
-    lines.append(f"CMD {json.dumps(start_command)}")
+    if workdir != "/srv":
+        # sandbox_exec always starts in /srv; the reused image's app lives
+        # at its own WORKDIR, so the start command cd's there first.
+        cd_cmd = f"cd {shlex.quote(workdir)} && " + shlex.join(start_command)
+        lines.append(f"CMD {json.dumps(['sh', '-c', cd_cmd])}")
+        effective_start = ["sh", "-c", f"cd {shlex.quote(workdir)} && "
+                                        + shlex.join(start_command)]
+    else:
+        lines.append(f"CMD {json.dumps(start_command)}")
+        effective_start = start_command
 
-    _write_file(os.path.join(out_dir, "Dockerfile"), "\n".join(lines) + "\n", force)
+    _write_file(os.path.join(out_dir, "Dockerfile.patchproof"),
+                "\n".join(lines) + "\n", force)
     _write_file(os.path.join(out_dir, ".dockerignore"),
                 "\n".join((".git", ".env", ".env.*", "*.pem", "*.key", "*.p12",
-                           "*.pfx", "id_rsa*", ".aws", ".ssh", ".npmrc",
-                           ".pypirc", "credentials*", "*.credentials",
-                           "venv", ".venv", "__pycache__", "node_modules",
-                           "data", "output")) + "\n", force)
+                            "*.pfx", "id_rsa*", ".aws", ".ssh", ".npmrc",
+                            ".pypirc", "credentials*", "*.credentials",
+                            "venv", ".venv", "__pycache__", "node_modules",
+                            "data", "output")) + "\n", force)
 
     # The sandbox start command overrides the Dockerfile CMD, so persist the
     # validated startup command for the reproducer to consume (it cannot
     # assume `uvicorn main:app` for arbitrary repos).
     context_record = {
-        "dockerfile": os.path.join(out_dir, "Dockerfile"),
+        "dockerfile": os.path.join(out_dir, "Dockerfile.patchproof"),
+        "dockerfile_name": "Dockerfile.patchproof",
         "base_image": base,
         "entry": entry,
-        "start_command": start_command,
+        "workdir": workdir,
+        "start_command": effective_start,
         "dependency_manifest": manifest_path,
         "build_context": out_dir,
+        "source": source,
         "generated": True,
     }
     _write_file(os.path.join(out_dir, "patchproof-build-context.json"),
-                json.dumps(context_record, indent=2, ensure_ascii=False) + "\n", force)
+                json.dumps(context_record, indent=2, ensure_ascii=False) + "\n",
+                force)
 
     return context_record
 
