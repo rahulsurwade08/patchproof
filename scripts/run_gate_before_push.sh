@@ -84,13 +84,17 @@ if [ "$SCENARIO" = "dashboard" ]; then
   DASH_TEST=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_DASH\",\"command\":\"python -m pytest test_dashboard.py -q\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}")
   DASH_TEST_EXIT=$(json_field "$DASH_TEST" "exit_code" "1")
   DASH_TEST_STDOUT=$(json_field "$DASH_TEST" "stdout" "")
+  DASH_TEST_STDERR=$(json_field "$DASH_TEST" "stderr" "")
   if [ "$DASH_TEST_EXIT" = "124" ]; then
     echo "FAIL: dashboard pytest timeout ($TIMEOUT s)" >&2
+    echo "$DASH_TEST_STDOUT" | tail -20 >&2 || true
+    [ -n "$DASH_TEST_STDERR" ] && echo "$DASH_TEST_STDERR" | tail -20 >&2 || true
     write_gate false 4 1 "exploitable=false" "dashboard pytest timeout ($TIMEOUT s)"
     exit 4
   elif [ "$DASH_TEST_EXIT" != "0" ]; then
     echo "FAIL: dashboard pytest exit $DASH_TEST_EXIT" >&2
     echo "$DASH_TEST_STDOUT" | tail -20 >&2 || true
+    [ -n "$DASH_TEST_STDERR" ] && echo "$DASH_TEST_STDERR" | tail -20 >&2 || true
     write_gate false "$DASH_TEST_EXIT" 1 "exploitable=false" "dashboard pytest failed (exit $DASH_TEST_EXIT)"
     exit "$DASH_TEST_EXIT"
   fi
