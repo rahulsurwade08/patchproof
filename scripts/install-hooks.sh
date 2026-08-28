@@ -21,7 +21,7 @@ if [ -t 0 ]; then
   git diff --name-only HEAD@{1} HEAD 2>/dev/null > "$CHANGED" || true
 else
   while read -r local_ref local_sha remote_ref remote_sha; do
-    [ -z "$local_sha" ] && continue
+    if [ -z "$local_sha" ] || echo "$local_sha" | grep -q "^0*$"; then continue; fi
     case "$remote_sha" in
       0000000000000000000000000000000000000000*|"") empty=$(git hash-object -t tree /dev/null); git diff --name-only "$empty" "$local_sha" 2>/dev/null >> "$CHANGED" || true ;;
       *) git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null >> "$CHANGED" || true ;;
