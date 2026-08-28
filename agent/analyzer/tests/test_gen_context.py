@@ -606,3 +606,46 @@ def test_fallback_rejects_malformed_tag_bang(tmp_path):
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_rejects_leading_slash_reference(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM /python:3.11-slim\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    assert gen_context.generate(str(repo), str(repo))["fallback_dockerfile"] is None
+
+
+def test_fallback_rejects_trailing_slash_reference(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python/:3.11-slim\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    assert gen_context.generate(str(repo), str(repo))["fallback_dockerfile"] is None
+
+
+def test_fallback_rejects_double_slash_reference(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM docker.io//library/python:3.11-slim\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    assert gen_context.generate(str(repo), str(repo))["fallback_dockerfile"] is None
+
+
+def test_fallback_workdir_none_when_no_workdir_declared(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    # fallback COPYs the app into /app but declares no WORKDIR: the implicit
+    # "/" assumption would start the service from the wrong directory, so
+    # the recorded fallback workdir must be None (entry-location probe
+    # locates /app/main.py instead)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.11-slim\nCOPY . /app\n"
+           "CMD [\"python\", \"/app/main.py\"]\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] == "Dockerfile.app"
+    assert result["fallback_workdir"] is None

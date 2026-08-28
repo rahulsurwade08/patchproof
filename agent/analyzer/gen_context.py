@@ -314,13 +314,18 @@ def detect_runtime_version(repo_path, lang, manifest_path=None):
 
 def _final_workdir(dockerfile_path):
     """Final-stage WORKDIR of a Dockerfile (stage-aware, relative-chained,
-    variable workdirs unresolved → None); None when absent."""
+    variable workdirs unresolved → None). Returns None when the final stage
+    does NOT declare a WORKDIR: the implicit '/' assumption is wrong for a
+    fallback Dockerfile that COPYs the app into another directory (e.g.
+    /app), so tier-two must locate the entry rather than start from '/'.
+    Also None when the file is absent/unreadable."""
     if not dockerfile_path or not os.path.isfile(dockerfile_path):
         return None
     stage_workdirs = {}
     current = "/"
     current_name = None
     last_was_var = False
+    final_declared = False
     try:
         with open(dockerfile_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -334,8 +339,10 @@ def _final_workdir(dockerfile_path):
                         and real[1].upper() == "AS" else None
                     if img in stage_workdirs:
                         current = stage_workdirs[img]
+                        final_declared = True
                     elif "$" not in img:
                         current = "/"
+                        final_declared = False
                     last_was_var = False
                     continue
                 if not parts or parts[0].upper() != "WORKDIR":
@@ -345,6 +352,7 @@ def _final_workdir(dockerfile_path):
                     last_was_var = True
                     continue
                 last_was_var = False
+                final_declared = True
                 current = val if val.startswith("/") else \
                     os.path.join(current, val)
         if current_name:
@@ -353,7 +361,10 @@ def _final_workdir(dockerfile_path):
         return None
     # A trailing variable WORKDIR is unresolvable — record None (the
     # skill/prompt documents the probe procedure) instead of a stale path.
-    return None if last_was_var else current
+    if last_was_var:
+        return None
+    # No WORKDIR declared in the final stage: the entry location is unknown.
+    return current if final_declared else None
 
 
 _MAX_DOCKERFILE_LINES = 200_000  # bounded read: far exceeds any real
@@ -380,9 +391,9 @@ def _official_base_name(img, lang):
         return False  # empty tag (`python:`) is not a valid official base
     if tag and not _TAG_RE.match(tag):
         return False  # malformed tag (charset / length)
-    segs = [x for x in repo.split("/") if x]
-    if not segs:
-        return False
+    segs = repo.split("/")
+    if any(s == "" for s in segs):
+        return False  # leading/trailing/double slash is malformed
     if segs[0] == "docker.io":
         segs = segs[1:]
     if len(segs) == 2 and segs[0] == "library":
