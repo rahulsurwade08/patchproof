@@ -50,6 +50,34 @@ _CODE_EXT = (".py", ".js", ".ts", ".jsx", ".tsx")
 _SERIALIZATION_CAP = 40
 
 
+def _osv_affected_packages(affected_list):
+    """Normalize an OSV `affected` array into [{"name", "ranges": [...]}].
+
+    Range events are ordered introduced/fixed pairs (one per event object),
+    assembled into `>= x, < y` interval strings; an open-ended introduced
+    becomes `""` (all versions) or `>= x`.
+    """
+    packages = []
+    for aff in affected_list or []:
+        name = (aff.get("package") or {}).get("name")
+        if not name:
+            continue
+        ranges = []
+        for r in (aff.get("ranges") or []):
+            introduced = None
+            for ev in (r.get("events") or []):
+                if "introduced" in ev:
+                    introduced = ev["introduced"]
+                elif introduced is not None and ("fixed" in ev or "limit" in ev):
+                    hi = ev.get("fixed", ev.get("limit"))
+                    ranges.append(f">= {introduced}, < {hi}")
+                    introduced = None
+            if introduced is not None:
+                ranges.append("" if introduced == "0" else f">= {introduced}")
+        packages.append({"name": name, "ranges": ranges})
+    return packages
+
+
 def _load_advisory(arg):
     """Load advisory from a JSON file path or a bare CVE id via OSV.
 
@@ -64,6 +92,14 @@ def _load_advisory(arg):
                    or data.get("dependency"))
         if isinstance(raw_pkg, dict):
             raw_pkg = raw_pkg.get("name")
+        if isinstance(data.get("affected"), list):
+            # OSV-shaped record, e.g. written from the cve-feed MCP tools
+            # (osv_get_vuln): {"id", "summary", "affected": [{package, ranges}]}
+            packages = _osv_affected_packages(data["affected"])
+            return {"cve_id": cve_id, "source": "advisory-file-osv",
+                    "description": data.get("summary")
+                    or data.get("description") or "",
+                    "packages": packages}
         affected = (data.get("affected_versions") or data.get("affected")
                     or data.get("affected_range") or "")
         if not isinstance(affected, str):
@@ -100,24 +136,7 @@ def _load_advisory(arg):
         with urllib.request.urlopen(OSV_QUERY_URL + cve_id, timeout=15) as resp:
             data = json.load(resp)
         desc = data.get("details") or data.get("summary") or desc
-        packages = []
-        for aff in (data.get("affected") or []):
-            name = (aff.get("package") or {}).get("name")
-            if not name:
-                continue
-            ranges = []
-            for r in (aff.get("ranges") or []):
-                introduced = None
-                for ev in (r.get("events") or []):
-                    if "introduced" in ev:
-                        introduced = ev["introduced"]
-                    elif introduced is not None and ("fixed" in ev or "limit" in ev):
-                        hi = ev.get("fixed", ev.get("limit"))
-                        ranges.append(f">= {introduced}, < {hi}")
-                        introduced = None
-                if introduced is not None:
-                    ranges.append("" if introduced == "0" else f">= {introduced}")
-            packages.append({"name": name, "ranges": ranges})
+        packages = _osv_affected_packages(data.get("affected"))
         source = "cveorg+osv"
     except Exception as exc:  # noqa: BLE001 - honest UNKNOWN on lookup failure
         return {"cve_id": cve_id, "source": source, "packages": [],

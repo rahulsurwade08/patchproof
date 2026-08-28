@@ -33,6 +33,24 @@ the prescribed path. Sandbox containers are offline and cannot see the host's
 target repo, so `sandbox_exec` CANNOT run this script against a host path —
 the sandbox belongs to the reproducer, not the analyzer.
 
+## Advisory derivation (cve-feed MCP first)
+
+When the `cve-feed` MCP tools are registered, derive the advisory through
+them (dual-source verified) and hand reach.py a normalized OSV-shaped file:
+
+1. `cve_get_cve` (cveId) — confirm a PUBLISHED CVE.org record; abort with an
+   honest UNKNOWN otherwise.
+2. `osv_get_vuln` (cveId or OSV id) — full affected package/range list.
+3. Write that OSV-shaped record verbatim to
+   `data/output/<repo>/advisory.json` and pass the path to reach.py — its
+   loader consumes the OSV `affected` array directly.
+
+If the cve-feed tools are not registered, reach.py's built-in lookup applies
+the same rules itself (CVE.org PUBLISHED check + OSV, failing closed to
+UNKNOWN) — the MCP path is preferred because the legitimacy verdict is
+produced by the dedicated dual-source server rather than a convenience
+fallback.
+
 ## Verdict semantics (honesty rules)
 
 - **NOT_REACHABLE (high conf)** — package not pinned, pinned out of the
