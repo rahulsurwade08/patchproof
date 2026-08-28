@@ -469,3 +469,30 @@ def test_multiline_python_requires_honored(tmp_path):
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
     assert result["runtime_version"] == "3.9"  # >=3.9,<3.12 -> floor 3.9
+
+
+def test_fallback_rejected_when_base_not_allowlisted(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile"),
+           "FROM ubuntu:22.04\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    # tier-2 escalation must keep the strict official python/node base
+    # allowlist (ADR-016: repo content stays inert data) — a repo-controlled
+    # foreign base is never offered as the fallback
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_rejected_when_runtime_base_not_allowlisted(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.9-slim AS build\n"
+           "RUN echo build\n"
+           "FROM nginx:1.25\n"
+           "WORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    # the LAST/runtime FROM is nginx (not allowlisted) -> no fallback
+    assert result["fallback_dockerfile"] is None
