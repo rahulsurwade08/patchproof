@@ -392,3 +392,39 @@ def test_workdir_in_context_record(tmp_path):
     record = json.load(open(os.path.join(str(repo),
                        "patchproof-build-context.json"), encoding="utf-8"))
     assert record["workdir"] == "/srv"
+
+
+def test_nested_python_requires_honored(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "backend", "pyproject.toml"),
+           '[project]\nname = "x"\nrequires-python = ">=3.12"\n')
+    _write(os.path.join(repo, "backend", "main.py"), _SELF_SERVING_APP)
+    _write(os.path.join(repo, "requirements.txt"), "old-pin==1.0\n")
+    # detect the nested manifest as the app's manifest
+    manifest = os.path.join(str(repo), "backend", "pyproject.toml")
+    version = gen_context.detect_runtime_version(
+        str(repo), "py", manifest_path=manifest)
+    assert version == "3.12"
+
+
+def test_python_upper_bound_satisfied(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "setup.py"),
+           "python_requires='<3.11'\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    # default 3.11 would VIOLATE <3.11 — the highest satisfying version is 3.10
+    assert result["runtime_version"] == "3.10"
+    assert result["base_image"] == "python:3.10-slim"
+
+
+def test_fallback_workdir_none_on_variable_workdir(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:alpine3.8\nWORKDIR $APP_DIR\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_workdir"] is None

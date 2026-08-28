@@ -86,8 +86,10 @@ argument) and `fallback_dockerfile` (the repo's own declared Dockerfile, if
 any). Build the primary first; if its dependency install fails, escalate:
 re-run `sandbox_build` with `dockerfile: <fallback_dockerfile>` (the repo's
 own declared Dockerfile recorded in patchproof-build-context.json), run the
-start command from the recorded `fallback_workdir`, and REPORT the
-escalation in the reproducer summary. A failed build is reported honestly
+start command from the recorded `fallback_workdir` (when it is null — a
+variable WORKDIR — probe the running container with `ls /app /srv
+/usr/src/app 2>/dev/null` and cd to the directory containing the entry
+file), and REPORT the escalation in the reproducer summary. A failed build is reported honestly
 as a build failure — never as a vulnerability verdict.
 
 ## Verdict semantics (honesty rules)

@@ -147,16 +147,30 @@ def _py_version_files(repo_path):
     return None
 
 
-def _py_requires(repo_path):
-    """Version floor from the python_requires / requires-python FIELD only
-    (never a dependency's own constraint)."""
+def _py_requires(repo_path, manifest_path=None):
+    """Version constraint from the python_requires / requires-python FIELD
+    (never a dependency's own constraint). The detected manifest is checked
+    first (nested apps), then the repo-root files. Upper bounds resolve to
+    the highest version SATISFYING them (<3.11 → 3.10)."""
     spec = [
-        ("setup.cfg", re.compile(r"python_requires\s*=\s*[\"']?(?:>=?\s*)?(\d+)\.(\d+)")),
-        ("setup.py", re.compile(r"python_requires\s*=\s*[\"'](?:>=?\s*)?(\d+)\.(\d+)")),
-        ("pyproject.toml", re.compile(r"requires-python\s*=\s*[\"'](?:>=?\s*)?(\d+)\.(\d+)")),
+        ("setup.cfg", re.compile(
+            r"python_requires\s*=\s*[\"']?\s*(>=|<=|>|<|!=)?\s*(\d+)\.(\d+)")),
+        ("setup.py", re.compile(
+            r"python_requires\s*=\s*[\"']?\s*(>=|<=|>|<|!=)?\s*(\d+)\.(\d+)")),
+        ("pyproject.toml", re.compile(
+            r"requires-python\s*=\s*[\"']?\s*(>=|<=|>|<|!=)?\s*(\d+)\.(\d+)")),
     ]
-    for name, rx in spec:
-        path = os.path.join(repo_path, name)
+    candidates = []
+    if manifest_path and os.path.basename(manifest_path) in (
+            "pyproject.toml", "setup.py", "setup.cfg"):
+        candidates.append(manifest_path)
+    candidates += [os.path.join(repo_path, n) for n, _ in spec]
+    rx_by_name = {n: rx for n, rx in spec}
+    for path in candidates:
+        rx = rx_by_name.get(os.path.basename(path))
+        if rx is None:
+            rx = rx_by_name[os.path.basename(path)] if \
+                os.path.basename(path) in rx_by_name else spec[0][1]
         if not os.path.isfile(path):
             continue
         try:
@@ -165,7 +179,17 @@ def _py_requires(repo_path):
         except OSError:
             continue
         if m:
-            return f"{m.group(1)}.{m.group(2)}"
+            op = m.group(1) or ">="
+            major, minor = int(m.group(2)), int(m.group(3))
+            if op in ("<", "<="):
+                # highest version SATISFYING the upper bound
+                minor = minor if op == "<=" else minor - 1
+                if minor < 0:
+                    major, minor = major - 1, 11
+                if major < 3:
+                    return None
+                return f"{major}.{minor}"
+            return f"{major}.{minor}"
     return None
 
 
@@ -226,7 +250,8 @@ def detect_runtime_version(repo_path, lang, manifest_path=None):
     if lang == "py":
         hints = [_tag_version_for("python",
                                   _dockerfile_from_tags(repo_path)),
-                 _py_version_files(repo_path), _py_requires(repo_path)]
+                 _py_version_files(repo_path),
+                 _py_requires(repo_path, manifest_path)]
     else:
         hints = [_tag_version_for("node",
                                   _dockerfile_from_tags(repo_path)),
@@ -244,6 +269,7 @@ def _final_workdir(dockerfile_path):
     stage_workdirs = {}
     current = "/"
     current_name = None
+    last_was_var = False
     try:
         with open(dockerfile_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -259,19 +285,24 @@ def _final_workdir(dockerfile_path):
                         current = stage_workdirs[img]
                     elif "$" not in img:
                         current = "/"
+                    last_was_var = False
                     continue
                 if not parts or parts[0].upper() != "WORKDIR":
                     continue
                 val = parts[1].strip('"') if len(parts) > 1 else ""
                 if "$" in val:
+                    last_was_var = True
                     continue
+                last_was_var = False
                 current = val if val.startswith("/") else \
                     os.path.join(current, val)
         if current_name:
             stage_workdirs[current_name] = current
     except OSError:
         return None
-    return current
+    # A trailing variable WORKDIR is unresolvable — record None (the
+    # skill/prompt documents the probe procedure) instead of a stale path.
+    return None if last_was_var else current
 
 
 def _first_declared_dockerfile(repo_path):
