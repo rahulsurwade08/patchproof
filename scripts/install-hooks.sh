@@ -28,7 +28,7 @@ else
     esac
   done
 fi
-SCENARIOS=$(grep "^scenarios/" "$CHANGED" 2>/dev/null | cut -d/ -f2 | sort -u)
+SCENARIOS=$(grep "^scenarios/" "$CHANGED" 2>/dev/null | cut -d/ -f2 | sort -u | grep -v "^_template$")
 DASH_CHANGED=$(grep -q "^dashboard/" "$CHANGED" 2>/dev/null && echo "1" || true)
 [ -z "$SCENARIOS" ] && SCENARIOS="s01-pyyaml-rce"
 [ -n "$DASH_CHANGED" ] && SCENARIOS="dashboard $SCENARIOS"
