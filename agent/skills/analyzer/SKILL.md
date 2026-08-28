@@ -76,13 +76,16 @@ re-run `sandbox_build` with `dockerfile: <fallback_dockerfile>` (the repo's
 own declared Dockerfile recorded in patchproof-build-context.json), run the
 start command from the recorded `fallback_workdir` (when it is null — a
 variable WORKDIR — locate it by searching the running container for the
-entry's full RELATIVE path as a FIXED string — no glob/regex interpretation
-of it (grep -F) and no shell expansion (single-quote context; replace every
-' with '"'"' before embedding). Never interpolate the entry raw.
-`sandbox_exec "find / -type f -printf '%p\n' 2>/dev/null | grep -F -- '/<ENTRY-REL-PATH-ESCAPED-single-quoted>'"`,
-which matches any path ending in the recorded relative entry (no depth cap,
-so deep trees are found; glob chars like * ? [ ] \ are literal; same-named
-files elsewhere do not match the relative path). Require EXACTLY ONE match: cd to its directory and start the service
+entry's full RELATIVE path, matched as a FIXED end-of-path string — no
+glob/regex interpretation, anchored to the END of the path so
+server.js does not match server.js.backup, and no shell expansion
+(single-quote context; replace every ' with '"'"' before embedding; never
+interpolate the entry raw).
+`sandbox_exec "find / -type f -printf '%p\n' 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-single-quoted>' 'index($0,e)==length($0)-length(e)+1 {print}'"`,
+which emits a path iff it ENDS with the recorded relative entry (no depth
+cap, so deep trees are found; glob chars like * ? [ ] \ and '.' are literal
+in awk's substring test; prefixes/substring matches are rejected). Require
+EXACTLY ONE match: cd to its directory and start the service
 only then; if zero or several candidates match (ambiguous), do not guess —
 report the candidates in the summary and mark the start UNKNOWN), and REPORT the escalation in the reproducer summary. A failed build is reported honestly
 as a build failure — never as a vulnerability verdict.
