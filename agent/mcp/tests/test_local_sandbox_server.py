@@ -6,6 +6,7 @@ and redaction/hashing through direct calls.
 """
 
 import json
+import os
 import threading
 import urllib.error
 import urllib.request
