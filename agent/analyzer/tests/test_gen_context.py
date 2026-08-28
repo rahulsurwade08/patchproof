@@ -566,11 +566,43 @@ def test_fallback_rejects_empty_tag_base(tmp_path):
     assert result["fallback_dockerfile"] is None
 
 
-def test_fallback_allows_tagged_official_node_base(tmp_path):
+def test_fallback_rejects_node_base_for_python_project(tmp_path):
     repo = tmp_path / "app"
-    _require(repo)
+    _require(repo)  # python project -> base language must be python
     _write(os.path.join(repo, "Dockerfile.app"),
            "FROM node:20-slim\nWORKDIR /app\n")
     _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
     result = gen_context.generate(str(repo), str(repo))
+    # a node base cannot run the recorded python startup command
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_allows_node_base_for_node_project(tmp_path):
+    repo = tmp_path / "app"
+    _write(os.path.join(repo, "package.json"),
+           json.dumps({"dependencies": {"yaml": "1.10.0"}}))
+    _write(os.path.join(repo, "server.js"), _NODE_LISTENER)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM node:20-slim\nWORKDIR /app\n")
+    result = gen_context.generate(str(repo), str(repo))
     assert result["fallback_dockerfile"] == "Dockerfile.app"
+
+
+def test_fallback_rejects_malformed_tag_slash(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:bad/tag\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_rejects_malformed_tag_bang(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:bad!\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
