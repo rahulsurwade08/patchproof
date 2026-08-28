@@ -408,6 +408,25 @@ def test_nested_python_requires_honored(tmp_path):
     assert version == "3.12"
 
 
+def test_python_strict_floor_and_exclusion_bumped_or_dropped(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "setup.py"), "python_requires='>3.9'\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    # >3.9 forbids 3.9 itself — the next minor satisfies it
+    assert result["runtime_version"] == "3.10"
+
+    repo2 = tmp_path / "app2"
+    _require(repo2)
+    _write(os.path.join(repo2, "pyproject.toml"),
+           '[project]\nrequires-python = "!=3.11"\n')
+    _write(os.path.join(repo2, "main.py"), _SELF_SERVING_APP)
+    result2 = gen_context.generate(str(repo2), str(repo2))
+    # != names no single satisfying runtime — fall back to the default
+    assert result2["runtime_version"] == "3.11"
+
+
 def test_python_upper_bound_satisfied(tmp_path):
     repo = tmp_path / "app"
     _require(repo)

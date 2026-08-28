@@ -186,9 +186,18 @@ def _py_requires(repo_path, manifest_path=None):
                 minor = minor if op == "<=" else minor - 1
                 if minor < 0:
                     major, minor = major - 1, 11
-                if major < 3:
+            elif op in (">", "!="):
+                # strict floor / exclusion: the named runtime is forbidden —
+                # bump past it (>3.9 → 3.10; !=3.11 → 3.12 is a guess, so
+                # only bump when the excluded version is the default's own
+                # major... simplest sound choice: take the next minor) —
+                # for != we cannot know ANY satisfying version → no hint.
+                if op == ">":
+                    minor += 1
+                else:
                     return None
-                return f"{major}.{minor}"
+            if major < 3:
+                return None
             return f"{major}.{minor}"
     return None
 
