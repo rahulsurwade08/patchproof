@@ -148,17 +148,16 @@ def _py_version_files(repo_path):
 
 
 def _py_requires(repo_path, manifest_path=None):
-    """Version constraint from the python_requires / requires-python FIELD
-    (never a dependency's own constraint). The detected manifest is checked
-    first (nested apps), then the repo-root files. Upper bounds resolve to
-    the highest version SATISFYING them (<3.11 → 3.10)."""
+    """Version from the python_requires / requires-python FIELD (never a
+    dependency's own constraint). Compound constraints are resolved: the
+    returned version SATISFIES every comparator (e.g. >=3.9,<3.11 → 3.10;
+    >3.9 bumps past the boundary); no satisfying version → None (the
+    caller falls back to the default and pip enforces honestly). The
+    detected manifest is checked first (nested apps), then repo-root files."""
     spec = [
-        ("setup.cfg", re.compile(
-            r"python_requires\s*=\s*[\"']?\s*(>=|<=|>|<|!=)?\s*(\d+)\.(\d+)")),
-        ("setup.py", re.compile(
-            r"python_requires\s*=\s*[\"']?\s*(>=|<=|>|<|!=)?\s*(\d+)\.(\d+)")),
-        ("pyproject.toml", re.compile(
-            r"requires-python\s*=\s*[\"']?\s*(>=|<=|>|<|!=)?\s*(\d+)\.(\d+)")),
+        ("setup.cfg", re.compile(r"python_requires\s*=\s*[^\n]*")),
+        ("setup.py", re.compile(r"python_requires\s*=\s*[^\n]*")),
+        ("pyproject.toml", re.compile(r"requires-python\s*=\s*[^\n]*")),
     ]
     candidates = []
     if manifest_path and os.path.basename(manifest_path) in (
@@ -166,11 +165,11 @@ def _py_requires(repo_path, manifest_path=None):
         candidates.append(manifest_path)
     candidates += [os.path.join(repo_path, n) for n, _ in spec]
     rx_by_name = {n: rx for n, rx in spec}
+    cmp_re = re.compile(r"(>=|<=|!=|>|<|==|\^|~=)?\s*(\d+)\.(\d+)")
     for path in candidates:
         rx = rx_by_name.get(os.path.basename(path))
         if rx is None:
-            rx = rx_by_name[os.path.basename(path)] if \
-                os.path.basename(path) in rx_by_name else spec[0][1]
+            continue
         if not os.path.isfile(path):
             continue
         try:
@@ -178,27 +177,47 @@ def _py_requires(repo_path, manifest_path=None):
                 m = rx.search(fh.read(20000))
         except OSError:
             continue
-        if m:
-            op = m.group(1) or ">="
-            major, minor = int(m.group(2)), int(m.group(3))
-            if op in ("<", "<="):
-                # highest version SATISFYING the upper bound
-                minor = minor if op == "<=" else minor - 1
-                if minor < 0:
-                    major, minor = major - 1, 11
-            elif op in (">", "!="):
-                # strict floor / exclusion: the named runtime is forbidden —
-                # bump past it (>3.9 → 3.10; !=3.11 → 3.12 is a guess, so
-                # only bump when the excluded version is the default's own
-                # major... simplest sound choice: take the next minor) —
-                # for != we cannot know ANY satisfying version → no hint.
-                if op == ">":
-                    minor += 1
-                else:
-                    return None
-            if major < 3:
+        if not m:
+            continue
+        comparators = [(op or ">=", int(M), int(mn)) for op, M, mn
+                       in cmp_re.findall(m.group(0))]
+        if not comparators:
+            continue
+        lo = hi = None  # inclusive bounds
+        lo_strict = hi_strict = False
+        for op, M, mn in comparators:
+            v = (M, mn)
+            if op == ">":
+                lo = v if lo is None or v > lo else lo
+                lo_strict = True
+            elif op == ">=":
+                lo = v if lo is None or v > lo else lo
+            elif op == "<":
+                hi = v if hi is None or v < hi else hi
+                hi_strict = True
+            elif op == "<=":
+                hi = v if hi is None or v < hi else hi
+            elif op == "==":
+                lo = hi = v
+            elif op in ("^", "~="):
+                lo = v if lo is None or v > lo else lo
+            # != exclusions: cannot be represented as an interval — a
+            # matching pin surfaces honestly at pip install time.
+        if lo is None:
+            if hi is None:
+                return None  # no usable comparator
+            # upper bound only: the highest SATISFYING version is the hint
+            hi_eff = (hi[0], hi[1] - 1) if hi_strict else hi
+            if hi_eff[0] < 3:
                 return None
-            return f"{major}.{minor}"
+            return f"{hi_eff[0]}.{hi_eff[1]}"
+        cand = (lo[0], lo[1] + 1) if lo_strict else lo
+        if hi is not None:
+            hi_eff = hi if not hi_strict else (hi[0], hi[1] - 1
+                                               if hi[1] > 0 else (hi[0] - 1, 11))
+            if cand > hi_eff:
+                return None  # constraints conflict → no hint
+        return f"{cand[0]}.{cand[1]}"
     return None
 
 
