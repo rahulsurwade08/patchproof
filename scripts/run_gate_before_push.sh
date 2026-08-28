@@ -80,6 +80,7 @@ if [ "$SCENARIO" = "dashboard" ]; then
 
   echo "Step: Running dashboard pytest via sandbox_exec..."
   SESSION_DASH="gate-dashboard-$$"
+  trap 'mcp_call "sandbox_stop" "{\"session\":\"$SESSION_DASH\"}" >/dev/null 2>&1 || true' EXIT
   DASH_TEST=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_DASH\",\"command\":\"python -m pytest test_dashboard.py -q\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}")
   DASH_TEST_EXIT=$(json_field "$DASH_TEST" "exit_code" "1")
   DASH_TEST_STDOUT=$(json_field "$DASH_TEST" "stdout" "")
