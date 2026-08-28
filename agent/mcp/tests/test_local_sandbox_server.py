@@ -119,6 +119,44 @@ def test_ensure_container_reuses_matching(monkeypatch):
     assert not any(a[:2] == ["rm", "-f"] for a in calls)
 
 
+def test_ensure_container_reuses_literal_none_network_key(monkeypatch):
+    calls = []
+
+    def fake_docker(args, timeout_ms=120000, input_text=None):
+        calls.append(args)
+        joined = " ".join(args)
+        if "Running" in joined:
+            return {"code": 0, "stdout": "true\n", "stderr": ""}
+        if "Config.Image" in joined:
+            # Some Docker versions report --network none as a literal "none"
+            # key in NetworkSettings.Networks instead of an empty map.
+            return {"code": 0, "stdout": "patchproof-ok|none\n", "stderr": ""}
+        return {"code": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(srv, "docker", fake_docker)
+    srv.ensure_container("s", "none", "patchproof-ok")
+    assert not any(a[:2] == ["rm", "-f"] for a in calls)
+
+
+def test_ensure_container_reject_concat_named_networks(monkeypatch):
+    calls = []
+
+    def fake_docker(args, timeout_ms=120000, input_text=None):
+        calls.append(args)
+        joined = " ".join(args)
+        if "Running" in joined:
+            return {"code": 0, "stdout": "true\n", "stderr": ""}
+        if "Config.Image" in joined:
+            # Keys "no" and "ne" concatenate to "none" in a no-delimiter
+            # rendering; they must NOT be treated as the none network.
+            return {"code": 0, "stdout": "patchproof-ok|no\nne\n", "stderr": ""}
+        return {"code": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(srv, "docker", fake_docker)
+    srv.ensure_container("s", "none", "patchproof-ok")
+    assert any(a[:2] == ["rm", "-f"] for a in calls)
+
+
 def test_runtime_container_rejects_named_network(monkeypatch):
     monkeypatch.setattr(srv, "docker",
                         lambda *a, **k: {"code": 0, "stdout": "", "stderr": ""})
