@@ -91,11 +91,14 @@ server.js does not match server.js.backup, and no shell expansion
 '"'"' AND every backslash \ with \\ before embedding; never
 interpolate the entry raw). Recorded `fallback_workdir` may seed the search
 but must never be trusted as the app root. Probe (portable, no GNU
-find -printf):
-sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <the fallback
-build's session>, command: "find / -type f 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-quote-and-backslash>' 'length($0)>=length(e) && index($0,e)==length($0)-length(e)+1 {print}'"},
+find -printf); include both regular files and symlinks, since entry
+detection accepts symlinked entries:
+sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <LOGICAL-SESSION-LABEL>, command: "find / \( -type f -o -type l \) 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-quote-and-backslash>' 'length($0)>=length(e) && index($0,e)==length($0)-length(e)+1 {print}'"},
 where <FALLBACK_IMAGE_TAG> is the exact image tag from the tier-2
-sandbox_build above (never the default python:3.11-slim, and same session).
+sandbox_build above (never the default python:3.11-slim) and must be passed
+as `image` on this first sandbox_exec; <LOGICAL-SESSION-LABEL> is a session
+label YOU choose (e.g. "fallback") — sandbox_build returns no session, only
+the built tag.
 This emits a path iff it ENDS with the recorded relative entry (no depth
 cap, so deep trees are found; glob chars like * ? [ ] \ and '.' are literal
 in awk's substring test; prefixes/substring matches are rejected). Require
