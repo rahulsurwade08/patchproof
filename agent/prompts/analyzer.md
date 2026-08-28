@@ -88,8 +88,13 @@ re-run `sandbox_build` with `dockerfile: <fallback_dockerfile>` (the repo's
 own declared Dockerfile recorded in patchproof-build-context.json), run the
 start command from the recorded `fallback_workdir` (when it is null — a
 variable WORKDIR — locate it by searching the running container for the
-entry file: `sandbox_exec "find / -maxdepth 4 -name <entry-file> 2>/dev/null"`,
-cd to the directory that contains it), and REPORT the escalation in the reproducer summary. A failed build is reported honestly
+entry's full RELATIVE path, quoted for the shell:
+`sandbox_exec "find / -type f -path '*/<entry-rel-path>' 2>/dev/null"`,
+which matches a suffix of the recorded relative entry (no depth cap, so
+deep trees are found; same-named files elsewhere do not match the relative
+path). Require EXACTLY ONE match: cd to its directory and start the service
+only then; if zero or several candidates match (ambiguous), do not guess —
+report the candidates in the summary and mark the start UNKNOWN), and REPORT the escalation in the reproducer summary. A failed build is reported honestly
 as a build failure — never as a vulnerability verdict.
 
 ## Verdict semantics (honesty rules)
