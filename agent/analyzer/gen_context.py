@@ -271,6 +271,11 @@ def _derive_start_command(entry, repo_path):
 
 
 def _write_file(path, content, force):
+    if os.path.islink(path):
+        # A repo-controlled symlink at the target name would be followed on
+        # write (truncating its target, possibly outside the repo) — refuse.
+        raise RuntimeError(
+            f"{path} is a symlink; refusing to write through it")
     if os.path.exists(path) and not force:
         raise FileExistsError(
             f"{path} already exists; refusing to overwrite target files "
@@ -315,7 +320,7 @@ def generate(repo_path, out_dir=None, force=False):
     start_command = _derive_start_command(entry, repo_path)
     detected = _detect_base_image(repo_path, "py" if is_py else "js")
 
-    lines = [_GENERATED_MARKER]
+    lines = []
     workdir = "/srv"
     if detected:
         base, declared_rel = detected
@@ -323,14 +328,44 @@ def generate(repo_path, out_dir=None, force=False):
         # are exactly what make its pinned dependencies installable.
         with open(os.path.join(repo_path, declared_rel), encoding="utf-8") as fh:
             declared_content = fh.read()
-        lines.append(declared_content.rstrip("\n"))
-        for line in declared_content.splitlines():
-            if line.strip().upper().startswith("WORKDIR "):
-                workdir = line.split(None, 1)[1].strip().strip('"')
+        content_lines = declared_content.rstrip("\n").split("\n")
+        # Parser directives (# syntax=/# escape=) must stay at the very top:
+        # hoist leading comment/directive lines ahead of our marker.
+        directives = []
+        while content_lines and content_lines[0].lstrip().startswith("#"):
+            directives.append(content_lines.pop(0))
+        lines += directives
+        lines.append(_GENERATED_MARKER)
+        lines += content_lines
+        # WORKDIR is resolved within the FINAL stage only, following
+        # Docker's relative-path semantics; variable workdirs are
+        # unresolvable here and keep the previous value.
+        in_final = False
+        resolved = "/srv"
+        for line in content_lines:
+            stripped = line.strip()
+            if stripped.upper().startswith("FROM"):
+                in_final = True
+                resolved = "/srv"  # each stage starts from its base default
+                continue
+            if not in_final or not stripped.upper().startswith("WORKDIR"):
+                continue
+            val = stripped.split(None, 1)[1].strip().strip('"')
+            if "${" in val:
+                continue
+            resolved = val if val.startswith("/") else \
+                os.path.join(resolved, val)
+        workdir = resolved
+        # A repo ENTRYPOINT would turn our CMD into its arguments — clear it
+        # so the validated start command is the container's executable.
+        if any(l.strip().upper().startswith("ENTRYPOINT")
+               for l in content_lines):
+            lines.append("ENTRYPOINT []")
         source = "repo-dockerfile"
     else:
         base = "python:3.11-slim" if is_py else "node:20-slim"
         source = "synthesized"
+        lines.append(_GENERATED_MARKER)
         lines.append(f"FROM {base}")
         lines.append("WORKDIR /srv")
         if start_command[0] == "uvicorn":
@@ -350,10 +385,10 @@ def generate(repo_path, out_dir=None, force=False):
     if workdir != "/srv":
         # sandbox_exec always starts in /srv; the reused image's app lives
         # at its own WORKDIR, so the start command cd's there first.
-        cd_cmd = f"cd {shlex.quote(workdir)} && " + " ".join(start_command)
+        cd_cmd = f"cd {shlex.quote(workdir)} && " + shlex.join(start_command)
         lines.append(f"CMD {json.dumps(['sh', '-c', cd_cmd])}")
         effective_start = ["sh", "-c", f"cd {shlex.quote(workdir)} && "
-                                        + " ".join(start_command)]
+                                        + shlex.join(start_command)]
     else:
         lines.append(f"CMD {json.dumps(start_command)}")
         effective_start = start_command
