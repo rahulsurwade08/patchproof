@@ -496,3 +496,37 @@ def test_fallback_rejected_when_runtime_base_not_allowlisted(tmp_path):
     result = gen_context.generate(str(repo), str(repo))
     # the LAST/runtime FROM is nginx (not allowlisted) -> no fallback
     assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_rejected_when_pseudo_official_foreign_base(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    # last segment is "python" but it's a foreign/org-qualified image
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM evilcorp/python:3.11\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_rejected_when_variable_runtime_base(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    # builder stage uses official python, but the runtime FROM is a variable
+    # (unresolvable image) -> must NOT qualify
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM python:3.11-slim AS build\nRUN true\n"
+           "FROM ${RUNTIME_BASE}\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] is None
+
+
+def test_fallback_allows_official_library_registry_form(tmp_path):
+    repo = tmp_path / "app"
+    _require(repo)
+    _write(os.path.join(repo, "Dockerfile.app"),
+           "FROM docker.io/library/python:3.11-slim\nWORKDIR /app\n")
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    result = gen_context.generate(str(repo), str(repo))
+    assert result["fallback_dockerfile"] == "Dockerfile.app"

@@ -79,11 +79,12 @@ variable WORKDIR — locate it by searching the running container for the
 entry's full RELATIVE path, matched as a FIXED end-of-path string — no
 glob/regex interpretation, anchored to the END of the path so
 server.js does not match server.js.backup, and no shell expansion
-(single-quote context; replace every ' with '"'"' before embedding; never
+(single-quote context AND awk string-literal context; replace every ' with
+'"'"' AND every backslash \ with \\ before embedding; never
 interpolate the entry raw). Use a portable probe (find's default -print,
 which BusyBox/Alpine also supports — do NOT rely on GNU find -printf):
 sandbox_exec args: {image: <FALLBACK_IMAGE_TAG>, session: <the fallback
-build's session>, command: "find / -type f 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-single-quoted>' 'index($0,e)==length($0)-length(e)+1 {print}'"},
+build's session>, command: "find / -type f 2>/dev/null | awk -v e='/<ENTRY-REL-PATH-ESCAPED-quote-and-backslash>' 'index($0,e)==length($0)-length(e)+1 {print}'"},
 where <FALLBACK_IMAGE_TAG> is the exact image tag from the tier-2
 sandbox_build above (never the default python:3.11-slim, and same session).
 This emits a path iff it ENDS with the recorded relative entry (no depth
