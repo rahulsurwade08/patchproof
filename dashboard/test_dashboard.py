@@ -94,9 +94,15 @@ def test_scenario_not_affected(ctx):
 
 
 def test_stream_is_event_source(ctx):
-    # The SSE endpoint never ends, so assert on the returned response object
-    # rather than consuming the infinite body over HTTP.
+    # The SSE endpoint never ends, so assert on the route table rather than
+    # consuming the infinite body over HTTP. This verifies /api/stream is
+    # actually registered as a GET endpoint returning text/event-stream.
     from starlette.responses import StreamingResponse
-    resp = asyncio.run(dashboard_app.stream())
+    route = next(
+        r for r in dashboard_app.app.routes
+        if getattr(r, "path", None) == "/api/stream"
+    )
+    assert "GET" in route.methods
+    resp = asyncio.run(route.endpoint())
     assert isinstance(resp, StreamingResponse)
     assert resp.media_type == "text/event-stream"
