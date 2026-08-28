@@ -341,6 +341,50 @@ def test_transitive_unreferenced_gates_sandbox(tmp_path):
     assert "transitive" in rec["rationale"]
 
 
+def test_osv_shaped_advisory_file(tmp_path):
+    """Advisory records written from the cve-feed MCP osv_get_vuln shape."""
+    repo = tmp_path / "repo"
+    _require(repo)
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    p = tmp_path / "osv.json"
+    _write(str(p), json.dumps({
+        "id": "GHSA-xxxx",
+        "summary": "unsafe load()",
+        "affected": [{"package": {"ecosystem": "PyPI", "name": "pyyaml"},
+                      "ranges": [{"type": "ECOSYSTEM",
+                                  "events": [{"introduced": "0"},
+                                             {"fixed": "5.4"}]}]}]}))
+    rec = reach.reach(str(repo), reach._load_advisory(str(p)), str(tmp_path / "o"))
+    assert rec["source"] == "advisory-file-osv"
+    assert rec["dep"]["name"] == "pyyaml"
+    assert rec["dep"]["pinned_version"] == "3.13"
+    assert rec["in_scope"] is True
+
+
+def test_osv_versions_enumeration_and_ecosystem(tmp_path):
+    repo = tmp_path / "repo"
+    _require(repo, body="pyyaml==5.4\n")  # NOT in enumerated list
+    _write(os.path.join(repo, "main.py"), _SELF_SERVING_APP)
+    p = tmp_path / "osv2.json"
+    _write(str(p), json.dumps({
+        "id": "GHSA-yyyy", "summary": "s",
+        "affected": [{"package": {"ecosystem": "PyPI", "name": "pyyaml"},
+                      "versions": ["3.13", "5.3.1"]}]}))
+    rec = reach.reach(str(repo), reach._load_advisory(str(p)),
+                      str(tmp_path / "o1"))
+    assert rec["in_scope"] is False  # 5.4 not in [3.13, 5.3.1]
+
+    repo2 = tmp_path / "repo2"
+    _write(os.path.join(repo2, "package.json"), json.dumps(
+        {"dependencies": {"pyyaml": "3.13.0"}}))
+    _write(os.path.join(repo2, "main.py"), _SELF_SERVING_APP)
+    rec2 = reach.reach(str(repo2), reach._load_advisory(str(p)),
+                       str(tmp_path / "o2"))
+    # advisory ecosystem is PyPI — the same-named npm package is ignored
+    assert rec2["verdict"] == "NOT_REACHABLE"
+    assert rec2["dep"] is None
+
+
 def test_wildcard_spec_is_not_a_pin(tmp_path):
     repo = tmp_path / "repo"
     _require(repo, body="pyyaml==3.*\n")

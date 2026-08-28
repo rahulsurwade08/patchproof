@@ -45,6 +45,24 @@ reproducer: sandbox startup overrides the Dockerfile `CMD`, so the reproducer
 MUST launch the service with this command instead of assuming
 `uvicorn main:app` (which only fits the scenario fixtures).
 
+## Advisory derivation (cve-feed MCP first)
+
+When the `cve-feed` MCP tools are registered, derive the advisory through
+them (dual-source verified) and hand reach.py a normalized OSV-shaped file:
+
+1. `cve_get_cve` (cveId) — confirm a PUBLISHED CVE.org record; abort with an
+   honest UNKNOWN otherwise.
+2. `osv_get_vuln` (cveId or OSV id) — full affected package/range list.
+3. Write that OSV-shaped record verbatim to
+   `data/output/<repo>/advisory.json` and pass the path to reach.py — its
+   loader consumes the OSV `affected` array directly.
+
+If the cve-feed tools are not registered, reach.py's built-in lookup applies
+the same rules itself (CVE.org PUBLISHED check + OSV, failing closed to
+UNKNOWN) — the MCP path is preferred because the legitimacy verdict is
+produced by the dedicated dual-source server rather than a convenience
+fallback.
+
 ## Verdict semantics (honesty rules)
 
 - **NOT_REACHABLE** (high conf): package not pinned, pinned outside the
