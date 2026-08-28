@@ -228,3 +228,38 @@ escalation is auditable from patchproof-build-context.json and the
 reproducer summary. A failed tier-1 build is reported honestly as a build
 failure — never as a vulnerability verdict.
 
+## ADR-018 — Custom harness UI on the TrueForge UI SDK; skills/MCP/backend attach; test suite v2
+**Status:** accepted (2026-08-29)
+
+**Context.** The stock TrueForge UI works, but the demo needs one surface
+showing scanning → reachability → exploit → patch → approval gate with
+`sandbox_artifacts`; the read-only dashboard and the intermediate centralized
+test suite (`harness/tests/`, 155 tests) predate the custom-UI direction.
+Verified against official TrueForge docs (trueforge.dev: chat-ui, ui-sdk
+quickstart/agent-modes, skills, create-agent overview — 2026-08-29).
+
+**Decision.**
+1. **Frontend:** embed `@truefoundry/trueforge-ui` in `harness/frontend/`
+   (React + Vite) with `server={{type:"trueforge", baseUrl}}` and
+   `agentConfig={{mode:"SingleAgent", name:"patchproof-v2"}}` — no server
+   fork, no `agentMode="fixed-agent"` (that prop does not exist).
+2. **Backend:** stock TrueForge server; PatchProof glue stays MCP + skills.
+   Register the 7 skills via Settings → Skills (git, pinned SHA); register
+   `github`, `local-sandbox`, and an HTTP-wrapped `cve-feed` as remote MCPs.
+3. **Sandbox:** `config.sandbox.enabled: true` on agents — official docs
+   require it to attach skills and back `sandbox_artifacts` downloads.
+   Exploit/PoC execution still goes only through the `local-sandbox` MCP
+   server (ADR-008). If built-in sandbox provisioning fails on this host,
+   record it and fall back to instructions-only skills; triage fails closed.
+4. **Tests:** suite v2 recreated in `harness/tests/` against the attached
+   components (unit: wrapper + sandbox regressions; integration: skills/MCP
+   registration + frontend build + agent manifest; e2e: session turn →
+   verdict + assessment, approval pause). Old suite is triaged — analyzer/MCP
+   units kept, host-coupled suites retired. Build order: tests land
+   alongside each component PR.
+
+**Consequences.** One demo surface; every skill/MCP works through the
+harness; docs now match official TrueForge behavior. The intermediate
+155-test centralized suite is superseded; its useful coverage is recreated
+under v2 as component PRs land.
+
