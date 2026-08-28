@@ -147,30 +147,32 @@ def _py_version_files(repo_path):
     return None
 
 
+def _dec(v):
+    return (v[0], v[1] - 1) if v[1] > 0 else (v[0] - 1, 11)
+
+
 def _py_requires(repo_path, manifest_path=None):
-    """Version from the python_requires / requires-python FIELD (never a
-    dependency's own constraint). Compound constraints are resolved: the
-    returned version SATISFIES every comparator (e.g. >=3.9,<3.11 → 3.10;
-    >3.9 bumps past the boundary); no satisfying version → None (the
-    caller falls back to the default and pip enforces honestly). The
-    detected manifest is checked first (nested apps), then repo-root files."""
+    """Version SATISFYING the python_requires / requires-python FIELD
+    (never a dependency's own constraint). All comparators resolve as an
+    interval — order-independent; no satisfying version → None. Upper-only
+    bounds select the highest satisfying version. The detected manifest is
+    checked first (nested apps), then repo-root files. Commented-out
+    declarations are ignored (line-anchored)."""
     spec = [
-        ("setup.cfg", re.compile(r"python_requires\s*=\s*[^\n]*")),
-        ("setup.py", re.compile(r"python_requires\s*=\s*[^\n]*")),
-        ("pyproject.toml", re.compile(r"requires-python\s*=\s*[^\n]*")),
+        ("setup.cfg", re.compile(r"^\s*python_requires\s*=.*$", re.M)),
+        ("setup.py", re.compile(r"^\s*python_requires\s*=.*$", re.M)),
+        ("pyproject.toml", re.compile(r"^\s*requires-python\s*=.*$", re.M)),
     ]
+    cmp_re = re.compile(r"(>=|<=|!=|>|<|==|\^|~=)?\s*(\d+)\.(\d+)")
     candidates = []
     if manifest_path and os.path.basename(manifest_path) in (
             "pyproject.toml", "setup.py", "setup.cfg"):
         candidates.append(manifest_path)
     candidates += [os.path.join(repo_path, n) for n, _ in spec]
     rx_by_name = {n: rx for n, rx in spec}
-    cmp_re = re.compile(r"(>=|<=|!=|>|<|==|\^|~=)?\s*(\d+)\.(\d+)")
     for path in candidates:
         rx = rx_by_name.get(os.path.basename(path))
-        if rx is None:
-            continue
-        if not os.path.isfile(path):
+        if rx is None or not os.path.isfile(path):
             continue
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
@@ -179,44 +181,50 @@ def _py_requires(repo_path, manifest_path=None):
             continue
         if not m:
             continue
-        comparators = [(op or ">=", int(M), int(mn)) for op, M, mn
-                       in cmp_re.findall(m.group(0))]
+        comparators = cmp_re.findall(m.group(0))
         if not comparators:
-            continue
-        lo = hi = None  # inclusive bounds
-        lo_strict = hi_strict = False
+            continue  # no usable constraint on the line
+
+        lo = hi = None
+        lo_inc = hi_inc = True
+        exact = None
         for op, M, mn in comparators:
-            v = (M, mn)
-            if op == ">":
+            v = (int(M), int(mn))
+            if op == "==":
+                exact = v
+            elif op == "!=":
+                continue  # exclusions: not representable as an interval
+            elif op == ">":
                 lo = v if lo is None or v > lo else lo
-                lo_strict = True
+                lo_inc = False
             elif op == ">=":
                 lo = v if lo is None or v > lo else lo
             elif op == "<":
                 hi = v if hi is None or v < hi else hi
-                hi_strict = True
+                hi_inc = False
             elif op == "<=":
                 hi = v if hi is None or v < hi else hi
-            elif op == "==":
-                lo = hi = v
-            elif op in ("^", "~="):
+            else:  # ^ ~= : floor
                 lo = v if lo is None or v > lo else lo
-            # != exclusions: cannot be represented as an interval — a
-            # matching pin surfaces honestly at pip install time.
+
+        if exact is not None:
+            if lo is not None and (exact < lo or (exact == lo and not lo_inc)):
+                return None
+            if hi is not None and (exact > hi or (exact == hi and not hi_inc)):
+                return None
+            return f"{exact[0]}.{exact[1]}"
         if lo is None:
             if hi is None:
-                return None  # no usable comparator
-            # upper bound only: the highest SATISFYING version is the hint
-            hi_eff = (hi[0], hi[1] - 1) if hi_strict else hi
-            if hi_eff[0] < 3:
                 return None
-            return f"{hi_eff[0]}.{hi_eff[1]}"
-        cand = (lo[0], lo[1] + 1) if lo_strict else lo
-        if hi is not None:
-            hi_eff = hi if not hi_strict else (hi[0], hi[1] - 1
-                                               if hi[1] > 0 else (hi[0] - 1, 11))
-            if cand > hi_eff:
-                return None  # constraints conflict → no hint
+            cand = hi if hi_inc else _dec(hi)
+        else:
+            cand = lo if lo_inc else (lo[0], lo[1] + 1)
+            if hi is not None:
+                hi_eff = hi if hi_inc else _dec(hi)
+                if cand > hi_eff:
+                    return None  # constraints conflict → no hint
+        if cand[0] < 3:
+            return None
         return f"{cand[0]}.{cand[1]}"
     return None
 
