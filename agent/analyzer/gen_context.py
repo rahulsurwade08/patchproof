@@ -365,7 +365,7 @@ def generate(repo_path, out_dir=None, force=False):
             if not parts or parts[0].upper() != "WORKDIR":
                 continue
             val = parts[1].strip('"') if len(parts) > 1 else ""
-            if "${" in val:
+            if "$" in val:  # ${VAR} and $VAR are both unresolvable here
                 continue
             current = val if val.startswith("/") else \
                 os.path.join(current, val)
