@@ -417,33 +417,50 @@ def _select_dep(repo_path, packages):
     scan = deps.scan_repo(repo_path)
     in_scope = out_scope = unknown = None
     for adv in packages:
-        ranges = [r for r in adv["ranges"] if r]
+        ranges = list(adv["ranges"] or [])
         versions_list = adv.get("versions") or []
         eco = (adv.get("ecosystem") or "").strip().lower()
-        # Ecosystem-aware lookup: a same-named package from another
-        # ecosystem must not be evaluated against this advisory.
+        # Ecosystem-aware lookup: same-named package from another ecosystem
+        # must not be evaluated against this advisory. Empty ecosystem is
+        # unrestricted (advisory-file path); unsupported non-empty ecosystems
+        # match nothing — they must not cross-match Python/npm manifests.
         if eco in ("pypi", "pip", "python"):
-            entries = [e for e in (deps.find_package(scan, adv["name"]) or [])
-                       if e["manifest"] != "package.json"] or                       [e for e in (deps.find_package(scan, adv["name"]) or [])
-                       if e["manifest"] != "package.json"]
+            # Python: collect Python-manifest entries via both identity keys,
+            # not find_package's npm-first order which can hide the PEP 503
+            # normalized entry behind an npm entry for the same raw name.
+            seen = set()
+            entries = []
+            for key in {deps._normalize(adv["name"]), deps._npm_key(adv["name"])}:
+                for e in scan.get(key, []) or []:
+                    if e["manifest"] != "package.json" and id(e) not in seen:
+                        seen.add(id(e))
+                        entries.append(e)
         elif eco == "npm":
-            entries = [e for e in (deps.find_package(scan, adv["name"]) or [])
+            entries = [e for e in (scan.get(deps._npm_key(adv["name"]), []) or [])
                        if e["manifest"] == "package.json"]
-        else:
+        elif eco == "":
             entries = deps.find_package(scan, adv["name"]) or []
+        else:
+            entries = []
         for entry in entries:
             if not entry["pinned"]:
                 if unknown is None:
                     unknown = (adv["name"], entry, scan, ranges, "unknown")
                 continue
-            if versions_list:
-                # Exact-enumerated affected versions: no range events apply.
-                affected = any(
-                    versions.version_in_range(entry["version"], f"== {v}")
-                    for v in versions_list)
+            # OSV: version affected if enumerated OR in any listed range.
+            # "" sentinel from _osv_affected_packages means all versions.
+            by_versions = any(
+                versions.version_in_range(entry["version"], f"== {v}")
+                for v in versions_list) if versions_list else False
+            if "" in ranges:
+                by_ranges = True
             else:
-                affected = (any(versions.version_in_range(entry["version"], r)
-                                for r in ranges) if ranges else True)
+                by_ranges = any(versions.version_in_range(entry["version"], r)
+                                for r in ranges) if ranges else False
+            if versions_list or ranges:
+                affected = by_versions or by_ranges
+            else:
+                affected = True
             if affected and in_scope is None:
                 in_scope = (adv["name"], entry, scan, ranges, "in-scope")
             elif not affected and out_scope is None:
