@@ -6,19 +6,20 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vite build --mode test && test -d dist"
   },
   "dependencies": {
-    "@truefoundry/trueforge-sdk": "^0.1.4",
-    "@truefoundry/trueforge-ui": "^0.1.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "@truefoundry/trueforge-sdk": "0.1.4",
+    "@truefoundry/trueforge-ui": "0.1.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "@types/react": "^18.3.4",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.0"
+    "@types/react": "18.3.4",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.3.1",
+    "typescript": "5.5.3",
+    "vite": "5.4.0"
   }
 }
