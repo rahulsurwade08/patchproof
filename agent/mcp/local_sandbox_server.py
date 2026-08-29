@@ -266,11 +266,10 @@ TOOLS = [
             "Run a shell command inside an isolated local Docker container "
             "for the given session. The container has NO network access; "
             "services started inside it are reachable only at 127.0.0.1 "
-            "within the same container. First call starts the container (may "
-            "take a few seconds); later calls reuse it so files persist "
-            "between calls. Pass `image` on the first call to start from a "
-            "pre-built image (see sandbox_build) — needed when the command "
-            "requires packages that cannot be installed offline."),
+            "within the same container. The `image` field is REQUIRED — "
+            "without it, the container is created with the default "
+            "python:3.11-slim image and a subsequent call with a different "
+            "image silently recreates the container, losing written files."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -289,17 +288,22 @@ TOOLS = [
                 },
                 "image": {
                     "type": "string",
-                    "description": ("image used when creating the container "
-                                    "(default python:3.11-slim). Only honored on "
-                                    "first call / after sandbox_stop."),
+                    "description": ("REQUIRED: image tag from sandbox_build. "
+                                    "Without this the container is recreated "
+                                    "and any previously written files are lost."),
                 },
             },
-            "required": ["session", "command"],
+            "required": ["session", "command", "image"],
         },
     },
     {
         "name": "sandbox_write",
-        "description": "Write a text file into a session container.",
+        "description": (
+            "Write a text file into a session container. "
+            "The `image` field is REQUIRED — without it, the container is created "
+            "with the default python:3.11-slim image and a subsequent "
+            "sandbox_exec with a different image silently recreates the container, "
+            "destroying all previously written files."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -310,9 +314,9 @@ TOOLS = [
                 "network": {"type": "string",
                             "description": "Docker network (default 'none'); only honored on container creation"},
                 "image": {"type": "string",
-                          "description": "image used when creating the container; only honored on creation"},
+                          "description": "REQUIRED: image tag from sandbox_build; without this the container is recreated"},
             },
-            "required": ["session", "path", "content"],
+            "required": ["session", "path", "content", "image"],
         },
     },
     {
@@ -399,6 +403,13 @@ def tool_call(name, args=None):
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
     if name == "sandbox_exec":
+        if not args.get("image"):
+            raise RuntimeError(
+                "sandbox_exec: `image` is REQUIRED. Without it, the container "
+                "is created with the default python:3.11-slim image and a "
+                "subsequent call with a different image silently recreates "
+                "the container, losing all written files. Build first with "
+                "sandbox_build, then pass its tag as `image`.")
         cname = ensure_container(args.get("session"),
                                  args.get("network") or "none",
                                  args.get("image") or IMAGE)
@@ -411,6 +422,13 @@ def tool_call(name, args=None):
                 "stderr": redact(res["stderr"]),
                 "container": cname}
     if name == "sandbox_write":
+        if not args.get("image"):
+            raise RuntimeError(
+                "sandbox_write: `image` is REQUIRED. Without it, the container "
+                "is created with the default python:3.11-slim image and a "
+                "subsequent sandbox_exec with a different image silently "
+                "recreates the container, destroying all written files. "
+                "Build first with sandbox_build, then pass its tag as `image`.")
         cname = ensure_container(args.get("session"),
                                  args.get("network") or "none",
                                  args.get("image") or IMAGE)
