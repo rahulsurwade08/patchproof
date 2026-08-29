@@ -126,7 +126,7 @@ harness/
 |----|-------|--------------------|
 | 1 `harness/frontend` scaffold | `harness/frontend/package.json` + `src/App.tsx` (≤2 files) | `npm run build` → `harness/frontend/dist` loads `http://[::1]:8790` chat (`SingleAgent patchproof-v2`) |
 | 2 `cve-feed` HTTP wrapper | `agent/mcp/cve_feed_server.py` streamable wrapper (≤2 files) — done in PR #71 | `curl http://127.0.0.1:8091/mcp` tools/list; registration done in step 3 |
-| 3 attach skills + MCPs | Settings/API wiring: 7 skills (git, pinned SHA) + `github`/`local-sandbox`/`cve-feed` + `patchproof-v2` manifest update | `GET /api/v1/skills` lists 7; `GET /api/v1/mcp-servers` lists 3; agent manifest matches spec |
+| 3 attach skills + MCPs | `scripts/harness_setup.py` (register skills/MCPs/agent) + updated docs — done in PR #72 | `GET /api/v1/skills` lists 7; `GET /api/v1/mcp-servers` lists 2 (local-sandbox + cve-feed); github connector is the catalog entry added in the UI per step 3 of docs/trueforge-setup.md; agent manifest matches spec |
 | 4 `fix/sandbox-reuse` | `local_sandbox_server.py:ensure_container` image check + `sandbox_stop` trap | back-to-back `sandbox_exec` reuse container; no stale `patchproof-sbx` containers after stop |
 | 5 `feat/approval-gate` | manifest `require_approval_for_tools` per MCP server (API) | harness turn shows approval pause before PR/staging |
 | 6+ test suite v2 | `harness/tests/` recreated per §4, ≤5 files per PR | `pytest harness/tests/unit -q` then integration then e2e, green |

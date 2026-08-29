@@ -54,8 +54,10 @@ time, since containers run offline), `sandbox_exec`, `sandbox_write`,
 `sandbox_read`, `sandbox_stop`. Containers are disposable Docker containers
 with `--network none`, one per session label so the service and PoC share
 `/tmp` and localhost. Requires only Docker. Leave Settings → Sandbox providers
-unconfigured and keep `sandbox.enabled: false` on agents. Evaluated
-alternatives are recorded in ADR-008 (`docs/decisions.md`).
+unconfigured; agents set `sandbox.enabled: true` so TrueForge's built-in
+materializes skill repos and backs `sandbox_artifacts` file downloads, but
+exploit/PoC execution routes only through the `local-sandbox` MCP (--network
+none). Evaluated alternatives are recorded in ADR-008 (`docs/decisions.md`).
 
 Attach the `local-sandbox` server to **every agent that executes code**
 (reproducer, patcher, verifier) and give each investigation one session label
@@ -86,6 +88,48 @@ local demo) may proceed without a cross-check, recorded as
 `legitimacy: "demo-bypass"` in state.json. Once registered, triage runs
 `cve_cross_check` on every advisory.
 
-## 6. Loop plan
+Register cve-feed:
+
+```json
+{"manifest": {"type": "remote", "name": "cve-feed",
+  "description": "Dual-source CVE legitimacy (CVE.org + OSV.dev)",
+  "url": "http://127.0.0.1:8091/mcp"}}
+```
+
+## 6. Skills — 7 PatchProof agent skills
+
+Settings → Skills → Add skill (git):
+
+| Skill | Repository | Path | Pin SHA |
+|---|---|---|---|
+| analyzer | `https://github.com/rahulsurwade08/patchproof` | `agent/skills/analyzer` | current HEAD |
+| orchestrator | `...` | `agent/skills/orchestrator` | current HEAD |
+| reproducer | `...` | `agent/skills/reproducer` | current HEAD |
+| judge | `...` | `agent/skills/judge` | current HEAD |
+| patcher | `...` | `agent/skills/patcher` | current HEAD |
+| verifier | `...` | `agent/skills/verifier` | current HEAD |
+| test-runner | `...` | `agent/skills/test-runner` | current HEAD |
+
+Pin each to the current git HEAD. Run `python3 scripts/harness_setup.py` to
+register all skills + 2 MCPs (local-sandbox, cve-feed) + the `patchproof-v2`
+agent manifest idempotently (`sandbox.enabled: true`, skills + MCPs attached).
+The `github` connector is added separately via the catalog UI per step 3.
+
+## 7. Agent manifest — patchproof-v2
+
+Settings → Agents → `patchproof-v2` → edit manifest:
+
+```json
+{
+  "mode": "SingleAgent",
+  "name": "patchproof-v2",
+  "sandbox": {"enabled": false},
+  "file_downloads": true,
+  "skills": [...7 skills...],
+  "mcp_servers": ["local-sandbox", "cve-feed"]
+}
+```
+
+The orchestrator skill starts with the `analyzer` skill as the first stage.
 
 For the combined harness wiring + Chat UI work loop (Initial Setup + Chat UI SDK, cut-order, verification via `http://[::1]:8790` / `127.0.0.1:8081/mcp`), see `docs/harness-loop-plan.md` — the single loop the agent follows. The intermediate `docs/harness-patchproof-setup.md` and `docs/harness-chat-ui-plan.md` were merged into that loop and removed.

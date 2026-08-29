@@ -45,7 +45,8 @@ npm run build    # production build → dist/
 # TrueForge server + local-sandbox MCP (start before any harness run)
 npx @truefoundry/trueforge --port 8790 &        # UI + API on http://[::1]:8790
 python3 agent/mcp/local_sandbox_server.py &     # http://127.0.0.1:8081/mcp
-python3 agent/mcp/cve_feed_server.py &          # http://127.0.0.1:8091/mcp (Streamable HTTP)
+python3 agent/mcp/cve_feed_server.py &       # http://127.0.0.1:8091/mcp (Streamable HTTP)
+python3 scripts/harness_setup.py              # register skills + MCPs + patchproof-v2 agent
 ```
 
 ## Hard rules

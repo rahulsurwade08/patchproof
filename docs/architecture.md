@@ -91,5 +91,5 @@
 | Human approval | Merge & deploy-to-staging pause |
 | Subagents | Parallel reproducer fan-out per REACHABLE/UNKNOWN site |
 | Session persistence | Long-running scans survive refresh/reconnect |
-| Skills | `analyzer` (first stage) + `orchestrator`/`reproducer`/`judge`/`patcher`/`verifier`/`test-runner`; `cve-triage` retired; registered via Settings → Skills (git, pinned SHA); agent `config.sandbox.enabled: false` (built-in provider unconfigured; isolation via `local-sandbox` MCP only, ADR-008/016) — `sandbox_artifacts` via `file_downloads:true` per `docs/trueforge-setup.md` |
+| Skills | `analyzer` (first stage) + `orchestrator`/`reproducer`/`judge`/`patcher`/`verifier`/`test-runner`; `cve-triage` retired; registered via Settings → Skills (git, pinned SHA); agent `config.sandbox.enabled: true` (TrueForge built-in materializes skill repos + `sandbox_artifacts`); exploit/PoC execution stays on the `local-sandbox` MCP (--network none), never the built-in sandbox, per ADR-008/016 |
 | Chat UI (UI SDK) | `harness/frontend/` embeds `@truefoundry/trueforge-ui` with `SingleAgent patchproof-v2` — streaming, tool calls, approvals, artifact rendering (ADR-018) |
