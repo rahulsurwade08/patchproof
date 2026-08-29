@@ -160,6 +160,7 @@ echo "  Image built: $IMAGE_TAG"
 # --- Step 2: Run pytest via sandbox_exec ---
 
 SESSION_TEST="gate-test-$SCENARIO-$$"
+trap 'mcp_call "sandbox_stop" "{\"session\":\"$SESSION_TEST\"}" >/dev/null 2>&1 || true' EXIT
 echo "Step 2/3: Running pytest via sandbox_exec..."
 PYTEST_RESULT=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_TEST\",\"command\":\"python -m pytest test_main.py -q\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}")
 PYTEST_EXIT=$(json_field "$PYTEST_RESULT" "exit_code" "1")
@@ -183,6 +184,7 @@ echo "  Pytest: PASS"
 # --- Step 3: Run PoC via sandbox_exec (separate from pytest, real execution) ---
 
 SESSION_POC="gate-poc-$SCENARIO-$$"
+trap 'mcp_call "sandbox_stop" "{\"session\":\"$SESSION_POC\"}" >/dev/null 2>&1 || true' EXIT
 echo "Step 3/3: Running PoC via sandbox_exec..."
 
 # Start service inside the container
