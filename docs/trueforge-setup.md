@@ -86,6 +86,47 @@ local demo) may proceed without a cross-check, recorded as
 `legitimacy: "demo-bypass"` in state.json. Once registered, triage runs
 `cve_cross_check` on every advisory.
 
-## 6. Loop plan
+Register cve-feed:
+
+```json
+{"manifest": {"type": "remote", "name": "cve-feed",
+  "description": "Dual-source CVE legitimacy (CVE.org + OSV.dev)",
+  "url": "http://127.0.0.1:8091/mcp"}}
+```
+
+## 6. Skills — 7 PatchProof agent skills
+
+Settings → Skills → Add skill (git):
+
+| Skill | Repository | Path | Pin SHA |
+|---|---|---|---|
+| analyzer | `https://github.com/rahulsurwade08/patchproof` | `agent/skills/analyzer` | current HEAD |
+| orchestrator | `...` | `agent/skills/orchestrator` | current HEAD |
+| reproducer | `...` | `agent/skills/reproducer` | current HEAD |
+| judge | `...` | `agent/skills/judge` | current HEAD |
+| patcher | `...` | `agent/skills/patcher` | current HEAD |
+| verifier | `...` | `agent/skills/verifier` | current HEAD |
+| test-runner | `...` | `agent/skills/test-runner` | current HEAD |
+
+Pin each to the current git HEAD. Run `python3 scripts/harness_setup.py` to
+register all skills + MCPs + the `patchproof-v2` agent manifest idempotently
+(`sandbox.enabled: false`, skills + MCPs attached).
+
+## 7. Agent manifest — patchproof-v2
+
+Settings → Agents → `patchproof-v2` → edit manifest:
+
+```json
+{
+  "mode": "SingleAgent",
+  "name": "patchproof-v2",
+  "sandbox": {"enabled": false},
+  "file_downloads": true,
+  "skills": [...7 skills...],
+  "mcp_servers": ["local-sandbox", "cve-feed"]
+}
+```
+
+The orchestrator skill starts with the `analyzer` skill as the first stage.
 
 For the combined harness wiring + Chat UI work loop (Initial Setup + Chat UI SDK, cut-order, verification via `http://[::1]:8790` / `127.0.0.1:8081/mcp`), see `docs/harness-loop-plan.md` — the single loop the agent follows. The intermediate `docs/harness-patchproof-setup.md` and `docs/harness-chat-ui-plan.md` were merged into that loop and removed.
