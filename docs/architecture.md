@@ -66,6 +66,8 @@
 | Scenario fixtures | `scenarios/` | Deliberately vulnerable demo services with deterministic PoCs — **test fixtures only, never a triage fallback target** |
 | Staging target | `infra/docker-compose.yml` | Local deploy destination behind the approval gate |
 | Output dir | `data/output/<repo>/` | Per-run auditable artifacts: `reachability.json`, `verdict.json`, `assessment.json` |
+| Harness frontend | `harness/frontend/` (React + Vite on `@truefoundry/trueforge-ui`) | Custom chat UI against the stock TrueForge server (`http://[::1]:8790`), `SingleAgent patchproof-v2`; renders `sandbox_artifacts` (reachability/verdict/assessment) and the approval checkpoint (ADR-018) |
+| Test suite v2 | `harness/tests/` | Recreated per attached component: unit (cve-feed wrapper, sandbox regressions), integration (skills/MCP registration, frontend build, agent manifest), e2e (session turn → verdict, approval pause) — see `docs/custom-harness-build-plan.md` §4 |
 
 ## State model (memory stays out of context)
 
@@ -89,4 +91,5 @@
 | Human approval | Merge & deploy-to-staging pause |
 | Subagents | Parallel reproducer fan-out per REACHABLE/UNKNOWN site |
 | Session persistence | Long-running scans survive refresh/reconnect |
-| Skills | `analyzer` (first stage) + `orchestrator`/`reproducer`/`judge`/`patcher`/`verifier`/`test-runner`; `cve-triage` retired |
+| Skills | `analyzer` (first stage) + `orchestrator`/`reproducer`/`judge`/`patcher`/`verifier`/`test-runner`; `cve-triage` retired; registered via Settings → Skills (git, pinned SHA); requires agent `config.sandbox.enabled: true` per official docs (ADR-018) |
+| Chat UI (UI SDK) | `harness/frontend/` embeds `@truefoundry/trueforge-ui` with `SingleAgent patchproof-v2` — streaming, tool calls, approvals, artifact rendering (ADR-018) |

@@ -37,6 +37,15 @@ uvicorn app:app --port 8080
 # Dashboard test suite (run from dashboard/; install dev deps once)
 pip install -r requirements-dev.txt
 python -m pytest test_dashboard.py -q
+
+# Harness frontend — custom UI on @truefoundry/trueforge-ui (ADR-018)
+cd harness/frontend && npm install
+npm run dev      # dev server against stock TrueForge at http://[::1]:8790
+npm run build    # production build → dist/
+
+# TrueForge server + local-sandbox MCP (start before any harness run)
+npx @truefoundry/trueforge --port 8790 &        # UI + API on http://[::1]:8790
+python3 agent/mcp/local_sandbox_server.py &     # http://127.0.0.1:8081/mcp
 ```
 
 ## Hard rules
@@ -64,6 +73,8 @@ python -m pytest test_dashboard.py -q
 ## Lessons learned (mistakes to never repeat)
 
 Maintained list — append a lesson whenever a real mistake is identified.
+
+- **The "always pass image" lesson applies to callers, not just the server.** After PR #47 clamped `ensure_container` to recreate on image mismatch, the gate script's own PoC-session `sandbox_write`/health-check/PoC `sandbox_exec` calls still omitted `image` — so each one silently recreated the container with the default `python:3.11-slim`, wiping the just-started service (`FAIL: service failed to start in sandbox`). Audio/visual symptoms of a recreated container (empty `/srv`, background proc gone) point at a missing `image` param, not the server. Also: a `docker exec sh -c "svc ... &"` background job dies with its exec when the pipes close — start services with `nohup` + stdio redirects.
 
 - **Check BOTH comment surfaces on every PR review pass**: `gh pr view <n> --comments` AND inline review comments via `gh api repos/:owner/:repo/pulls/<n>/comments`. Inline Medium findings were missed once and the user caught them. After fixing an inline finding, reply **on that thread** and resolve it (GraphQL `resolveReviewThread`) — a separate PR-level comment leaves the thread showing open.
 - **Never commit without first switching to a feature branch.** A commit landed on main by accident because branching was skipped.
@@ -132,8 +143,9 @@ The same applies to sibling sources of truth, updated **in the same change**:
 - The analyzer derives advisories cve-feed-MCP-first: `cve_get_cve` (PUBLISHED check) + `osv_get_vuln` → OSV-shaped record written to `data/output/<repo>/advisory.json` and consumed by `reach.py`; reach.py's built-in CVE.org+OSV lookup is the fail-closed fallback when the server isn't registered.
 - The analyzer's `gen_context.py` reuses a target repo's own declared Docker base only when it is an allowlisted official `python`/`node` image; anything else (foreign images, `${VAR}` FROMs, symlinks) falls back to the generic default — repo content is untrusted (ADR-016).
 - `agent/` — Python runtime: subagent prompts (`agent/prompts/`: orchestrator, analyzer, reproducer, judge, patcher, verifier, test-runner), the Python reachability analyzer (`agent/analyzer/*.py`), dual-source CVE feed MCP server (`agent/mcp/cve_feed_server.py`), local Docker sandbox MCP server (`agent/mcp/local_sandbox_server.py`, Streamable HTTP on `127.0.0.1:8081/mcp`), and harness skills (`agent/skills/`: analyzer, orchestrator, reproducer, judge, patcher, verifier, test-runner; `cve-triage` retired)
+- `harness/` — custom harness build (ADR-018): `harness/frontend/` — React UI on `@truefoundry/trueforge-ui` (`SingleAgent patchproof-v2` against stock server at `http://[::1]:8790`); `harness/tests/` — test suite v2, recreated per attached component (unit/integration/e2e; see `docs/custom-harness-build-plan.md` §4)
 - `docs/demo.md` — full walkthrough incl. harness wiring and human-approval flow
-- `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (analyzer + build-context gen → MCP migration → osv polish → dashboard; approval gate never)
+- `plan.md` — mission, decisions table, cost/quota constraints, cut-order if time runs out (analyzer + build-context gen → MCP migration → osv polish → dashboard; approval gate never; current phase: custom harness UI + attach + test suite v2 per ADR-018)
 - `data/output/<repo>/` — per-run auditable artifacts: `run-spec.json`, `run-status.json`, `reachability.json`, `verdict.json`, `assessment.json` (gitignored)
 
 ## Environment notes
