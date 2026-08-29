@@ -98,14 +98,14 @@ def current_head_sha():
 
 
 def list_skills():
-    code, data = _http("GET", "/api/v1/skills")
+    code, data = _http("GET", "/api/v1/settings/skills")
     if code != 200:
         return []
     return data.get("data", [])
 
 
 def list_mcps():
-    code, data = _http("GET", "/api/v1/mcp-servers")
+    code, data = _http("GET", "/api/v1/settings/mcp-servers")
     if code != 200:
         return []
     return data.get("data", [])
@@ -140,62 +140,47 @@ def find_agent(agents, name):
 
 
 def register_mcp(mcp):
-    """Register or update an MCP. Returns True on success (including 409 exists)."""
-    manifest = {"type": "remote", **mcp}
+    """Register or update an MCP. Returns True on success (including 409 already-exists)."""
+    # PUT is the upsert endpoint keyed by `name` in the body.
+    body = {"manifest": {"type": "remote", **mcp}}
     name = mcp["name"]
     existing = find_mcp(list_mcps(), name)
     if existing:
-        if existing.get("url") == mcp["url"]:
+        if (existing.get("url") == mcp["url"]):
             print(f"  already exists: {name}")
             return True
-        # URL drift: update via PUT on the existing record's id
-        mid = existing.get("id")
-        if not mid:
-            print(f"  FAIL {name}: existing record has no id", file=sys.stderr)
-            return False
-        code, data = _http("PUT", f"/api/v1/mcp-servers/{mid}", {"manifest": manifest})
-        if code in (200, 201):
-            print(f"  updated MCP: {name}")
-            return True
-        print(f"  FAIL update {name}: {code} {data}", file=sys.stderr)
-        return False
-    code, data = _http("POST", "/api/v1/mcp-servers", {"manifest": manifest})
+    code, data = _http("PUT", "/api/v1/settings/mcp-servers", body)
     if code in (200, 201):
-        print(f"  registered MCP: {name}")
+        verb = "updated" if existing else "registered"
+        print(f"  {verb} MCP: {name}")
         return True
     print(f"  FAIL register {name}: {code} {data}", file=sys.stderr)
     return False
 
 
 def register_skill(name, path, sha):
-    """Register or update a skill (reconciles pin/repo/path). Returns True on success."""
+    """Register or update a skill (reconciles ref/path). Returns True on success."""
     body = {
-        "type": "git",
-        "name": name,
-        "repo": SKILL_REPO,
-        "path": path,
-        "pin": sha,
+        "manifest": {
+            "type": "git",
+            "name": name,
+            "url": SKILL_REPO + ".git",
+            "path": path,
+            "ref": sha,
+            "description": f"PatchProof {name} skill (pinned)",
+        }
     }
     existing = find_skill(list_skills(), name)
-    if existing:
-        if (existing.get("pin") == sha
-                and existing.get("repo") == SKILL_REPO
-                and existing.get("path") == path):
-            print(f"  already exists: {name}")
-            return True
-        sid = existing.get("id")
-        if not sid:
-            print(f"  FAIL {name}: existing record has no id", file=sys.stderr)
-            return False
-        code, data = _http("PUT", f"/api/v1/skills/{sid}", body)
-        if code in (200, 201):
-            print(f"  updated skill: {name} @ {sha[:8]}")
-            return True
-        print(f"  FAIL update {name}: {code} {data}", file=sys.stderr)
-        return False
-    code, data = _http("POST", "/api/v1/skills", body)
+    if existing and (existing.get("ref") == sha
+                     and existing.get("url") == SKILL_REPO + ".git"
+                     and existing.get("path") == path):
+        print(f"  already exists: {name}")
+        return True
+    # PUT is the upsert endpoint keyed by `name` in the body
+    code, data = _http("PUT", "/api/v1/settings/skills", body)
     if code in (200, 201):
-        print(f"  registered skill: {name} @ {sha[:8]}")
+        verb = "updated" if existing else "registered"
+        print(f"  {verb} skill: {name} @ {sha[:8]}")
         return True
     print(f"  FAIL register {name}: {code} {data}", file=sys.stderr)
     return False
@@ -230,24 +215,21 @@ def build_agent_manifest(sha):
     # built-in provider is only used to materialize skills and download
     # `verdict.json` / `reachability.json` / `assessment.json` artifacts.
     return {
-        "mode": "SingleAgent",
-        "name": "patchproof-v2",
-        "sandbox": {"enabled": True, "file_downloads": True},
-        "file_downloads": True,
-        "skills": [{"type": "git", "name": n, "repo": SKILL_REPO,
-                    "path": p, "pin": sha} for n, p in SKILL_PATHS.items()],
+        "model": {"name": "openrouter/openrouter-free"},
         "mcp_servers": (MCP_ATTACHMENTS
                         + [{"name": n} for n in ATTACHED_NOT_REGISTERED]),
+        "skills": [{"name": n} for n in SKILL_PATHS.keys()],
+        "config": {"sandbox": {"enabled": True, "file_downloads": True}},
     }
 
 
 def check_endpoints():
     """PR Compliance ID 2917052: validate all three endpoints before continuing."""
-    ok, detail = _external_health(f"{BASE_URL}/health")
+    ok, detail = _external_health(f"{BASE_URL}/api/v1/capabilities")
     if not ok:
-        print(f"TrueForge unreachable at {BASE_URL}: {detail}", file=sys.stderr)
+        print(f"TrueForge unreachable at {BASE_URL}/api/v1/capabilities: {detail}", file=sys.stderr)
         return False
-    print(f"TrueForge OK: {BASE_URL}/health")
+    print(f"TrueForge OK: {BASE_URL}/api/v1/capabilities")
     for mcp in _MCP_REGS:
         ok, detail = _external_health(f"{mcp['url'].rsplit('/', 1)[0]}/health")
         if not ok:

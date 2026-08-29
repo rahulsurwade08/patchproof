@@ -13,7 +13,7 @@ import harness_setup as hs
 def make_db():
     """An in-memory store of TrueForge resources keyed by name → (id, body)."""
     db = {
-        "skills": {},   # name -> {id, pin, repo, path, ...}
+        "skills": {},   # name -> {id, ref, url, path, ...}
         "mcps": {},     # name -> {id, url, manifest, ...}
         "agents": {},   # name -> {id, manifest, ...}
         "next_id": 100,
@@ -23,41 +23,30 @@ def make_db():
 
 def fake_http_factory(db, ok_endpoints=True):
     def fake_http(method, path, body=None):
-        if ok_endpoints and "/mcp-servers" in path and method == "POST":
-            m = (body or {}).get("manifest", {})
-            db["mcps"][m.get("name")] = {"id": db["next_id"], **m}
-            db["next_id"] += 1
-            return 201, {"id": db["next_id"] - 1, "name": m.get("name")}
-        if ok_endpoints and "/mcp-servers" in path and method == "PUT":
-            mid = int(path.rsplit("/", 1)[-1])
-            for name, rec in db["mcps"].items():
-                if rec.get("id") == mid:
-                    rec.update((body or {}).get("manifest", {}))
-                    return 200, rec
+        if not ok_endpoints:
             return 404, {}
-        if path.endswith("/api/v1/skills") and method == "GET":
-            return 200, {"data": list(db["skills"].values())}
-        if path.endswith("/api/v1/mcp-servers") and method == "GET":
+        if path == "/api/v1/settings/mcp-servers" and method == "GET":
             return 200, {"data": list(db["mcps"].values())}
-        if path.endswith("/api/v1/agents") and method == "GET":
+        if path == "/api/v1/settings/skills" and method == "GET":
+            return 200, {"data": list(db["skills"].values())}
+        if path == "/api/v1/agents" and method == "GET":
             return 200, {"data": list(db["agents"].values())}
-        if path.endswith("/api/v1/skills") and method == "POST":
-            s = body or {}
-            db["skills"][s.get("name")] = {"id": db["next_id"], **s}
-            db["next_id"] += 1
-            return 201, {"id": db["next_id"] - 1, "name": s.get("name")}
-        if "/api/v1/skills/" in path and method == "PUT":
-            sid = int(path.rsplit("/", 1)[-1])
-            for name, rec in db["skills"].items():
-                if rec.get("id") == sid:
-                    rec.update(body or {})
-                    return 200, rec
-            return 404, {}
+        if path == "/api/v1/settings/mcp-servers" and method == "PUT":
+            m = (body or {}).get("manifest", {})
+            name = m.get("name", "")
+            db["mcps"][name] = m
+            return 200, {"name": name}
+        if path == "/api/v1/settings/skills" and method == "PUT":
+            manifest = (body or {}).get("manifest", {})
+            name = manifest.get("name", "")
+            db["skills"][name] = manifest
+            return 200, {"name": name}
         if path.endswith("/api/v1/agents") and method == "POST":
             n = (body or {}).get("name")
-            db["agents"][n] = {"id": db["next_id"], **(body or {}).get("manifest", {})}
+            aid = db["next_id"]
+            db["agents"][n] = {"id": aid, "name": n, **(body or {}).get("manifest", {})}
             db["next_id"] += 1
-            return 201, {"id": db["next_id"] - 1, "name": n}
+            return 201, {"id": aid, "name": n}
         if "/api/v1/agents/" in path and method == "PUT":
             aid = int(path.rsplit("/", 1)[-1])
             for name, rec in db["agents"].items():
@@ -77,17 +66,9 @@ def test_current_head_sha():
 def test_build_agent_manifest():
     sha = "a" * 40
     m = hs.build_agent_manifest(sha)
-    assert m["mode"] == "SingleAgent"
-    assert m["name"] == "patchproof-v2"
-    # TrueForge requires config.sandbox.enabled: true to materialize attached
-    # skills and provide file_downloads. Exploit execution stays on the
-    # local-sandbox MCP regardless (ADR-008/016).
-    assert m["sandbox"]["enabled"] is True
-    assert m["file_downloads"] is True
-    assert len(m["skills"]) == 7
-    assert {s["name"] for s in m["skills"]} == set(hs.SKILL_PATHS.keys())
-    assert {s["type"] for s in m["skills"]} == {"git"}
-    assert all(s["repo"] == hs.SKILL_REPO for s in m["skills"])
+    # TrueForge AgentSpec schema: model is required; skills are name-only;
+    # mcp_servers is a list of MCPServer objects; config.sandbox.enabled.
+    assert m["model"]["name"]
     # MCP attachments: 2 API-registered + 1 catalog (github).
     # local-sandbox gates the 4 exploit/build/write/read tools but NOT
     # sandbox_stop (mandatory teardown per ADR-012 must run on all paths).
@@ -99,6 +80,11 @@ def test_build_agent_manifest():
         {"name": "cve-feed",      "require_approval_for_tools": ["@write", "@destructive"]},
         {"name": "github"},
     ]
+    assert {s["name"] for s in m["skills"]} == set(hs.SKILL_PATHS.keys())
+    assert all(set(s.keys()) == {"name"} for s in m["skills"]), \
+        "agent-manifest skills are name-only references (no type/repo/path/pin)"
+    assert m["config"]["sandbox"]["enabled"] is True
+    assert m["config"]["sandbox"]["file_downloads"] is True
 
 
 def test_skill_paths_cover_7():
@@ -138,8 +124,8 @@ def test_upsert_agent_creates(monkeypatch):
 def test_upsert_agent_updates_existing(monkeypatch):
     db = make_db()
     monkeypatch.setattr(hs, "_http", fake_http_factory(db))
-    assert hs.upsert_agent("patchproof-v2", {"mode": "SingleAgent"})
-    assert hs.upsert_agent("patchproof-v2", {"mode": "SingleAgent", "new": True})
+    assert hs.upsert_agent("patchproof-v2", {"model": {"name": "test"}})
+    assert hs.upsert_agent("patchproof-v2", {"model": {"name": "test2"}})
 
 
 def test_main_skips_existing_no_failures(monkeypatch):
@@ -147,8 +133,9 @@ def test_main_skips_existing_no_failures(monkeypatch):
     monkeypatch.setattr(hs, "_http", fake_http_factory(db))
     monkeypatch.setattr(hs, "current_head_sha", lambda: "a" * 40)
     # Pre-populate so the "already exists" path is exercised
-    db["mcps"] = {m["name"]: {"id": 1, **m} for m in hs._MCP_REGS}
-    db["skills"] = {n: {"id": 1, "name": n, "pin": "a" * 40, "repo": hs.SKILL_REPO, "path": p}
+    db["mcps"] = {m["name"]: {**m, "url": m["url"]} for m in hs._MCP_REGS}
+    db["skills"] = {n: {"name": n, "ref": "a" * 40, "url": hs.SKILL_REPO + ".git", "path": p,
+                        "type": "git", "description": f"PatchProof {n} skill"}
                     for n, p in hs.SKILL_PATHS.items()}
     db["agents"] = {"patchproof-v2": {"id": 1, "name": "patchproof-v2"}}
     monkeypatch.setattr(hs, "check_endpoints", lambda: True)
