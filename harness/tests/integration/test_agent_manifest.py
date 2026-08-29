@@ -83,8 +83,9 @@ def test_agent_model_required():
 def test_sandbox_enabled_with_file_downloads():
     m = _get_patchproof_v2_manifest()
     sandbox = m.get("config", {}).get("sandbox", {})
-    assert sandbox.get("enabled") is True, (
-        "config.sandbox.enabled must be True so TrueForge materializes skills"
+    assert sandbox.get("enabled") is False, (
+        "config.sandbox.enabled must be False — TrueForge's built-in provider is "
+        "paid and unconfigured; all execution routes through local-sandbox MCP"
     )
     assert sandbox.get("file_downloads") is True
 
@@ -103,7 +104,7 @@ def test_mcp_attachments_local_sandbox_gates_exploit_tools():
     approval = by_name["local-sandbox"].get("require_approval_for_tools", [])
     assert set(approval) == {
         "sandbox_build", "sandbox_exec",
-        "sandbox_write", "sandbox_read",
+        "sandbox_write", "sandbox_read", "sandbox_pull",
     }
     assert "sandbox_stop" not in approval
 

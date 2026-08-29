@@ -77,14 +77,18 @@ def test_build_agent_manifest():
     # readOnlyHint:true so triage runs autonomously.
     assert m["mcp_servers"] == [
         {"name": "local-sandbox",
-         "require_approval_for_tools": ["sandbox_build", "sandbox_exec", "sandbox_write", "sandbox_read"]},
+         "require_approval_for_tools": ["sandbox_build", "sandbox_exec",
+                                           "sandbox_write", "sandbox_read", "sandbox_pull"]},
         {"name": "cve-feed",      "require_approval_for_tools": ["@write", "@destructive"]},
         {"name": "github"},
     ]
     assert {s["name"] for s in m["skills"]} == set(hs.SKILL_PATHS.keys())
     assert all(set(s.keys()) == {"name"} for s in m["skills"]), \
         "agent-manifest skills are name-only references (no type/repo/path/pin)"
-    assert m["config"]["sandbox"]["enabled"] is True
+    assert m["config"]["sandbox"]["enabled"] is False, (
+            "config.sandbox.enabled must be False — TrueForge's built-in provider is "
+            "paid and unconfigured (ADR-008); all execution routes through local-sandbox MCP."
+        )
     assert m["config"]["sandbox"]["file_downloads"] is True
 
 
