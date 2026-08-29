@@ -70,3 +70,8 @@ Reachability: <REACHABLE|NOT_REACHABLE|UNKNOWN>  (call_sites: <file:line>)
 Evidence: <one line from verdict.json>
 Artifacts: data/output/<repo>/{reachability,verdict,assessment}.json
 ```
+
+If mode is `patch-and-verify` and the reproducer confirms exploitation,
+the report MUST also include the full unified diff inside a ` ```diff `
+fenced block (mode B source fix) or the one-line dep diff (mode A dep bump).
+No prose summary of the change — the diff is the fix.
