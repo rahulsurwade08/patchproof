@@ -18,7 +18,7 @@ Custom build keeps TrueForge core (agent loop, MCP, skills, sandbox-as-tool) but
 
 ## 2. Frontend — custom build on `@truefoundry/trueforge-ui`
 
-**Base:** `https://trueforge.dev/chat-ui` + `https://ui.trueforge.dev` live configurator. SDK is `npx trueforge-ui` React component already shipped with the harness.
+**Base:** `https://trueforge.dev/chat-ui` + `https://ui.trueforge.dev` live configurator. SDK: `npm install @truefoundry/trueforge-ui @truefoundry/trueforge-sdk` (peer deps `react`/`react-dom` 18–19). `TrueForgeUI` renders the full chat — streaming, history, tool calls, approvals — against the stock server.
 
 **What to build (in `harness/`):**
 
@@ -27,7 +27,7 @@ harness/
   frontend/
     package.json            # @truefoundry/trueforge-ui, react, vite
     src/
-      App.tsx               # <TrueForgeUI serverUrl="http://[::1]:8790" agentMode="fixed-agent" ... />
+      App.tsx               # <TrueForgeUI server={{type:"trueforge", baseUrl:"http://[::1]:8790"}} agentConfig={{mode:"SingleAgent", name:"patchproof-v2"}} layout="sidebar" />
       theme.ts              # truefoundry preset + PatchProof red/green/amber (exploitable/UNKNOWN/not_affected)
       layout.tsx            # drawer (dashboard table + chat) vs full-screen with sidebar
       PatchProofArtifacts.tsx # renders reachability.json / verdict.json / assessment.json from sandbox_artifacts
@@ -36,11 +36,11 @@ harness/
 ```
 
 **Customizations:**
-- **Agent mode** `fixed-agent` `patchproof-v2` only (hide composer, enforce one-session-per-CVE ADR-004, protect approval gate). Also keep `patchproof-orchestrator` for `s01` demo.
+- **Agent mode** `agentConfig={{mode:"SingleAgent", name:"patchproof-v2"}}` — hides agent picker + composer (per `ui-sdk/guides/agent-modes.md`), enforces one-session-per-CVE ADR-004, protects the approval gate. Switch the name to `patchproof-orchestrator` for the `s01` demo.
 - **Theme** `truefoundry` + PatchProof brand (red `exploitable:true`, green `NOT_REACHABLE`, amber `UNKNOWN`, dark mode optional) via `Theme` provider `customTheme` slot (`ui-sdk/reference/theme.md`).
-- **Artifacts** — Generative UI for `reachability.json` (file:line+snippet+input trace), `verdict.json` (marker proof), `assessment.json` (judge). Use `Containers` + `Atoms` (`ui-sdk/reference/containers.md`, `atoms.md`) to render code fences, not just JSON.
+- **Artifacts** — Generative UI for `reachability.json` (file:line+snippet+input trace), `verdict.json` (marker proof), `assessment.json` (judge). Use `Containers` + `Atoms` (`ui-sdk/reference/containers.md`, `atoms.md`) to render code fences, not just JSON. Artifact files download via `GET /api/v1/sessions/{id}/turns/{turn_id}/files` (paths come from the assistant's `sandbox_artifacts` block; requires `config.sandbox.file_downloads:true`, which is the default).
 - **File flow** — `data/inbox/*.json` advisory drop as UI file attachment → session turn input (replaces host `scripts/fake_cve_injector.py` for demo video).
-- **Approval gate** — `ask_user_questions:true` + `require_approval_for_tools:["@write","@destructive"]` on `patcher`/`verifier` → UI shows **Approve/Deny** checkpoint before PR/staging deploy (harness-native, `user.tool_approval` event).
+- **Approval gate** — `ask_user_questions:{enabled:true}` (default) + `require_approval_for_tools:["@write","@destructive"]` (API-only, set **per MCP server**; the default already gates write/destructive-annotated tools) → UI shows **Approve/Deny** checkpoint before PR/staging deploy (harness-native tool-approval pause).
 - **Server URL** — `http://[::1]:8790` on this host (`ss [::1]:8790` LISTEN) or `PUBLIC_BASE_URL` if proxied (see `mcp-servers#authentication` for OAuth).
 
 **Not building:** `MODEL_CATALOG_PATH` fork, `customTheme` dark toggle v2, `library+composer` mode — Day 2.
@@ -72,52 +72,51 @@ harness/
 - `cve-feed` — currently stdio, needs `agent/mcp/cve_feed_server.py` HTTP wrapper (streamable) to register as `remote` (TrueForge is remote-URL only). Until then `data/inbox/*.json` with `demo:true` → `demo-bypass`, fail-closed ADR-010. Provide `cve_get_cve`/`osv_query_package`/`osv_get_vuln`/`cve_cross_check`.
 
 **Skills must work properly:**
-- All 7 `SKILL.md` already pass `rg -i daytona` 0 and Qodo 0/0 up to PR #53. Register them in harness Settings → Skills (git, pin SHA) so `GET /api/v1/skills` lists them and `GET /api/v1/catalogs/skills` shows PatchProof skills. Harness materializes them under `/opt/tfy/skills/{name}` at runtime (needs `sandbox.enabled:false` on agents — we use MCP sandbox, not bwrap).
-- Ensure `agent: {mcp_servers: [{name:local-sandbox, enable_tools:["@all"]}, {name:github}], skills: [analyzer,...], config: {sandbox:{enabled:false}, dynamic_sub_agents:true, ask_user_questions:true}}` for `patchproof-v2`.
+- All 7 `SKILL.md` already pass `rg -i daytona` 0 and Qodo 0/0 up to PR #53. Register them in harness Settings → Skills (git repo URL + path `agent/skills/<name>`, pin a commit SHA for production stability) so `GET /api/v1/skills` lists them and `GET /api/v1/catalogs/skills` shows PatchProof skills. Harness materializes them under `/opt/tfy/skills/{name}` at runtime when the model picks the skill (progressive disclosure).
+- **Correction from official docs (`trueforge.dev/skills.md`, `create-agent/overview.md`): attaching skills requires `config.sandbox.enabled: true`** — the built-in sandbox materializes skill repos and backs `sandbox_artifacts` file downloads. Set `config: {sandbox:{enabled:true, file_downloads:true}, dynamic_sub_agents:{enabled:true}, ask_user_questions:{enabled:true}}` on `patchproof-v2`. Exploit/PoC execution still goes **only** through the `local-sandbox` MCP server (`--network none`) — never the built-in sandbox, never the host.
+- **Runtime risk to verify:** earlier runs recorded built-in bwrap mount failures on this host ("Can't mount on symlink /bin"). If skill materialization fails with `sandbox.enabled:true`, record the finding in `feedback-issues.md` and fall back to instructions-only skills (key content inline in agent `instructions`); triage still fails closed to honest `UNKNOWN` — never scenario-match.
 
 **Server glue (minimal):**
-- Optional `harness/backend/server/patchproof-bridge.ts` that watches `data/inbox/` and mirrors `data/output/<repo>/` to `GET /api/v1/sessions/{id}/turns/{id}/download` `sandbox_artifacts` — not required for MVP, but helps the UI show `reachability.json` without extra tool calls.
+- Optional `harness/backend/server/patchproof-bridge.ts` that watches `data/inbox/` and mirrors `data/output/<repo>/` into the turn sandbox so `sandbox_artifacts` blocks expose `reachability.json`/`verdict.json`/`assessment.json` for download — not required for MVP, but helps the UI render artifacts without extra tool calls.
 
 ---
 
-## 4. Centralized test suite — one folder
+## 4. Test suite v2 — recreated for the custom harness (user decision 2026-08-29)
 
-**Current:** scattered 15 files, `python -m pytest` must be told each dir, `scenarios/*/test_main.py` run via `scripts/run_gate_before_push.sh` sandbox, `demo-app/tests` separate. No single harness-driven CI.
+The intermediate centralized suite (`harness/tests/`, 155 tests) predates the
+custom-UI plan and is being **recreated, not migrated**: tests are written
+against the attached components (frontend, skills registration, MCP wiring,
+agent manifest) as each lands. Old tests are triaged, not bulk-moved.
 
-**New layout (in `harness/` or `tests/`):**
+**Layout:**
 
 ```
 harness/
   tests/
-    conftest.py                 # shared fixtures: harness at [::1]:8790, local-sandbox at 127.0.0.1:8081, temp data/output
+    conftest.py                 # fixtures: harness API at [::1]:8790, local-sandbox at 127.0.0.1:8081, temp data/output
     unit/
-      test_analyzer_reach.py    # was agent/analyzer/tests/test_reach.py (100)
-      test_analyzer_gen_context.py # was test_gen_context.py
-      test_analyzer_e2e.py      # was test_e2e.py
-      test_cve_feed.py          # was agent/mcp/tests/test_cve_feed_server.py (19)
-      test_local_sandbox.py     # was test_local_sandbox_server.py (28) + image-reuse regression
-      test_dashboard.py         # was dashboard/test_dashboard.py (8) — now via harness UI
+      test_cve_feed_http.py     # new: streamable HTTP wrapper (cve_get_cve / osv_* / cve_cross_check)
+      test_local_sandbox.py     # recreated: exec/write/read/stop + ensure_container image-reuse regression
+      test_bridge.py            # new (if bridge lands): data/output → sandbox_artifacts mirroring
     integration/
-      test_scenarios.py         # parametrized over s01-s06 + _template + demo-app (via harness sandbox_build/exec, not host)
-      test_harness_e2e.py       # full orchestrator → judge → patcher → verifier via POST /api/v1/sessions/{id}/turns on [::1]:8790
-    fixtures/
-      scenarios/ -> symlink to ../scenarios
-      demo-app/ -> symlink to ../demo-app
+      test_skills_registered.py # GET /api/v1/skills lists all 7 PatchProof skills; catalog shows them
+      test_mcp_registered.py    # GET /api/v1/mcp-servers shows github (authenticated) + local-sandbox + cve-feed
+      test_frontend_build.py    # npm run build succeeds; dist loads the TrueForgeUI chat against [::1]:8790
+      test_agent_manifest.py    # patchproof-v2 manifest: model, mcp_servers, skills[7], sandbox.enabled:true, approvals
+    e2e/
+      test_reachability_run.py  # session turn on [::1]:8790 → tool.call sandbox_build/exec → verdict.json + assessment.json via turn files API
+      test_approval_gate.py     # patcher turn pauses with awaiting_approval (Allow/Deny) before any PR/staging action
 ```
 
-Or at root `tests/` with same structure — pick `harness/tests/` to keep harness ownership clear.
+**Triage of the old suite:**
+- **Keep** (recreate under v2): analyzer + MCP server unit tests — they cover code that stays attached (`agent/analyzer/*.py`, `agent/mcp/*.py`).
+- **Retire**: host-coupled suites superseded by the harness path (`dashboard/test_dashboard.py` read-only surface replaced by the custom UI; gate scripts that drove scenario pytest on the host).
+- **Never run on host**: exploit/PoC/patch execution only via `local-sandbox` MCP; scenario services only inside sandbox containers.
 
-**Migration steps (separate folder, centralized):**
-1. Create `harness/tests/` + `unit/` + `integration/` + `fixtures/`.
-2. Move (not copy) existing tests: `git mv agent/analyzer/tests/*.py harness/tests/unit/`, `git mv agent/mcp/tests/*.py harness/tests/unit/`, `git mv dashboard/test_dashboard.py harness/tests/unit/`, keep `scenarios/*/app/test_main.py` as fixtures but add `harness/tests/integration/test_scenarios.py` that drives them via `sandbox_build`/`sandbox_exec` on `[::1]:8790` (replaces `scripts/run_gate_before_push.sh` host path).
-3. Add `harness/tests/conftest.py` that starts/stops `local_sandbox_server.py` and asserts `GET http://[::1]:8790/api/v1/mcp-servers` shows `local-sandbox`.
-4. One command: `pytest harness/tests -q` → 155+ tests (unit + integration) via harness, not host. Update `.gitignore` if needed (no new ignored files — tests are committed).
-5. CI: `scripts/run_gate_before_push.sh` now calls `pytest harness/tests/integration/test_scenarios.py -k $SCENARIO` via harness, not host docker.
-
-**Verification:**
-- `pytest harness/tests/unit -q` → 155 passed (same as before, now centralized)
-- `pytest harness/tests/integration/test_scenarios.py -k s01 -q` → `s01 exploitable:true` via harness `sandbox_build`/`sandbox_exec`/`sandbox_read`/`sandbox_stop` (container `patchproof-sbx-...`), not host
-- `pytest harness/tests/integration/test_harness_e2e.py -q` → one `POST /api/v1/sessions` + `POST /turns` on `[::1]:8790` that streams `tool.call local-sandbox:sandbox_build` and returns `verdict.json` `exploitable:true` → `assessment.json` `agrees:true`
+**Verification targets:**
+- `pytest harness/tests/unit -q` → green (wrapper + sandbox regressions)
+- `pytest harness/tests/integration -q` → 7 skills listed, 3 MCP servers registered, frontend dist builds, `patchproof-v2` manifest matches spec
+- `pytest harness/tests/e2e -q` → one full session turn yields `verdict.json` + `assessment.json` through the turn files API; approval gate pauses before PR
 
 ---
 
@@ -125,11 +124,12 @@ Or at root `tests/` with same structure — pick `harness/tests/` to keep harnes
 
 | PR | Touch | Verify via harness |
 |----|-------|--------------------|
-| 1 `harness/frontend` scaffold | `harness/frontend/package.json` + `src/App.tsx` (≤2 files) | `npm run build` → `harness/frontend/dist` loads `http://[::1]:8790` chat |
-| 2 `harness/backend` wrapper | `agent/mcp/cve_feed_server.py` HTTP wrapper | `curl http://[::1]:8790/api/v1/mcp-servers` shows `cve-feed` |
-| 3 `harness/tests` centralize | `harness/tests/` move (git mv, ≤5 files per PR, split if needed) | `pytest harness/tests/unit -q` 155 passed |
-| 4 `fix/sandbox-reuse` | `local_sandbox_server.py:ensure_container` image check + `sandbox_stop` trap | `pytest harness/tests/integration/test_scenarios.py -k demo-app` no `address already in use` |
-| 5 `feat/approval-gate` | `agent/skills/orchestrator/SKILL.md` ask_user_questions | harness turn shows `awaiting_approval` before PR |
+| 1 `harness/frontend` scaffold | `harness/frontend/package.json` + `src/App.tsx` (≤2 files) | `npm run build` → `harness/frontend/dist` loads `http://[::1]:8790` chat (`SingleAgent patchproof-v2`) |
+| 2 `cve-feed` HTTP wrapper | `agent/mcp/cve_feed_server.py` streamable wrapper (≤2 files) | `curl http://127.0.0.1:<port>/mcp` tools/list; register remote → `GET /api/v1/mcp-servers` shows `cve-feed` |
+| 3 attach skills + MCPs | Settings/API wiring: 7 skills (git, pinned SHA) + `github`/`local-sandbox`/`cve-feed` + `patchproof-v2` manifest update | `GET /api/v1/skills` lists 7; `GET /api/v1/mcp-servers` lists 3; agent manifest matches spec |
+| 4 `fix/sandbox-reuse` | `local_sandbox_server.py:ensure_container` image check + `sandbox_stop` trap | back-to-back `sandbox_exec` reuse container; no stale `patchproof-sbx` containers after stop |
+| 5 `feat/approval-gate` | manifest `require_approval_for_tools` per MCP server (API) | harness turn shows approval pause before PR/staging |
+| 6+ test suite v2 | `harness/tests/` recreated per §4, ≤5 files per PR | `pytest harness/tests/unit -q` then integration then e2e, green |
 
 Each PR: `qodo-get-rules` before coding, `qodo-pr-resolver` on findings, reply + `/review` until `Bugs 0/Rules 0`, merge commit, delete branch. No host `docker`/`pytest` except `scripts/run_poc_local.sh` (CI fallback).
 

@@ -100,3 +100,5 @@ curl http://127.0.0.1:8081/mcp -X POST -d '{"jsonrpc":"2.0","method":"tools/call
 
 **Next step for the agent:** start with §2 step 1 (`feat/chat-ui-embed` branch, `≤2 files`), verify via `curl http://[::1]:8790/api/v1/agents` + MCP smoke while harness is up, then layer theme. Keep the loop per AGENTS.md: work autonomously, small PRs, Qodo until clean, merge via merge commit, delete branch, next item.
 
+
+NOTE (user decisions 2026-08-29): (1) build a custom UI from TrueForge (`@truefoundry/trueforge-ui`, `SingleAgent patchproof-v2`) and attach the 7 skills, the MCPs (github / local-sandbox / cve-feed HTTP wrapper), and the backend — plan in `docs/custom-harness-build-plan.md`, ADR-018. (2) The intermediate centralized test suite (155 tests) is superseded: **test suite v2 is recreated** against the attached components as each PR lands (see `docs/custom-harness-build-plan.md` §4). PRs stay small (≤5 files / ~400 lines) so Qodo findings remediate quickly.
