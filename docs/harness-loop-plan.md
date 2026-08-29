@@ -21,7 +21,7 @@ Do once in TrueForge **Settings** (no config file, `v0.1.4`):
 | **Models** | Settings → Models | `custom` → `openrouter` / `https://openrouter.ai/api/v1` / `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` (`openrouter/free` + pinned e.g. `z-ai/glm-4.5-air:free`, `context_length 200000`) | Add via **Add custom provider** (not in `model-catalog.yaml`) — [Setup Models](https://trueforge.dev/models) |
 | **MCP github** | Settings → Connectors | `https://api.githubcopilot.com/mcp/` / Header `Bearer <GITHUB_TOKEN>` (repo PAT from `gh` CLI, written into `.env` without display, ADR-007) | Preset |
 | **MCP local-sandbox** | Settings → Connectors → Add MCP Server | `remote` `local-sandbox` `http://127.0.0.1:8081/mcp` / No auth — start `python3 agent/mcp/local_sandbox_server.py &` first | Not in `mcp-catalog.yaml` |
-| **MCP cve-feed** | — | `agent/mcp/cve_feed_server.py` (Python stdlib, Streamable HTTP at `127.0.0.1:8091/mcp`) — done in PR #71, registered as remote MCP; `data/inbox/*.json` (`demo:true` → `demo-bypass`, fail-closed ADR-010) remains as the fail-closed path | — |
+| **MCP cve-feed** | Settings → Connectors → Add MCP Server | `agent/mcp/cve_feed_server.py` (Python stdlib, Streamable HTTP at `http://127.0.0.1:8091/mcp`) — transport done in PR #71, remote-URL registration wired in cut-order step 3; `data/inbox/*.json` (`demo:true` → `demo-bypass`, fail-closed ADR-010) remains the fallback | — |
 | **Skills (7)** | Settings → Skills → Add skill (git) | Repo `https://github.com/rahulsurwade08/patchproof`, paths `agent/skills/{analyzer,orchestrator,reproducer,judge,patcher,verifier,test-runner}`, pin SHA | Not in `skill-catalog.yaml` — [Setup Skills](https://trueforge.dev/skills) |
 | **Sandbox** | Settings → Sandbox providers | **Leave empty**, `sandbox.enabled:false` on agents, `file_downloads:true` for `verdict.json`. Built-in provider unused; isolation is `local-sandbox` MCP (ADR-008/016, disposable `--network none`, non-root, no `docker.sock`, never mount `.env/.git/data/output/`) | [Setup Sandbox](https://trueforge.dev/sandbox) — PatchProof uses sandbox-as-tool |
 
@@ -29,7 +29,8 @@ Do once in TrueForge **Settings** (no config file, `v0.1.4`):
 ```bash
 npx @truefoundry/trueforge --port 8790   # UI http://[::1]:8790 (ss shows [::1]:8790 LISTEN, docs /api/v1/docs)
 python3 agent/mcp/local_sandbox_server.py &   # 127.0.0.1:8081/mcp
-curl http://[::1]:8790/api/v1/mcp-servers | jq .data[].name  # → github, local-sandbox
+python3 agent/mcp/cve_feed_server.py &        # 127.0.0.1:8091/mcp (transport done PR #71; register in Settings → Connectors in step 3)
+curl http://[::1]:8790/api/v1/mcp-servers | jq .data[].name  # → github, local-sandbox (cve-feed after step 3 registration)
 curl http://[::1]:8790/api/v1/models | jq .data[].name       # → openrouter/openrouter-free
 curl http://[::1]:8790/api/v1/agents | jq .data[].name       # → patchproof-orchestrator, patchproof-v2
 ```
