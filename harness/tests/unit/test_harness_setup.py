@@ -5,6 +5,7 @@ No live TrueForge needed: the _http helper is monkeypatched.
 
 import sys
 import os
+import urllib.request
 sys.path.insert(0, "scripts")
 
 import harness_setup as hs
@@ -154,10 +155,16 @@ def test_main_propagates_failure(monkeypatch):
 
 
 def test_check_endpoints_fails_fast(monkeypatch):
-    monkeypatch.setattr(hs, "_external_health", lambda u: (False, "unreachable"))
+    # TrueForge check raises; MCP check never runs.
+    monkeypatch.setattr(urllib.request, "urlopen",
+                      lambda url, timeout=5: (_ for _ in ()).throw(RuntimeError("unreachable")))
+    monkeypatch.setattr(hs, "_mcp_health", lambda u: (True, "OK"))
     assert hs.check_endpoints() is False
 
 
 def test_check_endpoints_passes(monkeypatch):
-    monkeypatch.setattr(hs, "_external_health", lambda u: (True, "HTTP 200"))
+    # TrueForge returns 200; MCP checks all succeed.
+    monkeypatch.setattr(urllib.request, "urlopen",
+                      lambda url, timeout=5: type("R", (), {"__enter__": lambda s: s, "__exit__": lambda *a: None, "status": 200})())
+    monkeypatch.setattr(hs, "_mcp_health", lambda u: (True, "OK"))
     assert hs.check_endpoints() is True

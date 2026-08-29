@@ -4,7 +4,9 @@ Exercises the live TrueForge server: GET /api/v1/agents lists the
 patchproof-v2 manifest; the manifest's mcp_servers, skills, and approval
 policy match the spec in docs/custom-harness-build-plan.md §4 and §5.
 
-Requires TrueForge running on http://[::1]:8790 (skips if unreachable).
+All three required services (TrueForge + local-sandbox + cve-feed) must be
+reachable. If any is missing the suite is skipped (with reason).  If the
+agent is absent or the manifest deviates, the suite fails (not skips).
 """
 import json
 import os
@@ -34,20 +36,43 @@ def _trueforge_reachable():
     return code == 200
 
 
-pytestmark = pytest.mark.skipif(
-    not _trueforge_reachable(),
-    reason=f"TrueForge not reachable at {BASE_URL}",
-)
+def _service_reachable(url):
+    data = json.dumps({"jsonrpc": "2.0", "method": "tools/list", "id": 1}).encode()
+    req = urllib.request.Request(url, data=data, method="POST",
+                                headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _check_prerequisites():
+    """Verify all required services are reachable before running tests."""
+    failures = []
+    if not _trueforge_reachable():
+        failures.append(f"TrueForge not reachable at {BASE_URL}")
+    if not _service_reachable("http://127.0.0.1:8081/mcp"):
+        failures.append("local-sandbox not reachable at http://127.0.0.1:8081/mcp")
+    if not _service_reachable("http://127.0.0.1:8091/mcp"):
+        failures.append("cve-feed not reachable at http://127.0.0.1:8091/mcp")
+    return failures
 
 
 def _get_patchproof_v2_manifest():
     code, data = _http_get("/api/v1/agents")
     if code != 200:
-        pytest.skip(f"GET /api/v1/agents returned {code}")
+        pytest.fail(f"GET /api/v1/agents returned {code}")
     for agent in data.get("data", []):
         if agent.get("name") == "patchproof-v2":
             return agent.get("manifest", {})
-    pytest.skip("patchproof-v2 agent not registered; run scripts/harness_setup.py")
+    pytest.fail("patchproof-v2 agent not registered; run scripts/harness_setup.py")
+
+
+pytestmark = pytest.mark.skipif(
+    _check_prerequisites() != [],
+    reason="required services unreachable (TrueForge + local-sandbox + cve-feed)",
+)
 
 
 def test_agent_model_required():
@@ -76,8 +101,6 @@ def test_mcp_attachments_local_sandbox_gates_exploit_tools():
     by_name = {s.get("name"): s for s in m.get("mcp_servers", [])}
     assert "local-sandbox" in by_name
     approval = by_name["local-sandbox"].get("require_approval_for_tools", [])
-    # Must gate the 4 exploit/build/write/read tools, NOT sandbox_stop
-    # (mandatory teardown per ADR-012).
     assert set(approval) == {
         "sandbox_build", "sandbox_exec",
         "sandbox_write", "sandbox_read",
@@ -100,8 +123,6 @@ def test_mcp_attachments_github_included():
 
 
 def test_mcp_attachments_have_no_preload():
-    """preload=false keeps tool discovery deferred (cheaper on context)."""
     m = _get_patchproof_v2_manifest()
     for s in m.get("mcp_servers", []):
-        # default is False; explicit False is fine; True is not
         assert s.get("preload", False) is False, s.get("name")

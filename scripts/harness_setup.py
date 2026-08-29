@@ -81,10 +81,13 @@ def _http(method, path, body=None):
         return 0, {"error": str(exc.reason)}
 
 
-def _external_health(url):
-    """Probe a non-TrueForge URL (MCP /health). Returns (ok, detail)."""
+def _mcp_health(url):
+    """Probe an MCP server (POST JSON-RPC). Returns (ok, detail)."""
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        data = json.dumps({"jsonrpc": "2.0", "method": "tools/list", "id": 1}).encode()
+        req = urllib.request.Request(url, data=data, method="POST",
+                                  headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status == 200, f"HTTP {resp.status}"
     except urllib.error.URLError as exc:
         return False, str(exc.reason)
@@ -225,13 +228,18 @@ def build_agent_manifest(sha):
 
 def check_endpoints():
     """PR Compliance ID 2917052: validate all three endpoints before continuing."""
-    ok, detail = _external_health(f"{BASE_URL}/api/v1/capabilities")
-    if not ok:
-        print(f"TrueForge unreachable at {BASE_URL}/api/v1/capabilities: {detail}", file=sys.stderr)
+    try:
+        with urllib.request.urlopen(f"{BASE_URL}/api/v1/capabilities", timeout=5) as r:
+            if r.status != 200:
+                print(f"TrueForge not OK at {BASE_URL}/api/v1/capabilities: HTTP {r.status}", file=sys.stderr)
+                return False
+    except Exception as exc:
+        print(f"TrueForge unreachable at {BASE_URL}/api/v1/capabilities: {exc}", file=sys.stderr)
         return False
     print(f"TrueForge OK: {BASE_URL}/api/v1/capabilities")
     for mcp in _MCP_REGS:
-        ok, detail = _external_health(f"{mcp['url'].rsplit('/', 1)[0]}/health")
+        # MCP servers respond only to POST JSON-RPC tools/list on the /mcp path.
+        ok, detail = _mcp_health(mcp["url"])
         if not ok:
             print(f"MCP unreachable: {mcp['name']} at {mcp['url']}: {detail}",
                   file=sys.stderr)

@@ -121,21 +121,25 @@ Settings → Agents → `patchproof-v2` → edit manifest:
 
 ```json
 {
-  "mode": "SingleAgent",
-  "name": "patchproof-v2",
-  "sandbox": {"enabled": true, "file_downloads": true},
-  "file_downloads": true,
-  "skills": [...7 PatchProof skills registered in step 6...],
+  "model": {"name": "openrouter/openrouter-free"},
+  "skills": [
+    {"name": "analyzer"}, {"name": "orchestrator"}, {"name": "reproducer"},
+    {"name": "judge"}, {"name": "patcher"}, {"name": "verifier"},
+    {"name": "test-runner"}
+  ],
   "mcp_servers": [
     {"name": "local-sandbox", "require_approval_for_tools": ["sandbox_build", "sandbox_exec", "sandbox_write", "sandbox_read"]},
     {"name": "cve-feed",      "require_approval_for_tools": ["@write", "@destructive"]},
     {"name": "github"}
-  ]
+  ],
+  "config": {"sandbox": {"enabled": true, "file_downloads": true}}
 }
 ```
 
+The manifest follows the TrueForge `AgentSpec` schema: `model.name` is required, `skills` are name-only references, `mcp_servers` and `config.sandbox` are nested under `AgentSpec` (not at the manifest root). `config.sandbox.enabled: true` is required so TrueForge materializes skills and backs `sandbox_artifacts` file downloads.
+
 `require_approval_for_tools` is per MCP server in the agent manifest (not on the MCP registration). `local-sandbox` gates the four exploit/build/write/read tools by name — `sandbox_stop` is intentionally exempt so mandatory container teardown (ADR-012) runs on every success/failure/denial/cancellation path. `cve-feed` uses the default `["@write","@destructive"]`; its tools declare `readOnlyHint: true` so triage (`cve_cross_check`, `cve_get_cve`, `osv_*`) runs autonomously. `github` uses the default (PR write/destructive gated).
 
-`python3 scripts/harness_setup.py` upserts this manifest idempotently — re-running after schema changes or skill pin updates is safe.
+`python3 scripts/harness_setup.py` upserts this manifest idempotently via `PUT /api/v1/agents/{id}` — re-running after schema changes or skill pin updates is safe. The live manifest is verified by `harness/tests/integration/test_agent_manifest.py` (skips cleanly when TrueForge / local-sandbox / cve-feed are unreachable; otherwise fails on any deviation).
 
 For the combined harness wiring + Chat UI work loop (Initial Setup + Chat UI SDK, cut-order, verification via `http://[::1]:8790` / `127.0.0.1:8081/mcp`), see `docs/harness-loop-plan.md` — the single loop the agent follows. The intermediate `docs/harness-patchproof-setup.md` and `docs/harness-chat-ui-plan.md` were merged into that loop and removed.
