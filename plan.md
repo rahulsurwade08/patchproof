@@ -75,7 +75,7 @@ loop empirically, per (repo + advisory):
 | Core scenarios | S1 PyYAML RCE · S5 negative case · S4 Jinja2 sandbox escape · S6 DVPWA SQL injection (fixtures, not fallback targets) |
 | Scenario S2 | S2 Pickle deserialization RCE |
 | Scenario S3 | S3 XML External Entity (XXE) injection |
-| UI | Custom UI from TrueForge: `@truefoundry/trueforge-ui` in `harness/frontend/` (planned, scaffold next PR, ADR-018), `SingleAgent patchproof-v2`; read-only FastAPI dashboard retained as demo artifact |
+| UI | Custom UI from TrueForge: `@truefoundry/trueforge-ui` in `harness/frontend/` (planned, scaffold next PR, ADR-018), `SingleAgent patchproof-v2`; read-only FastAPI dashboard retained as demo artifact — **frontend branch parked 2026-08-29 (maintainer decision); stock TrueForge UI at `http://[::1]:8790` is the current visible surface; custom UI deferred to next release** |
 | Models | OpenRouter free models via BYOK; assume ~50 req/day ceiling until tested |
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
 | CVE legitimacy | Dual-source gate: CVE.org + OSV.dev both confirm; **hardcode no CVE data**; fail closed (demo injections excepted, audited as `demo-bypass`) |
@@ -280,7 +280,7 @@ Per-node model-token budget (estimates):
 | OSV/CVE.org unavailable or no symbol data | Honest `UNKNOWN`, no sandbox time, no scenario fallback, no invented symbols |
 | Resource leak (docker images/containers) | Mandatory teardown stage: `sandbox_stop` + image prune after each run (hard rule) |
 | MCP migration regression (Node→Python) | Keep behavior identical; port the two entry tests (cve cross-check; build+exec) before integrating |
-| Time overrun | Cut order: analyzer (Python) + build-context gen → MCP migration → osv wiring polish → dashboard. Approval gate never cut — **all four cut-order items completed 2026-08-28** (analyzer + gen_context, Python MCP servers, OSV _select_dep polish, dashboard hermetic suite + gate). Current phase (ADR-018, 2026-08-29): harness frontend scaffold (+ tests) → cve-feed HTTP wrapper (+ tests) → skills/MCP attach (+ tests) → approval gate (+ tests) — test suite v2 recreated per component as PRs land (old suite triaged; see ADR-018) |
+| Time overrun | Cut order: analyzer (Python) + build-context gen → MCP migration → osv wiring polish → dashboard. Approval gate never cut — **cut-order items 1–5 complete 2026-08-28** (analyzer + gen_context, Python MCP servers, OSV _select_dep polish, dashboard hermetic suite + gate). **ADR-018 harness build mostly complete 2026-08-29** (frontend scaffold PR #68, cve-feed HTTP PR #71, skills+MCP attach PR #72, approval gate PR #73, integration tests PR #74). **Frontend parked** (maintainer decision 2026-08-29): custom UI deferred to next release; stock TrueForge UI at `http://[::1]:8790` is the visible surface. **Remaining** (per ADR-018 test-suite-v2, see `docs/custom-harness-build-plan.md` §4): (a) harness-driven end-to-end scenario test via `POST /api/v1/sessions/{id}/turns` to drive `sandbox_build` + `sandbox_exec` and assert `verdict.json` + `assessment.json` (placeholder in `harness/tests/integration/test_scenarios.py`); (b) approval-gate e2e test asserting the harness pauses with `awaiting_approval` before any `sandbox_build`/`sandbox_exec`; (c) reproducer MCP path regression tests; (d) skill prompt fixes (context_path schema, cve-meta.json copy, python health probe). |
 
 ## 10. Security posture
 
@@ -360,5 +360,5 @@ target and must not be less secure than the code it audits.
 - `docs/architecture.md` — diagrams + capability map
 - `docs/trueforge-setup.md` — verified harness setup (Settings-based config)
 - `docs/demo.md` — end-to-end walkthrough of a demo run
-- `docs/decisions.md` — ADR log (ADR-009 pivot, ADR-010 fallback/no-hardcode, ADR-011 Python migration, ADR-012 teardown, ADR-014 run graph, ADR-015 memory/token, ADR-016 security, ADR-018 custom harness UI + test suite v2)
+- `docs/decisions.md` — ADR log (ADR-009 pivot, ADR-010 fallback/no-hardcode, ADR-011 Python migration, ADR-012 teardown, ADR-014 run graph, ADR-015 memory/token, ADR-016 security, ADR-018 custom harness UI + test suite v2 (frontend parked 2026-08-29, stock TrueForge UI current))
 - `docs/custom-harness-build-plan.md` — frontend/backend attach plan + test suite v2 layout

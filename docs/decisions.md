@@ -229,7 +229,7 @@ reproducer summary. A failed tier-1 build is reported honestly as a build
 failure — never as a vulnerability verdict.
 
 ## ADR-018 — Custom harness UI on the TrueForge UI SDK; skills/MCP/backend attach; test suite v2
-**Status:** accepted (2026-08-29)
+**Status:** accepted (2026-08-29); **frontend branch parked 2026-08-29 (maintainer decision)** — stock TrueForge UI at `http://[::1]:8790` is the current visible surface; custom UI deferred to next release.
 
 **Context.** The stock TrueForge UI works, but the demo needs one surface
 showing scanning → reachability → exploit → patch → approval gate with
@@ -243,6 +243,11 @@ quickstart/agent-modes, skills, create-agent overview — 2026-08-29).
    (React + Vite) with `server={{type:"trueforge", baseUrl}}` and
    `agentConfig={{mode:"SingleAgent", name:"patchproof-v2"}}` — no server
    fork, no `agentMode="fixed-agent"` (that prop does not exist).
+   **Parked**: scaffold landed in PR #68, custom theme + WelcomeScreen +
+   vite proxy worked in `feat/frontend-patchproof-ui` but the maintainer
+   redirected priorities to end-to-end testing on 2026-08-29. Custom UI
+   is a next-release decision; until then, the stock TrueForge UI is
+   the dev/test surface.
 2. **Backend:** stock TrueForge server; PatchProof glue stays MCP + skills.
    Register the 7 skills via Settings → Skills (git, pinned SHA); register
    `github`, `local-sandbox`, and an HTTP-wrapped `cve-feed` as remote MCPs.
@@ -262,4 +267,11 @@ quickstart/agent-modes, skills, create-agent overview — 2026-08-29).
 harness; docs now match official TrueForge behavior. The intermediate
 155-test centralized suite is superseded; its useful coverage is recreated
 under v2 as component PRs land.
+
+**Update 2026-08-29:** custom-UI branch parked per maintainer decision.
+Stock TrueForge UI is the current visible surface. With the harness
+attach (skills/MCPs/agent manifest) done, focus shifts to harness-driven
+e2e scenario tests (currently a placeholder) and reproducer MCP path
+regressions. Frontend work is explicitly next-release; do not re-engage
+without a directive.
 
