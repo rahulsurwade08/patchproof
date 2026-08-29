@@ -39,8 +39,7 @@ pip install -r requirements-dev.txt
 python -m pytest test_dashboard.py -q
 
 # Harness frontend — custom UI on @truefoundry/trueforge-ui (ADR-018)
-cd harness/frontend && npm install
-npm run dev      # dev server against stock TrueForge at http://[::1]:8790
+cd harness/frontend && npm ci && npm run dev      # dev server against stock TrueForge at http://[::1]:8790
 npm run build    # production build → dist/
 
 # TrueForge server + local-sandbox MCP (start before any harness run)
