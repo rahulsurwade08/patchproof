@@ -127,14 +127,14 @@ Settings → Agents → `patchproof-v2` → edit manifest:
   "file_downloads": true,
   "skills": [...7 PatchProof skills registered in step 6...],
   "mcp_servers": [
-    {"name": "local-sandbox", "require_approval_for_tools": ["@all"]},
+    {"name": "local-sandbox", "require_approval_for_tools": ["sandbox_build", "sandbox_exec", "sandbox_write", "sandbox_read"]},
     {"name": "cve-feed",      "require_approval_for_tools": ["@write", "@destructive"]},
     {"name": "github"}
   ]
 }
 ```
 
-`require_approval_for_tools` is per MCP server in the agent manifest (not on the MCP registration). `local-sandbox` uses `["@all"]` because every sandbox tool call (build/exec/write/read/stop) represents an irreversible exploit-execution step — the human must approve each call individually. `cve-feed` uses the default `["@write","@destructive"]` (read-only data lookup). `github` uses the default (PR operations are gated).
+`require_approval_for_tools` is per MCP server in the agent manifest (not on the MCP registration). `local-sandbox` gates the four exploit/build/write/read tools by name — `sandbox_stop` is intentionally exempt so mandatory container teardown (ADR-012) runs on every success/failure/denial/cancellation path. `cve-feed` uses the default `["@write","@destructive"]`; its tools declare `readOnlyHint: true` so triage (`cve_cross_check`, `cve_get_cve`, `osv_*`) runs autonomously. `github` uses the default (PR write/destructive gated).
 
 `python3 scripts/harness_setup.py` upserts this manifest idempotently — re-running after schema changes or skill pin updates is safe.
 

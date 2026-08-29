@@ -51,7 +51,7 @@ curl http://[::1]:8790/api/v1/agents | jq .data[].name       # → patchproof-or
 
 2. **Theme + SingleAgent** `harness/frontend/src/theme.ts`: `truefoundry` base with PatchProof red `exploitable:true` / green `NOT_REACHABLE` / amber `UNKNOWN`, `SingleAgent patchproof-v2` only — enforces “one session per CVE” (ADR-004) and protects the approval gate.
 
-3. **Generative UI artifacts** `agent/skills/orchestrator/SKILL.md` (≤5 lines): ensure `verdict.json`/`assessment.json` emitted as `sandbox_artifacts` so chat shows `tool.call: sandbox_read verdict.json` and `GET /api/v1/sessions/{id}/turns/{id}/download?path=verdict.json` works. Keep `ask_user_questions:true`, `generative_ui:true`. Approval policy is set per MCP server in the agent manifest: `local-sandbox=["@all"]` (every sandbox call requires approval before the irreversible exploit step), `cve-feed` and `github` use default `["@write","@destructive"]`.
+3. **Generative UI artifacts** `agent/skills/orchestrator/SKILL.md` (≤5 lines): ensure `verdict.json`/`assessment.json` emitted as `sandbox_artifacts` so chat shows `tool.call: sandbox_read verdict.json` and `GET /api/v1/sessions/{id}/turns/{id}/download?path=verdict.json` works. Keep `ask_user_questions:true`, `generative_ui:true`. Approval policy is set per MCP server in the agent manifest: `local-sandbox=[sandbox_build,exec,write,read]` (sandbox_stop teardown exempt per ADR-012); `cve-feed` and `github` use default `["@write","@destructive"]` (cve-feed tools declare `readOnlyHint:true`).
 
 4. **Register skills** (no code): Settings → Skills add 7 git skills at pinned SHA; verify `curl http://[::1]:8790/api/v1/skills | jq .data[].name` shows all.
 

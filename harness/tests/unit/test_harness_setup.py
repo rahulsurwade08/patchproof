@@ -89,10 +89,13 @@ def test_build_agent_manifest():
     assert {s["type"] for s in m["skills"]} == {"git"}
     assert all(s["repo"] == hs.SKILL_REPO for s in m["skills"])
     # MCP attachments: 2 API-registered + 1 catalog (github).
-    # local-sandbox requires approval for ALL tool calls (exploit execution);
-    # cve-feed uses default ["@write","@destructive"] (read-only data).
+    # local-sandbox gates the 4 exploit/build/write/read tools but NOT
+    # sandbox_stop (mandatory teardown per ADR-012 must run on all paths).
+    # cve-feed uses default ["@write","@destructive"]; tools declare
+    # readOnlyHint:true so triage runs autonomously.
     assert m["mcp_servers"] == [
-        {"name": "local-sandbox", "require_approval_for_tools": ["@all"]},
+        {"name": "local-sandbox",
+         "require_approval_for_tools": ["sandbox_build", "sandbox_exec", "sandbox_write", "sandbox_read"]},
         {"name": "cve-feed",      "require_approval_for_tools": ["@write", "@destructive"]},
         {"name": "github"},
     ]
