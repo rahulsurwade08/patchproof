@@ -37,9 +37,13 @@ use the `local-sandbox` MCP with this exact sequence:
 
 1. `sandbox_build` — build the target repo's image:
    `{context_path: "<absolute-host-path-to-repo>", tag: "<unique-tag>", dockerfile: "<dockerfile-name>"}`
-2. `sandbox_write` — write the advisory JSON and (if needed) the reach.py script:
-   `{session: "<SAME-SESSION-LABEL>", path: "/srv/cve-meta.json", content: "<advisory-json>"}`
-   `{session: "<SAME-SESSION-LABEL>", path: "/srv/reach.py", content: "<script-content>"}`
+2. `sandbox_write` — write the advisory JSON and (if needed) the reach.py script.
+   **CRITICAL: always pass `image` to `sandbox_write`, otherwise the container
+   is created with the default python:3.11-slim image and a subsequent
+   `sandbox_exec` with a different image will recreate the container, losing
+   all written files.**
+   `{session: "<SAME-SESSION-LABEL>", path: "/srv/cve-meta.json", content: "<advisory-json>", image: "<THE-BUILT-TAG>"}`
+   `{session: "<SAME-SESSION-LABEL>", path: "/srv/reach.py", content: "<script-content>", image: "<THE-BUILT-TAG>"}`
 3. `sandbox_exec` — run the analyzer:
    `{session: "<SAME-SESSION-LABEL>", image: "<THE-BUILT-TAG>", command: "python3 /srv/reach.py /srv <cve-id> --out /srv/out"}`
 4. `sandbox_read` — fetch the result:

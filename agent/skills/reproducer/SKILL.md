@@ -22,7 +22,10 @@ run exploit code on the host.
       + `tag` (required); passing `context` (relative) is rejected.
    b. `sandbox_write` `cve-meta.json` into `/srv/cve-meta.json` — the
       scenario Dockerfile only copies `app/` contents, so the reproducer
-      must write the meta file before Phase 2 reads it.
+      must write the meta file before Phase 2 reads it. **ALWAYS pass
+      `image: patchproof-<id>` on every `sandbox_write`/`sandbox_exec` call**:
+      the container is recreated on image mismatch (lesson: silent file
+      loss — `sandbox_write` succeeds, `sandbox_read` shows "no such file").
    c. `sandbox_exec` with `image: patchproof-<id>` on first call: start the
       service detached, then confirm `/health` with a follow-up call.
       Use `python3 -c "import urllib.request; urllib.request.urlopen(...)"`
