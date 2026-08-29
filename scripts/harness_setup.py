@@ -214,16 +214,14 @@ def upsert_agent(name, manifest):
     return False
 
 
-def build_agent_manifest(sha):
+def build_agent_manifest(sha, model_name="openrouter/openrouter-free"):
     # sandbox.enabled: true activates TrueForge's built-in sandbox provider
     # for skill materialization and file_downloads (artifacts). Exploit
     # execution stays on the local-sandbox MCP (--network none), so the
     # built-in provider is only used to materialize skills and download
     # `verdict.json` / `reachability.json` / `assessment.json` artifacts.
-    # v3 uses the paid model from .env (OPENROUTER_MODEL=z-ai/glm-5.3-flash
-    # via OpenRouter provider, registered as z-ai-glm-5.3-flash).
     return {
-        "model": {"name": "openrouter/z-ai-glm-5.3-flash"},
+        "model": {"name": model_name},
         "mcp_servers": (MCP_ATTACHMENTS
                         + [{"name": n} for n in ATTACHED_NOT_REGISTERED]),
         "skills": [{"name": n} for n in SKILL_PATHS.keys()],
@@ -274,12 +272,13 @@ def main():
             failures += 1
 
     print("\nAgent:")
-    manifest = build_agent_manifest(sha)
-    # v3 is the current iteration (paid model, code-block prioritized); keep v2
-    # for backwards compat so existing sessions remain valid.
-    if not upsert_agent("patchproof-v3", manifest):
+    # v2: openrouter/free for free-tier smoke testing / fixing (rate-limited but free)
+    # v3: paid model z-ai/glm-5.3-flash via OpenRouter (OPENROUTER_MODEL in .env)
+    manifest_v2 = build_agent_manifest(sha, "openrouter/openrouter-free")
+    manifest_v3 = build_agent_manifest(sha, "openrouter/z-ai-glm-5.3-flash")
+    if not upsert_agent("patchproof-v2", manifest_v2):
         failures += 1
-    if not upsert_agent("patchproof-v2", manifest):
+    if not upsert_agent("patchproof-v3", manifest_v3):
         failures += 1
 
     if failures:
