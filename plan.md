@@ -75,7 +75,7 @@ loop empirically, per (repo + advisory):
 | Core scenarios | S1 PyYAML RCE · S5 negative case · S4 Jinja2 sandbox escape · S6 DVPWA SQL injection (fixtures, not fallback targets) |
 | Scenario S2 | S2 Pickle deserialization RCE |
 | Scenario S3 | S3 XML External Entity (XXE) injection |
-| UI | Custom UI from TrueForge: `@truefoundry/trueforge-ui` in `harness/frontend/`, `SingleAgent patchproof-v2` (ADR-018); read-only FastAPI dashboard retained as demo artifact |
+| UI | Custom UI from TrueForge: `@truefoundry/trueforge-ui` in `harness/frontend/` (planned, scaffold next PR, ADR-018), `SingleAgent patchproof-v2`; read-only FastAPI dashboard retained as demo artifact |
 | Models | OpenRouter free models via BYOK; assume ~50 req/day ceiling until tested |
 | Repo | Public from day 1 · runtime is localhost-only, on demand |
 | CVE legitimacy | Dual-source gate: CVE.org + OSV.dev both confirm; **hardcode no CVE data**; fail closed (demo injections excepted, audited as `demo-bypass`) |
