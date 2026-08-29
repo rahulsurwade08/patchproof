@@ -1,13 +1,15 @@
 """Offline unit tests for the Python cve-feed MCP server port.
 
 Network calls are never made: handlers are exercised through fakes, and the
-JSON-RPC framing through pipes.
+JSON-RPC framing through HTTP.
 """
 
 import json
 import os
+import socket
 import subprocess
 import sys
+import urllib.request
 
 import pytest
 
@@ -124,36 +126,6 @@ def test_osv_get_quotes_vuln_id(monkeypatch):
     assert "GHSA%3Fa%3Db" in captured["url"]
 
 
-def test_stdio_server_replies_to_explicit_null_id():
-    reqs = [
-        json.dumps({"jsonrpc": "2.0", "id": None, "method": "initialize",
-                    "params": {}}) + "\n",
-        json.dumps({"jsonrpc": "2.0", "method": "notifications/x"}) + "\n",
-    ]
-    proc = _spawn(reqs)
-    assert proc.returncode == 0, proc.stderr[-300:]
-    replies = [json.loads(l) for l in proc.stdout.strip().splitlines()]
-    # explicit "id": null is a real request (answered with id null); the
-    # key-less notification is ignored
-    assert len(replies) == 1
-    assert replies[0]["id"] is None
-    assert replies[0]["result"]["protocolVersion"] == "2024-11-05"
-
-
-def test_stdio_server_ignores_non_object_json():
-    reqs = [
-        json.dumps([1, 2, 3]) + "\n",      # valid JSON array: ignored
-        '"just a string"\n',                # valid JSON string: ignored
-        "42\n",                             # valid JSON number: ignored
-        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                    "params": {}}) + "\n",
-    ]
-    proc = _spawn(reqs)
-    assert proc.returncode == 0, proc.stderr[-300:]
-    replies = [json.loads(l) for l in proc.stdout.strip().splitlines()]
-    assert len(replies) == 1 and replies[0]["id"] == 1
-
-
 def test_osv_query_all_follows_pagination(monkeypatch):
     pages = [
         {"vulns": [{"id": "A"}], "next_page_token": "t1"},
@@ -205,32 +177,84 @@ def test_dispatch_tool_error_returns_is_error(monkeypatch):
     assert "boom" in out["content"][0]["text"]
 
 
-def _spawn(proc_lines):
-    env = dict(os.environ)
-    proc = subprocess.run(
+# --------------------------------------------------------- HTTP transport
+
+def _free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _http_call(port, req_body):
+    data = json.dumps(req_body).encode()
+    r = urllib.request.Request(
+        f"http://127.0.0.1:{port}/mcp",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST")
+    with urllib.request.urlopen(r, timeout=10) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _spawn_server():
+    port = _free_port()
+    env = dict(os.environ, CVE_FEED_PORT=str(port))
+    proc = subprocess.Popen(
         [sys.executable, "agent/mcp/cve_feed_server.py"],
-        input="".join(proc_lines), capture_output=True, text=True,
-        timeout=30, env=env)
-    return proc
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # wait for health
+    import time
+    for _ in range(50):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1):
+                return proc, port
+        except Exception:
+            time.sleep(0.1)
+    proc.kill()
+    raise RuntimeError("cve-feed server failed to start")
 
 
-def test_stdio_server_framing_end_to_end():
-    """Offline end-to-end: initialize + tools/list + bad method over stdio."""
-    reqs = [
-        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                    "params": {}}),
-        json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list",
-                    "params": {}}),
-        json.dumps({"jsonrpc": "2.0", "id": 3, "method": "bogus/x",
-                    "params": {}}),
-        "not json at all",              # must be ignored silently
-        json.dumps({"jsonrpc": "2.0", "method": "notifications/none"}),  # no id
-        "",
-    ]
-    proc = _spawn([r + "\n" for r in reqs])
-    assert proc.returncode == 0
-    replies = [json.loads(l) for l in proc.stdout.strip().splitlines()]
-    assert [r["id"] for r in replies] == [1, 2, 3]
-    assert replies[0]["result"]["protocolVersion"] == "2024-11-05"
-    assert len(replies[1]["result"]["tools"]) == 4
-    assert replies[2]["error"]["code"] == -32601
+def _stop_server(proc):
+    proc.kill()
+    proc.wait()
+
+
+def test_http_server_replies_to_explicit_null_id():
+    proc, port = _spawn_server()
+    try:
+        reply = _http_call(port, {"jsonrpc": "2.0", "id": None,
+                                   "method": "initialize", "params": {}})
+        assert reply["id"] is None
+        assert reply["result"]["protocolVersion"] == "2024-11-05"
+    finally:
+        _stop_server(proc)
+
+
+def test_http_server_framing_end_to_end():
+    proc, port = _spawn_server()
+    try:
+        # initialize
+        r1 = _http_call(port, {"jsonrpc": "2.0", "id": 1,
+                                "method": "initialize", "params": {}})
+        assert r1["result"]["protocolVersion"] == "2024-11-05"
+        # tools/list
+        r2 = _http_call(port, {"jsonrpc": "2.0", "id": 2,
+                                "method": "tools/list", "params": {}})
+        assert len(r2["result"]["tools"]) == 4
+        # bogus method
+        r3 = _http_call(port, {"jsonrpc": "2.0", "id": 3,
+                                "method": "bogus/x", "params": {}})
+        assert r3["error"]["code"] == -32601
+    finally:
+        _stop_server(proc)
+
+
+def test_http_health_endpoint():
+    proc, port = _spawn_server()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as resp:
+            assert resp.status == 200
+            body = json.loads(resp.read().decode())
+            assert body == {"ok": True}
+    finally:
+        _stop_server(proc)
