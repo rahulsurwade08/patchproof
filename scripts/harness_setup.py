@@ -272,9 +272,10 @@ def main():
             failures += 1
 
     print("\nAgent:")
-    # v2: openrouter/free for free-tier smoke testing / fixing (rate-limited but free)
+    # v2: meta/muse-spark-1.2 via OpenRouter (the same model opencode uses for
+    # the in-session agent) — cheap, fast, works. Used for fixing / smoke testing.
     # v3: paid model z-ai/glm-5.3-flash via OpenRouter (OPENROUTER_MODEL in .env)
-    manifest_v2 = build_agent_manifest(sha, "openrouter/openrouter-free")
+    manifest_v2 = build_agent_manifest(sha, "openrouter/meta-muse-spark-1.2")
     manifest_v3 = build_agent_manifest(sha, "openrouter/z-ai-glm-5.3-flash")
     if not upsert_agent("patchproof-v2", manifest_v2):
         failures += 1
