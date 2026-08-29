@@ -43,6 +43,7 @@ TOOLS = [
             "properties": {"cveId": {"type": "string"}},
             "required": ["cveId"],
         },
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "osv_query_package",
@@ -59,6 +60,7 @@ TOOLS = [
             },
             "required": ["ecosystem", "name"],
         },
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "osv_get_vuln",
@@ -70,6 +72,7 @@ TOOLS = [
             "properties": {"vulnId": {"type": "string"}},
             "required": ["vulnId"],
         },
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "cve_cross_check",
@@ -89,6 +92,7 @@ TOOLS = [
             },
             "required": ["cveId", "ecosystem", "name"],
         },
+        "annotations": {"readOnlyHint": True},
     },
 ]
 
