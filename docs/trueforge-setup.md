@@ -109,8 +109,9 @@ Settings → Skills → Add skill (git):
 | test-runner | `...` | `agent/skills/test-runner` | current HEAD |
 
 Pin each to the current git HEAD. Run `python3 scripts/harness_setup.py` to
-register all skills + MCPs + the `patchproof-v2` agent manifest idempotently
-(`sandbox.enabled: false`, skills + MCPs attached).
+register all skills + 2 MCPs (local-sandbox, cve-feed) + the `patchproof-v2`
+agent manifest idempotently (`sandbox.enabled: false`, skills + MCPs attached).
+The `github` connector is added separately via the catalog UI per step 3.
 
 ## 7. Agent manifest — patchproof-v2
 

@@ -6,15 +6,14 @@ the harness wiring is in place per docs/custom-harness-build-plan.md step 3:
   - MCPs: local-sandbox (127.0.0.1:8081) and cve-feed (127.0.0.1:8091)
   - Skills: 7 PatchProof skills (analyzer, orchestrator, reproducer, judge,
     patcher, verifier, test-runner) as git-source skills, pinned to current HEAD
-  - Agent: patchproof-v2 (SingleAgent mode) manifest with sandbox.enabled=false
-    and attached skills/MCPs
+  - Agent: patchproof-v2 (SingleAgent mode) manifest with attached skills/MCPs
 
-Idempotent: re-running only registers missing items; existing skills/MCPs/agents
-are left alone. Safe to re-run after server restart or schema evolution.
+Idempotent: re-running reconciles existing skills/MCPs/agents to match the
+expected configuration (updates drift in pin/repo/path/url). Safe to re-run
+after server restart, schema evolution, or a new commit.
 
-Requires: requests (already in harness/frontend/dev deps). Stdlib urllib works
-but requests reads more naturally for an operator script; we fall back to
-urllib if requests is not installed.
+Pre-run checks: TrueForge, local-sandbox, and cve-feed must all be reachable
+or the script exits non-zero (PR Compliance ID 2917052).
 """
 
 import json
@@ -56,20 +55,18 @@ def _http(method, path, body=None):
     except urllib.error.HTTPError as exc:
         return exc.code, {"error": exc.read().decode()[:300]}
     except urllib.error.URLError as exc:
-        print(f"connection failed: {exc.reason}", file=sys.stderr)
         return 0, {"error": str(exc.reason)}
 
 
-def _get(path):
-    return _http("GET", path)
-
-
-def _post(path, body):
-    return _http("POST", path, body)
-
-
-def _put(path, body):
-    return _http("PUT", path, body)
+def _external_health(url):
+    """Probe a non-TrueForge URL (MCP /health). Returns (ok, detail)."""
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return resp.status == 200, f"HTTP {resp.status}"
+    except urllib.error.URLError as exc:
+        return False, str(exc.reason)
+    except Exception as exc:
+        return False, str(exc)
 
 
 def current_head_sha():
@@ -78,41 +75,77 @@ def current_head_sha():
 
 
 def list_skills():
-    code, data = _get("/api/v1/skills")
+    code, data = _http("GET", "/api/v1/skills")
     if code != 200:
         return []
-    return [s.get("name") for s in data.get("data", [])]
+    return data.get("data", [])
 
 
 def list_mcps():
-    code, data = _get("/api/v1/mcp-servers")
+    code, data = _http("GET", "/api/v1/mcp-servers")
     if code != 200:
         return []
-    return [m.get("name") for m in data.get("data", [])]
+    return data.get("data", [])
 
 
 def list_agents():
-    code, data = _get("/api/v1/agents")
+    code, data = _http("GET", "/api/v1/agents")
     if code != 200:
         return []
-    return [a.get("name") for a in data.get("data", [])]
+    return data.get("data", [])
+
+
+def find_skill(skills, name):
+    for s in skills:
+        if s.get("name") == name:
+            return s
+    return None
+
+
+def find_mcp(mcps, name):
+    for m in mcps:
+        if m.get("name") == name:
+            return m
+    return None
+
+
+def find_agent(agents, name):
+    for a in agents:
+        if a.get("name") == name:
+            return a
+    return None
 
 
 def register_mcp(mcp):
+    """Register or update an MCP. Returns True on success (including 409 exists)."""
     manifest = {"type": "remote", **mcp}
-    code, data = _post("/api/v1/mcp-servers", {"manifest": manifest})
+    name = mcp["name"]
+    existing = find_mcp(list_mcps(), name)
+    if existing:
+        if existing.get("url") == mcp["url"]:
+            print(f"  already exists: {name}")
+            return True
+        # URL drift: update via PUT on the existing record's id
+        mid = existing.get("id")
+        if not mid:
+            print(f"  FAIL {name}: existing record has no id", file=sys.stderr)
+            return False
+        code, data = _http("PUT", f"/api/v1/mcp-servers/{mid}", {"manifest": manifest})
+        if code in (200, 201):
+            print(f"  updated MCP: {name}")
+            return True
+        print(f"  FAIL update {name}: {code} {data}", file=sys.stderr)
+        return False
+    code, data = _http("POST", "/api/v1/mcp-servers", {"manifest": manifest})
     if code in (200, 201):
-        print(f"  registered MCP: {mcp['name']}")
+        print(f"  registered MCP: {name}")
         return True
-    if code == 409 or "exists" in str(data).lower():
-        print(f"  already exists: {mcp['name']}")
-        return True
-    print(f"  FAIL register {mcp['name']}: {code} {data}",
-          file=sys.stderr)
+    print(f"  FAIL register {name}: {code} {data}", file=sys.stderr)
     return False
 
 
 def register_skill(name, path, sha):
+    """Register or update a skill (reconciles pin/repo/path). Returns True on success."""
     body = {
         "type": "git",
         "name": name,
@@ -120,28 +153,50 @@ def register_skill(name, path, sha):
         "path": path,
         "pin": sha,
     }
-    code, data = _post("/api/v1/skills", body)
+    existing = find_skill(list_skills(), name)
+    if existing:
+        if (existing.get("pin") == sha
+                and existing.get("repo") == SKILL_REPO
+                and existing.get("path") == path):
+            print(f"  already exists: {name}")
+            return True
+        sid = existing.get("id")
+        if not sid:
+            print(f"  FAIL {name}: existing record has no id", file=sys.stderr)
+            return False
+        code, data = _http("PUT", f"/api/v1/skills/{sid}", body)
+        if code in (200, 201):
+            print(f"  updated skill: {name} @ {sha[:8]}")
+            return True
+        print(f"  FAIL update {name}: {code} {data}", file=sys.stderr)
+        return False
+    code, data = _http("POST", "/api/v1/skills", body)
     if code in (200, 201):
         print(f"  registered skill: {name} @ {sha[:8]}")
-        return True
-    if code == 409 or "exists" in str(data).lower():
-        print(f"  already exists: {name}")
         return True
     print(f"  FAIL register {name}: {code} {data}", file=sys.stderr)
     return False
 
 
 def upsert_agent(name, manifest):
-    code, data = _put(f"/api/v1/agents/{name}", {"manifest": manifest})
-    if code in (200, 201):
-        print(f"  agent updated: {name}")
-        return True
-    if code == 404:
-        code, data = _post("/api/v1/agents", {"name": name, "manifest": manifest})
+    """Create or update the agent via the immutable-ID PUT endpoint."""
+    existing = find_agent(list_agents(), name)
+    if existing:
+        aid = existing.get("id")
+        if not aid:
+            print(f"  FAIL {name}: existing record has no id", file=sys.stderr)
+            return False
+        code, data = _http("PUT", f"/api/v1/agents/{aid}", {"manifest": manifest})
         if code in (200, 201):
-            print(f"  agent created: {name}")
+            print(f"  agent updated: {name}")
             return True
-    print(f"  FAIL upsert {name}: {code} {data}", file=sys.stderr)
+        print(f"  FAIL update {name}: {code} {data}", file=sys.stderr)
+        return False
+    code, data = _http("POST", "/api/v1/agents", {"name": name, "manifest": manifest})
+    if code in (200, 201):
+        print(f"  agent created: {name}")
+        return True
+    print(f"  FAIL create {name}: {code} {data}", file=sys.stderr)
     return False
 
 
@@ -153,44 +208,55 @@ def build_agent_manifest(sha):
         "file_downloads": True,
         "skills": [{"type": "git", "name": n, "repo": SKILL_REPO,
                     "path": p, "pin": sha} for n, p in SKILL_PATHS.items()],
-        "mcp_servers": [m["name"] for m in MCPS],
+        "mcp_servers": [{"name": m["name"]} for m in MCPS],
     }
+
+
+def check_endpoints():
+    """PR Compliance ID 2917052: validate all three endpoints before continuing."""
+    ok, detail = _external_health(f"{BASE_URL}/health")
+    if not ok:
+        print(f"TrueForge unreachable at {BASE_URL}: {detail}", file=sys.stderr)
+        return False
+    print(f"TrueForge OK: {BASE_URL}/health")
+    for mcp in MCPS:
+        ok, detail = _external_health(f"{mcp['url'].rsplit('/', 1)[0]}/health")
+        if not ok:
+            print(f"MCP unreachable: {mcp['name']} at {mcp['url']}: {detail}",
+                  file=sys.stderr)
+            return False
+        print(f"MCP OK: {mcp['name']} at {mcp['url']}")
+    return True
 
 
 def main():
     print(f"TrueForge harness setup — {BASE_URL}")
-    code, data = _get("/health")
-    if code != 200:
-        print(f"server not reachable at {BASE_URL} (got {code})",
-              file=sys.stderr)
+    if not check_endpoints():
         return 2
 
     sha = current_head_sha()
     print(f"Pinning skills to current HEAD: {sha}\n")
 
+    failures = 0
+
     print("MCPs:")
-    existing_mcps = list_mcps()
     for mcp in MCPS:
-        if mcp["name"] in existing_mcps:
-            print(f"  already exists: {mcp['name']}")
-            continue
-        register_mcp(mcp)
+        if not register_mcp(mcp):
+            failures += 1
 
     print("\nSkills:")
-    existing_skills = list_skills()
     for name, path in SKILL_PATHS.items():
-        if name in existing_skills:
-            print(f"  already exists: {name}")
-            continue
-        register_skill(name, path, sha)
+        if not register_skill(name, path, sha):
+            failures += 1
 
     print("\nAgent:")
     manifest = build_agent_manifest(sha)
-    existing_agents = list_agents()
-    if "patchproof-v2" in existing_agents:
-        print("  already exists: patchproof-v2 — updating")
-    upsert_agent("patchproof-v2", manifest)
+    if not upsert_agent("patchproof-v2", manifest):
+        failures += 1
 
+    if failures:
+        print(f"\nDone with {failures} failure(s).", file=sys.stderr)
+        return 1
     print("\nDone.")
     return 0
 

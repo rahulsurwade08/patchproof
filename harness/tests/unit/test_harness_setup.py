@@ -3,55 +3,70 @@
 No live TrueForge needed: the _http helper is monkeypatched.
 """
 
-import json
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 sys.path.insert(0, "scripts")
-
-from unittest.mock import patch, MagicMock
-import pytest
 
 import harness_setup as hs
 
 
-def fake_http(method, path, body=None):
-    fake_db[path] = (method, body)
-    if path == "/health":
-        return 200, {"ok": True}
-    if path == "/api/v1/skills":
-        return 200, {"data": [{"name": s} for s in fake_db.get("_skills", [])]}
-    if path == "/api/v1/mcp-servers":
-        return 200, {"data": [{"name": m} for m in fake_db.get("_mcps", [])]}
-    if path == "/api/v1/agents":
-        return 200, {"data": [{"name": a} for a in fake_db.get("_agents", [])]}
-    if path.startswith("/api/v1/mcp-servers") and method == "POST":
-        m = (body or {}).get("manifest", {})
-        fake_db["_mcps"] = fake_db.get("_mcps", []) + [m.get("name")]
-        return 201, {"name": m.get("name")}
-    if path.startswith("/api/v1/skills") and method == "POST":
-        s = (body or {}).get("name")
-        fake_db["_skills"] = fake_db.get("_skills", []) + [s]
-        return 201, {"name": s}
-    if path.startswith("/api/v1/agents/") and method == "PUT":
-        a = path.split("/")[-1]
-        fake_db["_agents"] = fake_db.get("_agents", []) + [a]
-        return 200, {"name": a}
-    return 404, {}
+def make_db():
+    """An in-memory store of TrueForge resources keyed by name → (id, body)."""
+    db = {
+        "skills": {},   # name -> {id, pin, repo, path, ...}
+        "mcps": {},     # name -> {id, url, manifest, ...}
+        "agents": {},   # name -> {id, manifest, ...}
+        "next_id": 100,
+    }
+    return db
 
 
-fake_db = {}
-
-
-@pytest.fixture(autouse=True)
-def reset_fake():
-    global fake_db
-    fake_db = {}
-
-
-@pytest.fixture
-def patch_http(monkeypatch):
-    monkeypatch.setattr(hs, "_http", fake_http)
+def fake_http_factory(db, ok_endpoints=True):
+    def fake_http(method, path, body=None):
+        if ok_endpoints and "/mcp-servers" in path and method == "POST":
+            m = (body or {}).get("manifest", {})
+            db["mcps"][m.get("name")] = {"id": db["next_id"], **m}
+            db["next_id"] += 1
+            return 201, {"id": db["next_id"] - 1, "name": m.get("name")}
+        if ok_endpoints and "/mcp-servers" in path and method == "PUT":
+            mid = int(path.rsplit("/", 1)[-1])
+            for name, rec in db["mcps"].items():
+                if rec.get("id") == mid:
+                    rec.update((body or {}).get("manifest", {}))
+                    return 200, rec
+            return 404, {}
+        if path.endswith("/api/v1/skills") and method == "GET":
+            return 200, {"data": list(db["skills"].values())}
+        if path.endswith("/api/v1/mcp-servers") and method == "GET":
+            return 200, {"data": list(db["mcps"].values())}
+        if path.endswith("/api/v1/agents") and method == "GET":
+            return 200, {"data": list(db["agents"].values())}
+        if path.endswith("/api/v1/skills") and method == "POST":
+            s = body or {}
+            db["skills"][s.get("name")] = {"id": db["next_id"], **s}
+            db["next_id"] += 1
+            return 201, {"id": db["next_id"] - 1, "name": s.get("name")}
+        if "/api/v1/skills/" in path and method == "PUT":
+            sid = int(path.rsplit("/", 1)[-1])
+            for name, rec in db["skills"].items():
+                if rec.get("id") == sid:
+                    rec.update(body or {})
+                    return 200, rec
+            return 404, {}
+        if path.endswith("/api/v1/agents") and method == "POST":
+            n = (body or {}).get("name")
+            db["agents"][n] = {"id": db["next_id"], **(body or {}).get("manifest", {})}
+            db["next_id"] += 1
+            return 201, {"id": db["next_id"] - 1, "name": n}
+        if "/api/v1/agents/" in path and method == "PUT":
+            aid = int(path.rsplit("/", 1)[-1])
+            for name, rec in db["agents"].items():
+                if rec.get("id") == aid:
+                    rec.update((body or {}).get("manifest", {}))
+                    return 200, rec
+            return 404, {}
+        return 404, {}
+    return fake_http
 
 
 def test_current_head_sha():
@@ -70,10 +85,11 @@ def test_build_agent_manifest():
     assert {s["name"] for s in m["skills"]} == set(hs.SKILL_PATHS.keys())
     assert {s["type"] for s in m["skills"]} == {"git"}
     assert all(s["repo"] == hs.SKILL_REPO for s in m["skills"])
-    assert m["mcp_servers"] == ["local-sandbox", "cve-feed"]
+    # MCP attachments must be objects with name (not bare strings)
+    assert m["mcp_servers"] == [{"name": "local-sandbox"}, {"name": "cve-feed"}]
 
 
-def test_skill_paths_cover_7(monkeypatch):
+def test_skill_paths_cover_7():
     assert len(hs.SKILL_PATHS) == 7
     assert set(hs.SKILL_PATHS.keys()) == {
         "analyzer", "orchestrator", "reproducer", "judge",
@@ -86,36 +102,63 @@ def test_mcps_cover_local_sandbox_and_cve_feed():
     assert "cve-feed" in names
 
 
-def test_register_mcp_idempotent(patch_http):
-    ok = hs.register_mcp({"name": "local-sandbox", "url": "http://x/mcp", "description": "x"})
-    assert ok
-    ok2 = hs.register_mcp({"name": "local-sandbox", "url": "http://x/mcp", "description": "x"})
-    assert ok2
+def test_register_mcp_idempotent(monkeypatch):
+    db = make_db()
+    monkeypatch.setattr(hs, "_http", fake_http_factory(db))
+    assert hs.register_mcp(hs.MCPS[0])
+    assert hs.register_mcp(hs.MCPS[0])
 
 
-def test_register_skill_idempotent(patch_http):
-    ok = hs.register_skill("analyzer", "agent/skills/analyzer", "a" * 40)
-    assert ok
-    ok2 = hs.register_skill("analyzer", "agent/skills/analyzer", "b" * 40)
-    assert ok2
+def test_register_skill_idempotent(monkeypatch):
+    db = make_db()
+    monkeypatch.setattr(hs, "_http", fake_http_factory(db))
+    assert hs.register_skill("analyzer", "agent/skills/analyzer", "a" * 40)
+    assert hs.register_skill("analyzer", "agent/skills/analyzer", "a" * 40)
 
 
-def test_upsert_agent_creates(patch_http):
-    ok = hs.upsert_agent("patchproof-v2", {"mode": "SingleAgent"})
-    assert ok
-    assert "patchproof-v2" in fake_db.get("_agents", [])
+def test_upsert_agent_creates(monkeypatch):
+    db = make_db()
+    monkeypatch.setattr(hs, "_http", fake_http_factory(db))
+    assert hs.upsert_agent("patchproof-v2", {"mode": "SingleAgent"})
+    assert "patchproof-v2" in db["agents"]
 
 
-def test_main_skips_existing(patch_http, monkeypatch):
-    fake_db["_mcps"] = ["local-sandbox"]
-    fake_db["_skills"] = list(hs.SKILL_PATHS.keys())
-    fake_db["_agents"] = ["patchproof-v2"]
+def test_upsert_agent_updates_existing(monkeypatch):
+    db = make_db()
+    monkeypatch.setattr(hs, "_http", fake_http_factory(db))
+    assert hs.upsert_agent("patchproof-v2", {"mode": "SingleAgent"})
+    assert hs.upsert_agent("patchproof-v2", {"mode": "SingleAgent", "new": True})
+
+
+def test_main_skips_existing_no_failures(monkeypatch):
+    db = make_db()
+    monkeypatch.setattr(hs, "_http", fake_http_factory(db))
     monkeypatch.setattr(hs, "current_head_sha", lambda: "a" * 40)
+    # Pre-populate so the "already exists" path is exercised
+    db["mcps"] = {m["name"]: {"id": 1, **m} for m in hs.MCPS}
+    db["skills"] = {n: {"id": 1, "name": n, "pin": "a" * 40, "repo": hs.SKILL_REPO, "path": p}
+                    for n, p in hs.SKILL_PATHS.items()}
+    db["agents"] = {"patchproof-v2": {"id": 1, "name": "patchproof-v2"}}
+    monkeypatch.setattr(hs, "check_endpoints", lambda: True)
     code = hs.main()
     assert code == 0
 
 
-def test_main_fails_when_server_unreachable(monkeypatch):
-    monkeypatch.setattr(hs, "_http", lambda *a, **kw: (0, {}))
+def test_main_propagates_failure(monkeypatch):
+    """A failed registration must yield non-zero exit (Rule 7)."""
+    db = make_db()
+    monkeypatch.setattr(hs, "_http", fake_http_factory(db, ok_endpoints=False))
+    monkeypatch.setattr(hs, "current_head_sha", lambda: "a" * 40)
+    monkeypatch.setattr(hs, "check_endpoints", lambda: True)
     code = hs.main()
-    assert code == 2
+    assert code == 1
+
+
+def test_check_endpoints_fails_fast(monkeypatch):
+    monkeypatch.setattr(hs, "_external_health", lambda u: (False, "unreachable"))
+    assert hs.check_endpoints() is False
+
+
+def test_check_endpoints_passes(monkeypatch):
+    monkeypatch.setattr(hs, "_external_health", lambda u: (True, "HTTP 200"))
+    assert hs.check_endpoints() is True
