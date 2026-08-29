@@ -229,12 +229,17 @@ def build_agent_manifest(sha, model_name="openrouter/openrouter-free"):
     # sandbox.enabled: false — TrueForge's built-in provider is paid and
     # unconfigured (ADR-008), so we keep it off and route ALL execution
     # through the local-sandbox MCP (--network none, no host network).
-    # Exploit/build/write/read tools are gated by the local-sandbox MCP's
+    # Exploit/build/write/read/pull tools are gated by the local-sandbox MCP's
     # require_approval_for_tools policy; sandbox_stop is exempt so the
     # mandatory teardown (ADR-012) runs on every path.
+    welcome = _read_text("agent/prompts/welcome.md")
+    instructions = _read_text("agent/prompts/system.md")
+    if welcome:
+        instructions = instructions + "\n\n## Welcome message (show on first contact)\n\n" + welcome
     return {
         "model": {"name": model_name},
-        "instructions": _read_text("agent/prompts/system.md"),
+        "description": "PatchProof reproducer agent: proves CVE reachability via isolated Docker sandbox.",
+        "instructions": instructions,
         "mcp_servers": (MCP_ATTACHMENTS
                         + [{"name": n} for n in ATTACHED_NOT_REGISTERED]),
         "skills": [{"name": n} for n in SKILL_PATHS.keys()],

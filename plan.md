@@ -431,7 +431,7 @@ tokens with no progress. The orchestrator skill should bound this.
 - **Telemetry:** record turn count and tokens/turn in `run-status.json`
   so we can graph regressions.
 
-### 12.7 Show source code fix as a proper diff in the report (high priority)
+### 12.5 Show source code fix as a proper diff in the report (high priority)
 
 After the PoC confirms exploitation on an arbitrary repo, the orchestrator
 must produce a concrete source-code fix — not a summary, not a paraphrase.
@@ -470,19 +470,14 @@ in `student.py`), the fix lives in the source.
   filing a TrueForge bug if the UI strips it. The plan cannot fix TrueForge
   internals — this item is "agent must produce the right output" only.
 
-### 12.5 PoC prints evidence to stdout (low priority)
+### 12.6 PoC prints evidence to stdout (low priority)
 
-The mini-vuln-app run's final report said "HTTP 200; /tmp/pwned
-created" but the agent's text didn't include the actual PoC stdout
-(command output, file contents). Reviewers can't tell from the report
-whether the PoC really ran or whether the agent hallucinated.
+The PoC must `print()` its evidence (HTTP response code, marker file
+contents, `id`/`whoami` output) to stdout. The final report must
+include that stdout verbatim, not a paraphrase. Reviewers must be able
+to verify the PoC really ran.
 
-- **Reproducer skill** gains: "The PoC must `print()` its evidence
-  (HTTP response code, marker file contents, `id`/`whoami` output) to
-  stdout. The final report must include that stdout verbatim, not a
-  paraphrase."
-
-### 12.6 Agent sandbox boundary spec (highest priority — unlocks §12.2)
+### 12.7 Agent sandbox boundary spec (highest priority — unlocks §12.2)
 
 The agent currently has no written boundary. It knows it has tools but not
 what it must not use, where it can reach on the network, or what it may
@@ -550,7 +545,28 @@ and the harness setup.
   This completes §12.2 (manifest `config.sandbox` removal + system prompt)
   with full boundary content in one shot.
 
-### 12.7 Items intentionally not in this section
+### 12.8 Chat UI welcome message (medium priority)
+
+When a user opens the stock TrueForge UI and starts a chat with patchproof-v2/v3,
+they need immediate guidance on what to type and what to expect. Without it,
+the first message is a blank slate and the user may ask things the agent
+cannot do.
+
+- **In-UI message**: set `description` and/or `welcome_message` on the agent
+  manifest (same field used by `harness_setup.py` to set `instructions`).
+  Content: 5–8 lines in plain language explaining the template fields
+  (`target_repo`, `cve_id`, `mode`, `notes`), the no-secrets rule, the
+  expected output (verdict.json on host), and a link to `docs/demo.md`.
+  Source: `agent/prompts/welcome.md`. If TrueForge doesn't render a
+  `welcome_message` field, fall back to including the content as the first
+  assistant turn in `agent/prompts/system.md`.
+- **Slash command** (`/triage`): if the UI supports it, a quick-fill template
+  that pre-populates the form with target_repo + cve_id fields. Deferred
+  until TrueForge UI behaviour is confirmed.
+- **Verify**: open `http://[::1]:8790`, start a session with patchproof-v2,
+  confirm the welcome text renders above the input box.
+
+### 12.9 Items intentionally not in this section
 
 - The actual small-PR queue (image-required fix, `gen_build_context`
   tool, lean skills) lives on the local branch
