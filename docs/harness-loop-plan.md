@@ -1,6 +1,6 @@
-# Harness Loop Plan — Combined Initial Setup + Chat UI for PatchProof
+# Harness Loop Plan — Harness Setup + Custom UI (ADR-018)
 
-> **Sources:** [TrueForge Initial Setup](https://trueforge.dev/harness/initial-setup) (Models/MCP/Skills/Sandbox via Settings) + [Chat UI](https://trueforge.dev/chat-ui) (`@truefoundry/trueforge-ui` SDK). This is the **single loop plan** the agent follows — it merges the harness wiring (models/MCP/skills) and the Chat UI plan into one work loop. The built-in paid sandbox provider stays unconfigured (we use `local-sandbox` Docker MCP per ADR-008).
+> **Sources:** [TrueForge Initial Setup](https://trueforge.dev/harness/initial-setup) + [Chat UI](https://trueforge.dev/chat-ui) + [UI SDK](https://trueforge.dev/ui-sdk) via `@truefoundry/trueforge-ui` (ADR-018). This plan follows ADR-018: custom UI in `harness/frontend/` with `SingleAgent patchproof-v2` (`server={{type:"trueforge", baseUrl}}`, `agentConfig={{mode:"SingleAgent", name:"patchproof-v2"}}`; see `docs/custom-harness-build-plan.md` §2 and `docs/decisions.md` ADR-018). The built-in paid sandbox provider stays unconfigured (we use `local-sandbox` Docker MCP per ADR-008). The authoritative cut-order is in `plan.md` §9.
 
 ---
 
@@ -23,7 +23,7 @@ Do once in TrueForge **Settings** (no config file, `v0.1.4`):
 | **MCP local-sandbox** | Settings → Connectors → Add MCP Server | `remote` `local-sandbox` `http://127.0.0.1:8081/mcp` / No auth — start `python3 agent/mcp/local_sandbox_server.py &` first | Not in `mcp-catalog.yaml` |
 | **MCP cve-feed** | — | `agent/mcp/cve_feed_server.py` (Python stdio, `index.mjs` retired PR #26) — needs HTTP wrapper before registration; until then `data/inbox/*.json` (`demo:true` → `demo-bypass`, fail-closed ADR-010) | — |
 | **Skills (7)** | Settings → Skills → Add skill (git) | Repo `https://github.com/rahulsurwade08/patchproof`, paths `agent/skills/{analyzer,orchestrator,reproducer,judge,patcher,verifier,test-runner}`, pin SHA | Not in `skill-catalog.yaml` — [Setup Skills](https://trueforge.dev/skills) |
-| **Sandbox** | Settings → Sandbox providers | **Leave empty**, `sandbox.enabled:false` on agents, `file_downloads:true` for `verdict.json`. Built-in provider unused; isolation is `local-sandbox` MCP (ADR-016, disposable `--network none`, non-root, no `docker.sock`, never mount `.env/.git/data/output/`) | [Setup Sandbox](https://trueforge.dev/sandbox) — PatchProof uses sandbox-as-tool |
+| **Sandbox** | Settings → Sandbox providers | **Leave empty**, `sandbox.enabled:false` on agents, `file_downloads:true` for `verdict.json`. Built-in provider unused; isolation is `local-sandbox` MCP (ADR-008/016, disposable `--network none`, non-root, no `docker.sock`, never mount `.env/.git/data/output/`) | [Setup Sandbox](https://trueforge.dev/sandbox) — PatchProof uses sandbox-as-tool |
 
 **Start:**
 ```bash
@@ -38,17 +38,17 @@ curl http://[::1]:8790/api/v1/agents | jq .data[].name       # → patchproof-or
 
 ---
 
-## 2. Chat UI — embed the harness UI for PatchProof
+## 2. Chat UI — custom build on `@truefoundry/trueforge-ui` (ADR-018)
 
 **Why:** PatchProof’s approval gate (deploy to staging pauses for human, never skippable) and evidence (`reachability.json`/`verdict.json`/`assessment.json` as `sandbox_artifacts`) need TrueForge’s chat, streaming, tool-approval, and file-download primitives. The current `dashboard/app.py` (8 hermetic tests, read-only scan list) cannot stream `Turn` events or approve `sandbox_build` with `files` override.
 
-**What the SDK gives** ([Chat UI](https://trueforge.dev/chat-ui), live at `https://ui.trueforge.dev`): `AgentModes` (`fixed-agent`/`agent-library`/`composer`), `Chat` (streaming `Turn` `model.message`/`tool.call`/`sandbox_artifacts`, approvals, file attachments for `data/inbox/*.json`), `Themes` (`claude`/`chatgpt`/`gemini`/`truefoundry` + custom), `Layouts` (full-screen sidebar vs embedded drawer/widget).
+**What the SDK gives** ([Chat UI](https://trueforge.dev/chat-ui), [UI SDK](https://trueforge.dev/ui-sdk), live at `https://ui.trueforge.dev`): `TrueForgeUI` with `server={{type:"trueforge", baseUrl}}` and `agentConfig={{mode:"SingleAgent", name:"patchproof-v2"}}`, `Chat` (streaming `Turn` `model.message`/`tool.call`/`sandbox_artifacts`, approvals, file attachments for `data/inbox/*.json`), `Themes` (`truefoundry` + custom), `Layouts` (full-screen sidebar vs embedded drawer/widget).
 
-**Plan (modifies UI layer only, no server fork):**
+**Plan (modifies UI layer only, no server fork — see `docs/custom-harness-build-plan.md` §2):**
 
-1. **Embed SDK** `dashboard/ui/TrueForgeChat.tsx` (`≤2 files, ~80 lines`): `npm i @truefoundry/trueforge-ui react react-dom` in `dashboard/`, render `<TrueForgeUI serverUrl="http://[::1]:8790" agentMode="fixed-agent" agentName="patchproof-v2" layout="drawer" theme="truefoundry" />` docked next to `dashboard/app.py` scan table. Verify `npm run build` → `dashboard/static/ui.js` streams `sandbox_build` while harness at `[::1]:8790` + MCP at `127.0.0.1:8081` are up.
+1. **Embed SDK** `harness/frontend/src/App.tsx` (`≤2 files, ~80 lines`): `npm i @truefoundry/trueforge-ui react react-dom` in `harness/frontend/`, render `<TrueForgeUI server={{type:"trueforge", baseUrl:"http://[::1]:8790"}} agentConfig={{mode:"SingleAgent", name:"patchproof-v2"}} theme="truefoundry" />` as the single demo surface. Verify `npm run build` → `harness/frontend/dist` streams `sandbox_build` while harness at `[::1]:8790` + MCP at `127.0.0.1:8081` are up.
 
-2. **Theme + fixed-agent** `dashboard/ui/theme.ts`: `truefoundry` base with PatchProof red `exploitable:true` / green `NOT_REACHABLE` / amber `UNKNOWN`, hide composer (`agentMode="fixed-agent"`), only `patchproof-v2` selectable — enforces “one session per CVE” (ADR-004) and protects the approval gate.
+2. **Theme + SingleAgent** `harness/frontend/src/theme.ts`: `truefoundry` base with PatchProof red `exploitable:true` / green `NOT_REACHABLE` / amber `UNKNOWN`, `SingleAgent patchproof-v2` only — enforces “one session per CVE” (ADR-004) and protects the approval gate.
 
 3. **Generative UI artifacts** `agent/skills/orchestrator/SKILL.md` (≤5 lines): ensure `verdict.json`/`assessment.json` emitted as `sandbox_artifacts` so chat shows `tool.call: sandbox_read verdict.json` and `GET /api/v1/sessions/{id}/turns/{id}/download?path=verdict.json` works. Keep `ask_user_questions:true`, `require_approval_for_tools: ["@write","@destructive"]` on patcher/verifier, `generative_ui:true`.
 
