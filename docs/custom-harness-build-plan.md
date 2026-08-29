@@ -69,7 +69,7 @@ harness/
 **MCPs must work properly:**
 - `github` — header `Bearer <GITHUB_TOKEN>` (repo PAT, `auth_status:authenticated` via `GET /api/v1/mcp-servers`), used by orchestrator/patcher for repo matching + PRs.
 - `local-sandbox` — `remote` `http://127.0.0.1:8081/mcp`, no auth, `sandbox_build` (with network, `files` override for patched lockfile, `no_cache`) + `sandbox_exec/write/read/stop` (`--network none`, `label=patchproof-sbx=1`, `image` param required — lessons learned). Fix remaining `ensure_container` image-reuse bug (old container still runs) and add `sandbox_stop` EXIT trap.
-- `cve-feed` — transport done in PR #71: `agent/mcp/cve_feed_server.py` is Streamable HTTP at `127.0.0.1:8091/mcp` (port via `CVE_FEED_PORT`). Remote-URL registration with TrueForge is the next PR (cut-order step 3) and still pending; `data/inbox/*.json` with `demo:true` → `demo-bypass` remains the fail-closed ADR-010 path until registration. Tools: `cve_get_cve`/`osv_query_package`/`osv_get_vuln`/`cve_cross_check`.
+- `cve-feed` — **registered in PR #72** (`scripts/harness_setup.py` PUT upserts `cve-feed` at `http://127.0.0.1:8091/mcp`); `data/inbox/*.json` with `demo:true` → `demo-bypass` remains the fail-closed ADR-010 path for unit tests. Tools: `cve_get_cve`/`osv_query_package`/`osv_get_vuln`/`cve_cross_check` (all carry `readOnlyHint:true` per PR #73).
 
 **Skills must work properly:**
 - All 7 `SKILL.md` already pass `rg -i daytona` 0 and Qodo 0/0 up to PR #53. Register them in harness Settings → Skills (git repo URL + path `agent/skills/<name>`, pin a commit SHA for production stability) so `GET /api/v1/skills` lists them and `GET /api/v1/catalogs/skills` shows PatchProof skills. Harness materializes them under `/opt/tfy/skills/{name}` at runtime when the model picks the skill (progressive disclosure).
@@ -126,11 +126,11 @@ harness/
 |----|-------|--------------------|
 | 1 `harness/frontend` scaffold | `harness/frontend/package.json` + `src/App.tsx` (≤2 files) | `npm run build` → `harness/frontend/dist` loads `http://[::1]:8790` chat (`SingleAgent patchproof-v2`) |
 | 2 `cve-feed` HTTP wrapper | `agent/mcp/cve_feed_server.py` streamable wrapper (≤2 files) — done in PR #71 | `curl http://127.0.0.1:8091/mcp` tools/list; registration done in step 3 |
-| 3 attach skills + MCPs | `scripts/harness_setup.py` (register skills/MCPs/agent) + updated docs — done in PR #72 | `GET /api/v1/skills` lists 7; `GET /api/v1/mcp-servers` lists 2 (local-sandbox + cve-feed); github connector is the catalog entry added in the UI per step 3 of docs/trueforge-setup.md; agent manifest matches spec |
+| 3 attach skills + MCPs | `scripts/harness_setup.py` (register skills/MCPs/agent) + updated docs — done in PR #72 | `GET /api/v1/skills` lists 7; `GET /api/v1/mcp-servers` lists 3 (github + local-sandbox + cve-feed); agent manifest matches spec |
 | 4 `fix/sandbox-reuse` | `local_sandbox_server.py:ensure_container` image check + `sandbox_stop` trap | back-to-back `sandbox_exec` reuse container; no stale `patchproof-sbx` containers after stop |
 | 5 `feat/approval-gate` | manifest `require_approval_for_tools` per MCP server (API) — done in PR #73: `local-sandbox=[sandbox_build,exec,write,read]` (exploit/build/write/read gated; sandbox_stop exempt for mandatory teardown ADR-012); `cve-feed=["@write","@destructive"]` with `readOnlyHint: true` on all 4 tools; `github` uses default (PRs via github MCP, patcher stops before merge/staging) | harness turn pauses before any sandbox_build/exec/write/read call; PRs opened via github MCP; sandbox_stop teardown runs automatically |
 | 6+ test suite v2 | `harness/tests/` recreated per §4, ≤5 files per PR | `pytest harness/tests/unit -q` then integration then e2e, green |
 
 Each PR: `qodo-get-rules` before coding, `qodo-pr-resolver` on findings, reply + `/review` until `Bugs 0/Rules 0`, merge commit, delete branch. No host `docker`/`pytest` except `scripts/run_poc_local.sh` (CI fallback).
 
-Next: start with `harness/frontend` scaffold on `feat/harness-frontend` branch.
+**Cut-order status (2026-08-29):** Steps 1–5 complete. Step 6 (test suite v2) is in progress: unit tests for harness_setup.py (12 tests, PR #72), integration tests for agent manifest (7 tests, PR #74). End-to-end scenario tests via the TrueForge turn files API remain as the final step of test suite v2 (placeholder in `harness/tests/integration/test_scenarios.py`).

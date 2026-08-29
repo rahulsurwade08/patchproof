@@ -280,7 +280,7 @@ Per-node model-token budget (estimates):
 | OSV/CVE.org unavailable or no symbol data | Honest `UNKNOWN`, no sandbox time, no scenario fallback, no invented symbols |
 | Resource leak (docker images/containers) | Mandatory teardown stage: `sandbox_stop` + image prune after each run (hard rule) |
 | MCP migration regression (Node→Python) | Keep behavior identical; port the two entry tests (cve cross-check; build+exec) before integrating |
-| Time overrun | Cut order: analyzer (Python) + build-context gen → MCP migration → osv wiring polish → dashboard. Approval gate never cut — **all four cut-order items completed 2026-08-28** (analyzer + gen_context, Python MCP servers, OSV _select_dep polish, dashboard hermetic suite + gate). Current phase (ADR-018, 2026-08-29): harness frontend scaffold (+ tests) → cve-feed HTTP wrapper (+ tests) → skills/MCP attach (+ tests) → approval gate (+ tests) — test suite v2 recreated per component as PRs land (old suite triaged; see ADR-018) |
+| Time overrun | Cut order: analyzer (Python) + build-context gen → MCP migration → osv wiring polish → dashboard. Approval gate never cut — **cut-order items 1–5 complete 2026-08-28** (analyzer + gen_context, Python MCP servers, OSV _select_dep polish, dashboard hermetic suite + gate). **ADR-018 harness build complete 2026-08-29** (frontend scaffold PR #68, cve-feed HTTP PR #71, skills+MCP attach PR #72, approval gate PR #73, integration tests PR #74). **Remaining**: test suite v2 end-to-end (harness-driven scenario tests via turn files API) — placeholder in `harness/tests/integration/test_scenarios.py`; plan docs sync; e2e approval gate test. See `docs/custom-harness-build-plan.md` §5 for details.
 
 ## 10. Security posture
 
