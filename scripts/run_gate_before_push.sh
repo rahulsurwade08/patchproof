@@ -160,6 +160,7 @@ echo "  Image built: $IMAGE_TAG"
 # --- Step 2: Run pytest via sandbox_exec ---
 
 SESSION_TEST="gate-test-$SCENARIO-$$"
+trap 'mcp_call "sandbox_stop" "{\"session\":\"$SESSION_TEST\"}" >/dev/null 2>&1 || true' EXIT
 echo "Step 2/3: Running pytest via sandbox_exec..."
 PYTEST_RESULT=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_TEST\",\"command\":\"python -m pytest test_main.py -q\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}")
 PYTEST_EXIT=$(json_field "$PYTEST_RESULT" "exit_code" "1")
@@ -183,15 +184,16 @@ echo "  Pytest: PASS"
 # --- Step 3: Run PoC via sandbox_exec (separate from pytest, real execution) ---
 
 SESSION_POC="gate-poc-$SCENARIO-$$"
+trap 'mcp_call "sandbox_stop" "{\"session\":\"$SESSION_POC\"}" >/dev/null 2>&1 || true' EXIT
 echo "Step 3/3: Running PoC via sandbox_exec..."
 
 # Start service inside the container
-mcp_call "sandbox_exec" "{\"session\":\"$SESSION_POC\",\"command\":\"uvicorn main:app --host 127.0.0.1 --port 8000 & sleep 3\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}" >/dev/null 2>&1 || true
+mcp_call "sandbox_exec" "{\"session\":\"$SESSION_POC\",\"command\":\"nohup uvicorn main:app --host 127.0.0.1 --port 8000 >/srv/uvicorn.log 2>&1 </dev/null & sleep 3\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}" >/dev/null 2>&1 || true
 
 # Copy PoC script into container via sandbox_write
 if [ -f "$POC_PATH" ]; then
   POC_CONTENT=$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$POC_PATH")
-  mcp_call "sandbox_write" "{\"session\":\"$SESSION_POC\",\"path\":\"/srv/poc.py\",\"content\":$POC_CONTENT}" >/dev/null 2>&1 || true
+  mcp_call "sandbox_write" "{\"session\":\"$SESSION_POC\",\"image\":\"$IMAGE_TAG\",\"path\":\"/srv/poc.py\",\"content\":$POC_CONTENT}" >/dev/null 2>&1 || true
 else
   echo "FAIL: PoC script not found: $POC_PATH" >&2
   write_gate true 0 2 "exploitable=false" "PoC script missing"
@@ -201,7 +203,7 @@ fi
 # Poll for service health
 HEALTHY=0
 for _ in $(seq 1 20); do
-  HEALTH=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_POC\",\"command\":\"python3 -c \\\"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\\\"\",\"timeout_secs\":5}" 2>/dev/null) || true
+  HEALTH=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_POC\",\"command\":\"python3 -c \\\"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\\\"\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":5}" 2>/dev/null) || true
   HEALTH_EXIT=$(json_field "$HEALTH" "exit_code" "1")
   if [ "$HEALTH_EXIT" = "0" ]; then HEALTHY=1; break; fi
   sleep 1
@@ -215,7 +217,7 @@ fi
 echo "  Service healthy"
 
 # Run the PoC
-POC_EXEC=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_POC\",\"command\":\"timeout 60 python3 /srv/poc.py\",\"timeout_secs\":$TIMEOUT}")
+POC_EXEC=$(mcp_call "sandbox_exec" "{\"session\":\"$SESSION_POC\",\"command\":\"timeout 60 python3 /srv/poc.py\",\"image\":\"$IMAGE_TAG\",\"timeout_secs\":$TIMEOUT}")
 POC_EXIT=$(json_field "$POC_EXEC" "exit_code" "1")
 POC_STDOUT=$(json_field "$POC_EXEC" "stdout" "")
 POC_STDERR=$(json_field "$POC_EXEC" "stderr" "")
