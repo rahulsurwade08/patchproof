@@ -8,21 +8,26 @@ Tools:
   osv_get_vuln      -- full OSV record for one OSV/CVE id
   cve_cross_check   -- confirm a CVE in BOTH sources in one call
 
-Speaks newline-delimited JSON-RPC 2.0 on stdio (MCP stdio transport).
-No dependencies; Python >= 3.9 (stdlib urllib).
+Transport: MCP Streamable HTTP (POST JSON-RPC at /mcp, JSON responses).
+No dependencies; Python >= 3.9. Remote-URL registration with TrueForge is
+wired in cut-order step 3 (docs/custom-harness-build-plan.md).
 
 This is the Python port of agent/mcp/cve-feed-server/index.mjs (ADR-011):
-identical tool contracts, responses, and error semantics.
+identical tool contracts, responses, and error semantics, with HTTP transport.
 """
 
 import json
 import sys
 import urllib.parse
 import urllib.request
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CVE_API = "https://cveawg.mitre.org/api/cve"
 OSV_API = "https://api.osv.dev/v1"
 
+PORT = int(os.environ.get("CVE_FEED_PORT", "8091"))
+MAX_BODY_BYTES = 1024 * 1024
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "patchproof-cve-feed", "version": "0.1.0"}
 
@@ -250,7 +255,7 @@ def dispatch(method, params):
                 result = osv_get(args)
             else:
                 result = cross_check(args)
-        except Exception as exc:  # tool execution failure: flag as isError
+        except Exception as exc:
             return {
                 "content": [{"type": "text", "text": f"error: {exc}"}],
                 "isError": True,
@@ -262,33 +267,127 @@ def dispatch(method, params):
     raise error
 
 
-def _send(msg):
-    sys.stdout.write(json.dumps(msg) + "\n")
-    sys.stdout.flush()
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def _send(self, status, obj=None, close=False):
+        if obj is None:
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            if close:
+                self.close_connection = True
+                self.send_header("Connection", "close")
+            self.end_headers()
+            return
+        body = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        if close:
+            self.close_connection = True
+            self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if urllib.parse.urlparse(self.path).path == "/health":
+            return self._send(200, {"ok": True})
+        # Close the keep-alive connection: a bare 404 leaves no framing
+        # delimiter, so a persistent client can hang waiting for the
+        # response to end.
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.close_connection = True
+        self.end_headers()
+
+    def do_POST(self):
+        if not urllib.parse.urlparse(self.path).path.startswith("/mcp"):
+            # Close the keep-alive connection: a 405 with no body
+            # delimiter can leave the request body unread on the next
+            # request, desynchronizing the stream.
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.close_connection = True
+            self.end_headers()
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length < 0 or length > MAX_BODY_BYTES:
+                # Reject without reading the body and close the connection:
+                # leaving the bytes unread on a keep-alive socket would be
+                # parsed as the next request (protocol desync).
+                self.close_connection = True
+                return self._send(413, {"jsonrpc": "2.0", "id": None,
+                                        "error": {"code": -32700,
+                                                  "message": "request body exceeds 1 MiB"}},
+                                  close=True)
+            body = self.rfile.read(length)
+            msg = json.loads(body.decode())
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            # Close the connection on parse error: the next request on a
+            # keep-alive socket would otherwise consume trailing bytes.
+            self.close_connection = True
+            return self._send(400, {"jsonrpc": "2.0", "id": None,
+                                    "error": {"code": -32700,
+                                              "message": "parse error"}},
+                              close=True)
+        if not isinstance(msg, dict):
+            self.close_connection = True
+            return self._send(400, {"jsonrpc": "2.0", "id": None,
+                                    "error": {"code": -32700,
+                                              "message": "parse error"}},
+                              close=True)
+        req_id = msg.get("id")
+        method = msg.get("method")
+        params = msg.get("params") or {}
+        try:
+            if method == "initialize":
+                return self._send(200, {"jsonrpc": "2.0", "id": req_id, "result": {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": SERVER_INFO}})
+            if method == "notifications/initialized":
+                return self._send(202)
+            if method == "ping":
+                return self._send(200, {"jsonrpc": "2.0", "id": req_id, "result": {}})
+            if method == "tools/list":
+                return self._send(200, {"jsonrpc": "2.0", "id": req_id,
+                                        "result": {"tools": TOOLS}})
+            if method == "tools/call":
+                name = (params or {}).get("name")
+                args = (params or {}).get("arguments") or {}
+                if not any(t["name"] == name for t in TOOLS):
+                    return self._send(200, {"jsonrpc": "2.0", "id": req_id,
+                                            "error": {"code": -32602,
+                                                      "message": f"unknown tool: {name}"}})
+                try:
+                    result = dispatch(method, {"name": name, "arguments": args})
+                except Exception as tool_err:
+                    return self._send(200, {"jsonrpc": "2.0", "id": req_id, "result": {
+                        "content": [{"type": "text",
+                                     "text": f"error: {tool_err}"}],
+                        "isError": True}})
+                return self._send(200, {"jsonrpc": "2.0", "id": req_id, "result": result})
+            return self._send(200, {"jsonrpc": "2.0", "id": req_id,
+                                    "error": {"code": -32601,
+                                              "message": f"method not supported: {method}"}})
+        except Exception as err:
+            return self._send(200, {"jsonrpc": "2.0", "id": req_id,
+                                    "error": {"code": -32603,
+                                              "message": str(err)}})
+
+    def log_message(self, fmt, *args):
+        pass
 
 
 def main():
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(msg, dict) or "id" not in msg:
-            continue  # notifications and non-object payloads: ignore
-        # NOTE: an explicit JSON-RPC "id": null is a real request — the
-        # retired Node server replied to it with id: null; keep that fidelity.
-        try:
-            result = dispatch(msg.get("method"), msg.get("params") or {})
-            _send({"jsonrpc": "2.0", "id": msg["id"], "result": result})
-        except Exception as exc:
-            _send({
-                "jsonrpc": "2.0",
-                "id": msg["id"],
-                "error": {"code": getattr(exc, "mcp_code", -32603),
-                          "message": str(exc)},
-            })
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    print(f"cve-feed MCP listening on http://127.0.0.1:{PORT}/mcp "
+          f"(request-id: {os.getpid()})", file=sys.stderr)
+    server.serve_forever()
 
 
 if __name__ == "__main__":

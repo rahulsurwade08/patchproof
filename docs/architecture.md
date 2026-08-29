@@ -59,7 +59,7 @@
 | Judge | `agent/prompts/judge.md` | LLM-as-a-judge: reviews verdict evidence quality/consistency, writes `assessment.json`, never flips outcomes |
 | Patcher | `agent/prompts/patcher.md` | Dependency bump + test suite in sandbox + evidence PR |
 | Verifier | `agent/prompts/verifier.md` | Post-approval re-verification against staging |
-| cve-feed | `agent/mcp/cve_feed_server.py` (Python stdio; Node `index.mjs` retired in PR #26) | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — needs an HTTP wrapper before TrueForge registration; until then advisories arrive via `data/inbox/` |
+| cve-feed | `agent/mcp/cve_feed_server.py` (Python stdlib, Streamable HTTP at `127.0.0.1:8091/mcp`) | Dual-source legitimacy: CVE.org canonical records + OSV.dev package matching (`cve_get_cve`, `osv_query_package`, `osv_get_vuln`, `cve_cross_check`) — transport done in PR #71, remote-URL registration with TrueForge is the next cut-order step (3); until then advisories arrive via `data/inbox/` |
 | github-mcp | GitHub connector from the TrueForge catalog (`docs/trueforge-setup.md`) | Repos, PRs, evidence comments |
 | local-sandbox | `agent/mcp/local_sandbox_server.py` (Python; **migrated from** `index.mjs` in PR #28, Streamable HTTP, `127.0.0.1:8081/mcp`) | Keyless execution sandbox: `sandbox_build` + `sandbox_exec/write/read/stop` (offline) |
 | Test-runner | `agent/prompts/test-runner.md` + `scripts/run_gate_before_push.sh` + `scripts/install-hooks.sh` | Subagent gate: `sandbox_build` image + `sandbox_exec` pytest + PoC → `test_gate.json`; tracked pre-push hook installer |
@@ -67,7 +67,7 @@
 | Staging target | `infra/docker-compose.yml` | Local deploy destination behind the approval gate |
 | Output dir | `data/output/<repo>/` | Per-run auditable artifacts: `reachability.json`, `verdict.json`, `assessment.json` |
 | Harness frontend | `harness/frontend/` (React + Vite on `@truefoundry/trueforge-ui`) | Custom chat UI against the stock TrueForge server (`http://[::1]:8790`), `SingleAgent patchproof-v2`; renders `sandbox_artifacts` (reachability/verdict/assessment) and the approval checkpoint (ADR-018) |
-| Test suite v2 | `harness/tests/` (planned, recreated per component as PRs land) | Unit (cve-feed wrapper, sandbox regressions), integration (skills/MCP registration, frontend build, agent manifest), e2e (session turn → verdict, approval pause) — see `docs/custom-harness-build-plan.md` §4 |
+| Test suite v2 | `harness/tests/` (planned, recreated per component as PRs land) | Unit (cve-feed HTTP transport, sandbox regressions), integration (skills/MCP registration, frontend build, agent manifest), e2e (session turn → verdict, approval pause) — see `docs/custom-harness-build-plan.md` §4 |
 
 ## State model (memory stays out of context)
 

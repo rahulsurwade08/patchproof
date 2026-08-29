@@ -66,8 +66,10 @@ Attach the `local-sandbox` server to **every agent that executes code**
 MCP servers in TrueForge are remote-URL only (header auth / OAuth); local stdio
 servers are not supported. Our dual-source feed server
 (`agent/mcp/cve_feed_server.py` — Python port; the Node `index.mjs` was
-retired in PR #26) speaks stdio and therefore needs an HTTP (streamable)
-transport wrapper before it can be registered in TrueForge.
+retired in PR #26) speaks Streamable HTTP at `http://127.0.0.1:8091/mcp`
+(PR #71) and can be registered as a remote URL MCP in TrueForge Settings.
+Remote-URL registration is wired in cut-order step 3 (see `docs/custom-harness-build-plan.md`).
+Until registered, `data/inbox/*.json` with `demo:true` is the fail-closed fallback.
 
 Tools it exposes:
 
