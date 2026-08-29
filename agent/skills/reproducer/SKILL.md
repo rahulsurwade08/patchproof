@@ -62,4 +62,9 @@ run exploit code on the host.
   environment, not the payload. Payload changes require cve-meta justification.
 - Max 3 attempts total, then return FAILED with the blocking reason.
 - Raw output goes to sandbox files; you quote only the decisive lines.
+- **PoC contract**: the PoC must `print()` its evidence to stdout before
+  writing `verdict.json`. Include: HTTP response code, marker file contents
+  (e.g. `cat /tmp/pwned`), and the `id`/`whoami` output if a shell is gained.
+  The final report must include that stdout verbatim — the reviewer must be
+  able to verify the PoC really ran.
 - **NEVER fall back to local execution** — if sandbox tools fail, report the failure to the orchestrator. Do not run Docker commands, pip install, or Python scripts directly on the host. The harness is the product.

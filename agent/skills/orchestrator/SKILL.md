@@ -53,6 +53,10 @@ turn's context.
 - **ALL execution through the harness (MCP).** Never run docker, pip, or
   Python on the host. The product's value is sandbox isolation.
 - **Max 3 reproduction attempts per CVE**, then FAILED + stop.
+- **Max 3 turns per session** for the reproducer/orchestrator. If the
+  session has not produced a verdict by turn 3, write a fallback
+  `verdict.json` with `{exploitable: false, evidence: "agent timeout —
+  manual review needed"}` via `sandbox_pull` and stop. Do not loop.
 - One session per CVE. State in `state.json`, not memory.
 - `image` is REQUIRED on every `sandbox_exec` / `sandbox_write` call. The MCP
   server now rejects calls without it (silent container recreation was the

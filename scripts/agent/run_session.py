@@ -90,6 +90,7 @@ def poll_turn(turn_id, timeout=600):
         status = state.get("status", "")
         tokens = state.get("metrics", {}).get("total_tokens", "")
         print("  status=" + status + " tokens=" + str(tokens), flush=True)
+        write_telemetry(turn_id, status, tokens)
         if status in ("done", "error", "cancelled"):
             actions = state.get("required_actions", [])
             if actions and status == "done":
@@ -123,6 +124,17 @@ def poll_turn(turn_id, timeout=600):
                             print("---MODEL---", flush=True)
                             print(c, flush=True)
             return
+
+
+def write_telemetry(turn_id, status, tokens):
+    """Append per-turn telemetry to data/output/.patchproof/runs/<sid>.jsonl.
+    Lets us graph token usage regressions and turn counts across runs."""
+    out_dir = os.path.join(REPO_ROOT, "data", "output", ".patchproof", "runs")
+    os.makedirs(out_dir, exist_ok=True)
+    line = json.dumps({"sid": SID, "turn": turn_id, "status": status,
+                       "tokens": tokens, "ts": time.time()})
+    with open(os.path.join(out_dir, SID + ".jsonl"), "a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
 
 
 def load_fields_from_file(path):
