@@ -23,7 +23,7 @@ Do once in TrueForge **Settings** (no config file, `v0.1.4`):
 | **MCP local-sandbox** | Settings → Connectors → Add MCP Server | `remote` `local-sandbox` `http://127.0.0.1:8081/mcp` / No auth — start `python3 agent/mcp/local_sandbox_server.py &` first | Not in `mcp-catalog.yaml` |
 | **MCP cve-feed** | — | `agent/mcp/cve_feed_server.py` (Python stdio, `index.mjs` retired PR #26) — needs HTTP wrapper before registration; until then `data/inbox/*.json` (`demo:true` → `demo-bypass`, fail-closed ADR-010) | — |
 | **Skills (7)** | Settings → Skills → Add skill (git) | Repo `https://github.com/rahulsurwade08/patchproof`, paths `agent/skills/{analyzer,orchestrator,reproducer,judge,patcher,verifier,test-runner}`, pin SHA | Not in `skill-catalog.yaml` — [Setup Skills](https://trueforge.dev/skills) |
-| **Sandbox** | Settings → Sandbox providers | `sandbox.enabled:true` on agents to attach skills and back `sandbox_artifacts` downloads per official docs (ADR-018); built-in provider unused for execution — isolation is `local-sandbox` MCP (ADR-008/016, disposable `--network none`, non-root, no `docker.sock`, never mount `.env/.git/data/output/`), `file_downloads:true` for `verdict.json` | [Setup Sandbox](https://trueforge.dev/sandbox) — PatchProof uses sandbox-as-tool |
+| **Sandbox** | Settings → Sandbox providers | **Leave empty**, `sandbox.enabled:false` on agents, `file_downloads:true` for `verdict.json`. Built-in provider unused; isolation is `local-sandbox` MCP (ADR-008/016, disposable `--network none`, non-root, no `docker.sock`, never mount `.env/.git/data/output/`) | [Setup Sandbox](https://trueforge.dev/sandbox) — PatchProof uses sandbox-as-tool |
 
 **Start:**
 ```bash
