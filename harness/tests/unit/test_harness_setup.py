@@ -79,14 +79,17 @@ def test_build_agent_manifest():
     m = hs.build_agent_manifest(sha)
     assert m["mode"] == "SingleAgent"
     assert m["name"] == "patchproof-v2"
-    assert m["sandbox"]["enabled"] is False
+    # TrueForge requires config.sandbox.enabled: true to materialize attached
+    # skills and provide file_downloads. Exploit execution stays on the
+    # local-sandbox MCP regardless (ADR-008/016).
+    assert m["sandbox"]["enabled"] is True
     assert m["file_downloads"] is True
     assert len(m["skills"]) == 7
     assert {s["name"] for s in m["skills"]} == set(hs.SKILL_PATHS.keys())
     assert {s["type"] for s in m["skills"]} == {"git"}
     assert all(s["repo"] == hs.SKILL_REPO for s in m["skills"])
-    # MCP attachments must be objects with name (not bare strings)
-    assert m["mcp_servers"] == [{"name": "local-sandbox"}, {"name": "cve-feed"}]
+    # MCP attachments: 2 API-registered + 1 catalog (github)
+    assert m["mcp_servers"] == [{"name": "local-sandbox"}, {"name": "cve-feed"}, {"name": "github"}]
 
 
 def test_skill_paths_cover_7():

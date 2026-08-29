@@ -42,6 +42,9 @@ MCPS = [
      "description": "Dual-source CVE legitimacy (CVE.org + OSV.dev)",
      "url": os.environ.get("CVE_FEED_URL", "http://127.0.0.1:8091/mcp")},
 ]
+# Connectors the agent attaches but that are NOT created by this script
+# (configured separately via catalog UI / OAuth, see docs/trueforge-setup.md).
+ATTACHED_NOT_REGISTERED = ["github"]
 
 
 def _http(method, path, body=None):
@@ -201,14 +204,20 @@ def upsert_agent(name, manifest):
 
 
 def build_agent_manifest(sha):
+    # sandbox.enabled: true activates TrueForge's built-in sandbox provider
+    # for skill materialization and file_downloads (artifacts). Exploit
+    # execution stays on the local-sandbox MCP (--network none), so the
+    # built-in provider is only used to materialize skills and download
+    # `verdict.json` / `reachability.json` / `assessment.json` artifacts.
     return {
         "mode": "SingleAgent",
         "name": "patchproof-v2",
-        "sandbox": {"enabled": False},
+        "sandbox": {"enabled": True, "file_downloads": True},
         "file_downloads": True,
         "skills": [{"type": "git", "name": n, "repo": SKILL_REPO,
                     "path": p, "pin": sha} for n, p in SKILL_PATHS.items()],
-        "mcp_servers": [{"name": m["name"]} for m in MCPS],
+        "mcp_servers": [{"name": m["name"]} for m in MCPS]
+                        + [{"name": n} for n in ATTACHED_NOT_REGISTERED],
     }
 
 

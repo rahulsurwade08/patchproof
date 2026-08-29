@@ -54,8 +54,10 @@ time, since containers run offline), `sandbox_exec`, `sandbox_write`,
 `sandbox_read`, `sandbox_stop`. Containers are disposable Docker containers
 with `--network none`, one per session label so the service and PoC share
 `/tmp` and localhost. Requires only Docker. Leave Settings → Sandbox providers
-unconfigured and keep `sandbox.enabled: false` on agents. Evaluated
-alternatives are recorded in ADR-008 (`docs/decisions.md`).
+unconfigured; agents set `sandbox.enabled: true` so TrueForge's built-in
+materializes skill repos and backs `sandbox_artifacts` file downloads, but
+exploit/PoC execution routes only through the `local-sandbox` MCP (--network
+none). Evaluated alternatives are recorded in ADR-008 (`docs/decisions.md`).
 
 Attach the `local-sandbox` server to **every agent that executes code**
 (reproducer, patcher, verifier) and give each investigation one session label
@@ -110,7 +112,7 @@ Settings → Skills → Add skill (git):
 
 Pin each to the current git HEAD. Run `python3 scripts/harness_setup.py` to
 register all skills + 2 MCPs (local-sandbox, cve-feed) + the `patchproof-v2`
-agent manifest idempotently (`sandbox.enabled: false`, skills + MCPs attached).
+agent manifest idempotently (`sandbox.enabled: true`, skills + MCPs attached).
 The `github` connector is added separately via the catalog UI per step 3.
 
 ## 7. Agent manifest — patchproof-v2
