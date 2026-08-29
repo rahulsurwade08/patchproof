@@ -581,5 +581,5 @@ cannot do.
 - `docs/architecture.md` — diagrams + capability map
 - `docs/trueforge-setup.md` — verified harness setup (Settings-based config)
 - `docs/demo.md` — end-to-end walkthrough of a demo run
-- `docs/decisions.md` — ADR log (ADR-009 pivot, ADR-010 fallback/no-hardcode, ADR-011 Python migration, ADR-012 teardown, ADR-014 run graph, ADR-015 memory/token, ADR-016 security, ADR-018 custom harness UI + test suite v2 (frontend parked 2026-08-29, stock TrueForge UI current))
+- `docs/decisions.md` — ADR log (ADR-009 pivot, ADR-010 fallback/no-hardcode, ADR-011 Python migration, ADR-012 teardown, ADR-014 run graph, ADR-015 memory/token, ADR-016 security, ADR-018 custom harness UI + test suite v2 (frontend parked 2026-08-29, stock TrueForge UI current; `config.sandbox.enabled=false` 2026-08-30), ADR-019 sandbox_pull + Mode B source-fix patcher)
 - `docs/custom-harness-build-plan.md` — frontend/backend attach plan + test suite v2 layout
