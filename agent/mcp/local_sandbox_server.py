@@ -297,6 +297,21 @@ TOOLS = [
         },
     },
     {
+        "name": "sandbox_pull",
+        "description": (
+            "Copy a file from a session container to a host path. "
+            "Use to land verdict.json in data/output/<repo>/."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session": {"type": "string"},
+                "path": {"type": "string", "description": "absolute path inside the container"},
+                "host_path": {"type": "string", "description": "absolute host path; created if missing"},
+            },
+            "required": ["session", "path", "host_path"],
+        },
+    },
+    {
         "name": "sandbox_stop",
         "description": "Destroy a session container. Call when finished.",
         "inputSchema": {
@@ -434,6 +449,31 @@ def tool_call(name, args=None):
                       "sh", "-c", 'cat "$1" 2>&1', "sh", path])
         exists = res["code"] == 0 and not res["stdout"].startswith("cat: ")
         return {"path": path, "exists": exists, "content": redact(res["stdout"])}
+    if name == "sandbox_pull":
+        # Copy a file from a running session container to a host path.
+        # Used to land verdict.json (and any other artifact) under
+        # data/output/<repo>/ where it survives sandbox_stop.
+        cname = container_name(args.get("session"))
+        src = str(args["path"])
+        host_path = str(args["host_path"])
+        if not os.path.isabs(host_path):
+            raise RuntimeError(
+                f"sandbox_pull: host_path must be absolute: {host_path!r}")
+        host_path = os.path.realpath(host_path)
+        os.makedirs(os.path.dirname(host_path) or ".", exist_ok=True)
+        # `docker cp` is the supported path; it streams and doesn't load the
+        # full file into the MCP server's memory.
+        res = docker(["cp", f"{cname}:{src}", host_path])
+        if res["code"] != 0:
+            err = (res["stderr"] or res["stdout"] or "").strip()
+            raise RuntimeError(
+                f"sandbox_pull: docker cp failed for {src!r} -> "
+                f"{host_path!r}: {err or 'unknown error'}")
+        try:
+            size = os.path.getsize(host_path)
+        except OSError:
+            size = 0
+        return {"path": src, "host_path": host_path, "bytes": size, "container": cname}
     if name == "sandbox_stop":
         cname = container_name(args.get("session"))
         docker(["rm", "-f", cname])

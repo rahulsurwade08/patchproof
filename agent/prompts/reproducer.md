@@ -33,8 +33,11 @@ run exploit code on the host.
       query-string injection — raw `'` in URLs raises `URL can't contain
       control characters` in the container's urllib), run it via
       `sandbox_exec` (`TARGET_URL=http://127.0.0.1:8000`).
-   e. `sandbox_read` `verdict.json`; leave the container running for the judge
-      and patcher (do NOT `sandbox_stop`).
+    e. `sandbox_read` `verdict.json`; leave the container running for the judge
+       and patcher (do NOT `sandbox_stop`).
+    f. `sandbox_pull` `verdict.json` from `/srv/verdict.json` to
+       `data/output/<repo>/verdict.json` (or `scenarios/<id>/verdict.json` for
+       fixtures) so the canonical verdict survives `sandbox_stop`.
 3. Parameterize the scenario's PoC script (or `scenarios/_template/poc.py`
    skeleton): set `TARGET_URL`, adjust payload constants ONLY if cve-meta says so.
 4. Run the PoC. It writes `verdict.json` and exits 0 (exploitable) / 1 (not).

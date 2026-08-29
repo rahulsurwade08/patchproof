@@ -48,12 +48,13 @@ investigation. You coordinate; subagents execute.
      `cd /srv && uvicorn main:app --host 127.0.0.1 --port 8000 & SPID=$!; sleep 3; python /srv/poc.py; RET=$?; kill $SPID; exit $RET`
    - `timeout_secs`: 60
 6. **Read verdict** — call `sandbox_read` with session + path `/srv/verdict.json`.
-   The response contains the verdict content. **Save it immediately** to the
-   canonical host path `scenarios/<id>/verdict.json` so the judge and patcher
-   can read it after cleanup.
+   The response contains the verdict content. **Save it to the host immediately**
+   via `sandbox_pull({session, path: "/srv/verdict.json", host_path:
+   "data/output/<repo>/verdict.json"})` so the canonical copy survives
+   `sandbox_stop` and the next run finds it. Do NOT skip this step.
 6a. **Read assessment** — call `sandbox_read` with session + path
-    `/srv/assessment.json` (if the PoC wrote one). Save to
-    `scenarios/<id>/assessment.json` on the host.
+    `/srv/assessment.json` (if the PoC wrote one). Pull to
+    `data/output/<repo>/assessment.json` via `sandbox_pull`.
 7. **Report** — summarize the verdict: CVE, exploitable true/false, evidence.
 8. **Cleanup** — call `sandbox_stop` with the session label. The canonical
    verdict/assessment files on the host are now the only persisted copies.

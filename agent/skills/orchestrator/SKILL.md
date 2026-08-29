@@ -43,8 +43,9 @@ turn's context.
    they outlive the exec. `curl` is NOT in python:3.11-slim — use
    `python3 -c "import urllib.request; ..."` for health checks.
 7. **Verdict** — `sandbox_read({session, path: "/srv/verdict.json"})` then
-   **save to host `scenarios/<id>/verdict.json`** (and `/assessment.json` if
-   present). These are the canonical copies after `sandbox_stop`.
+   `sandbox_pull({session, path: "/srv/verdict.json", host_path:
+   "data/output/<repo>/verdict.json"})`. Same for `/assessment.json`. The
+   canonical copies live on the host.
 8. **Cleanup** — `sandbox_stop({session: <id>})`.
 
 ## Hard rules
