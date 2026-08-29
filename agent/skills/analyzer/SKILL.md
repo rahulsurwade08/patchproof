@@ -29,9 +29,25 @@ the result, and gate on it honestly.
 
 **Execution boundary:** this script never runs exploit code, never touches the
 network, and writes only to `data/output/`, so host execution is safe and is
-the prescribed path. Sandbox containers are offline and cannot see the host's
-target repo, so `sandbox_exec` CANNOT run this script against a host path —
-the sandbox belongs to the reproducer, not the analyzer.
+the prescribed path.
+
+**How to run it in the harness:** if the orchestrator can invoke the host
+directly (e.g. a tool that runs commands on the host), do that. Otherwise,
+use the `local-sandbox` MCP with this exact sequence:
+
+1. `sandbox_build` — build the target repo's image:
+   `{context_path: "<absolute-host-path-to-repo>", tag: "<unique-tag>", dockerfile: "<dockerfile-name>"}`
+2. `sandbox_write` — write the advisory JSON and (if needed) the reach.py script:
+   `{session: "<SAME-SESSION-LABEL>", path: "/srv/cve-meta.json", content: "<advisory-json>"}`
+   `{session: "<SAME-SESSION-LABEL>", path: "/srv/reach.py", content: "<script-content>"}`
+3. `sandbox_exec` — run the analyzer:
+   `{session: "<SAME-SESSION-LABEL>", image: "<THE-BUILT-TAG>", command: "python3 /srv/reach.py /srv <cve-id> --out /srv/out"}`
+4. `sandbox_read` — fetch the result:
+   `{session: "<SAME-SESSION-LABEL>", path: "/srv/out/reachability.json"}`
+
+NEVER call `sandbox_exec` on an empty container — always `sandbox_build` first,
+then `sandbox_write` to inject files, then `sandbox_exec` to run. The
+container starts empty and persists across calls with the same session label.
 
 ## Advisory derivation (cve-feed MCP first)
 
