@@ -9,7 +9,7 @@
 Current harness is stock `npx @truefoundry/trueforge --port 8790` with Settings-wired `openrouter` + `github` + `local-sandbox` + 7 PatchProof skills (`analyzer`/`orchestrator`/`reproducer`/`judge`/`patcher`/`verifier`/`test-runner`). It works, but:
 
 - **Frontend** is split: TrueForge UI at `http://[::1]:8790` vs PatchProof `dashboard/app.py` (8 tests, read-only). Demo needs one surface that shows **scanning, reachability, exploit, patch, approval gate** in a single chat transcript with `sandbox_artifacts`.
-- **Backend** is borrowed: TrueForge's built-in bwrap sandbox is disabled (`Can't mount on symlink /bin`), we rely on our Docker MCP `agent/mcp/local_sandbox_server.py` at `127.0.0.1:8081/mcp`. No custom server logic for PatchProof-specific concerns (OSV caching, `data/inbox` → `cve-feed` wrapper, `data/output` artifact store).
+- **Backend** is borrowed: TrueForge's built-in bwrap sandbox is disabled (`Can't mount on symlink /bin`), we rely on our Docker MCP `agent/mcp/local_sandbox_server.py` at `127.0.0.1:8081/mcp`. No custom server logic for PatchProof-specific concerns (OSV caching, `data/inbox` advisory drop, `data/output` artifact store).
 - **Tests are scattered**: `agent/analyzer/tests` (3, 100 tests), `agent/mcp/tests` (2, 28 tests), `dashboard/test_dashboard.py` (8), `scenarios/*/app/test_main.py` (7), `demo-app/tests` (2) — 15 files, no single `pytest` entry point, no harness-driven CI.
 
 Custom build keeps TrueForge core (agent loop, MCP, skills, sandbox-as-tool) but owns the UI and the server glue so PatchProof skills/MCPs work properly under the harness.
@@ -58,7 +58,7 @@ harness/
   backend/
     mcp/
       local_sandbox_server.py   # already Python stdlib, 127.0.0.1:8081/mcp — keep, add image-prune on sandbox_stop
-      cve_feed_server.py        # add HTTP wrapper (streamable) so it can be registered as remote MCP (currently stdio, needs wrapper per docs/trueforge-setup.md:70)
+      cve_feed_server.py        # done: Streamable HTTP at 127.0.0.1:8091/mcp (PR #71)
     skills/
       # 7 existing skills stay in agent/skills/ but are also registered in harness Settings → Skills as git skills
       # No code change, just Settings → Skills Add git repo https://github.com/rahulsurwade08/patchproof path agent/skills/<name> pin SHA
@@ -69,7 +69,7 @@ harness/
 **MCPs must work properly:**
 - `github` — header `Bearer <GITHUB_TOKEN>` (repo PAT, `auth_status:authenticated` via `GET /api/v1/mcp-servers`), used by orchestrator/patcher for repo matching + PRs.
 - `local-sandbox` — `remote` `http://127.0.0.1:8081/mcp`, no auth, `sandbox_build` (with network, `files` override for patched lockfile, `no_cache`) + `sandbox_exec/write/read/stop` (`--network none`, `label=patchproof-sbx=1`, `image` param required — lessons learned). Fix remaining `ensure_container` image-reuse bug (old container still runs) and add `sandbox_stop` EXIT trap.
-- `cve-feed` — currently stdio, needs `agent/mcp/cve_feed_server.py` HTTP wrapper (streamable) to register as `remote` (TrueForge is remote-URL only). Until then `data/inbox/*.json` with `demo:true` → `demo-bypass`, fail-closed ADR-010. Provide `cve_get_cve`/`osv_query_package`/`osv_get_vuln`/`cve_cross_check`.
+- `cve-feed` — done: `agent/mcp/cve_feed_server.py` is Streamable HTTP at `127.0.0.1:8091/mcp` (port via `CVE_FEED_PORT`), registered as `remote` MCP. `data/inbox/*.json` with `demo:true` → `demo-bypass` remains as fail-closed ADR-010 path. Tools: `cve_get_cve`/`osv_query_package`/`osv_get_vuln`/`cve_cross_check`.
 
 **Skills must work properly:**
 - All 7 `SKILL.md` already pass `rg -i daytona` 0 and Qodo 0/0 up to PR #53. Register them in harness Settings → Skills (git repo URL + path `agent/skills/<name>`, pin a commit SHA for production stability) so `GET /api/v1/skills` lists them and `GET /api/v1/catalogs/skills` shows PatchProof skills. Harness materializes them under `/opt/tfy/skills/{name}` at runtime when the model picks the skill (progressive disclosure).
@@ -95,7 +95,7 @@ harness/
   tests/
     conftest.py                 # fixtures: harness API at [::1]:8790, local-sandbox at 127.0.0.1:8081, temp data/output
     unit/
-      test_cve_feed_http.py     # new: streamable HTTP wrapper (cve_get_cve / osv_* / cve_cross_check)
+      test_cve_feed_http.py     # done: cve_get_cve / osv_* / cve_cross_check (harness/tests/unit/test_cve_feed.py)
       test_local_sandbox.py     # recreated: exec/write/read/stop + ensure_container image-reuse regression
       test_bridge.py            # new (if bridge lands): data/output → sandbox_artifacts mirroring
     integration/
@@ -125,7 +125,7 @@ harness/
 | PR | Touch | Verify via harness |
 |----|-------|--------------------|
 | 1 `harness/frontend` scaffold | `harness/frontend/package.json` + `src/App.tsx` (≤2 files) | `npm run build` → `harness/frontend/dist` loads `http://[::1]:8790` chat (`SingleAgent patchproof-v2`) |
-| 2 `cve-feed` HTTP wrapper | `agent/mcp/cve_feed_server.py` streamable wrapper (≤2 files) | `curl http://127.0.0.1:<port>/mcp` tools/list; register remote → `GET /api/v1/mcp-servers` shows `cve-feed` |
+| 2 `cve-feed` HTTP wrapper | `agent/mcp/cve_feed_server.py` streamable wrapper (≤2 files) — done in PR #71 | `curl http://127.0.0.1:8091/mcp` tools/list; register remote → `GET /api/v1/mcp-servers` shows `cve-feed` |
 | 3 attach skills + MCPs | Settings/API wiring: 7 skills (git, pinned SHA) + `github`/`local-sandbox`/`cve-feed` + `patchproof-v2` manifest update | `GET /api/v1/skills` lists 7; `GET /api/v1/mcp-servers` lists 3; agent manifest matches spec |
 | 4 `fix/sandbox-reuse` | `local_sandbox_server.py:ensure_container` image check + `sandbox_stop` trap | back-to-back `sandbox_exec` reuse container; no stale `patchproof-sbx` containers after stop |
 | 5 `feat/approval-gate` | manifest `require_approval_for_tools` per MCP server (API) | harness turn shows approval pause before PR/staging |

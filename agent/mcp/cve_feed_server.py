@@ -269,11 +269,22 @@ def dispatch(method, params):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def _send(self, status, obj):
+    def _send(self, status, obj=None, close=False):
+        if obj is None:
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            if close:
+                self.close_connection = True
+                self.send_header("Connection", "close")
+            self.end_headers()
+            return
         body = json.dumps(obj).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if close:
+            self.close_connection = True
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -281,41 +292,54 @@ class Handler(BaseHTTPRequestHandler):
         if urllib.parse.urlparse(self.path).path == "/health":
             return self._send(200, {"ok": True})
         self.send_response(404)
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_POST(self):
         if not urllib.parse.urlparse(self.path).path.startswith("/mcp"):
             self.send_response(405)
             self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
             self.end_headers()
             return
         try:
             length = int(self.headers.get("Content-Length") or 0)
-            if length > MAX_BODY_BYTES:
+            if length < 0 or length > MAX_BODY_BYTES:
+                # Reject without reading the body and close the connection:
+                # leaving the bytes unread on a keep-alive socket would be
+                # parsed as the next request (protocol desync).
+                self.close_connection = True
                 return self._send(413, {"jsonrpc": "2.0", "id": None,
                                         "error": {"code": -32700,
-                                                  "message": "request body exceeds 1 MiB"}})
+                                                  "message": "request body exceeds 1 MiB"}},
+                                  close=True)
             body = self.rfile.read(length)
             msg = json.loads(body.decode())
         except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            # Close the connection on parse error: the next request on a
+            # keep-alive socket would otherwise consume trailing bytes.
+            self.close_connection = True
             return self._send(400, {"jsonrpc": "2.0", "id": None,
                                     "error": {"code": -32700,
-                                              "message": "parse error"}})
+                                              "message": "parse error"}},
+                              close=True)
         if not isinstance(msg, dict):
+            self.close_connection = True
             return self._send(400, {"jsonrpc": "2.0", "id": None,
                                     "error": {"code": -32700,
-                                              "message": "parse error"}})
+                                              "message": "parse error"}},
+                              close=True)
         req_id = msg.get("id")
         method = msg.get("method")
         params = msg.get("params") or {}
         try:
             if method == "initialize":
                 return self._send(200, {"jsonrpc": "2.0", "id": req_id, "result": {
-                    "protocolVersion": params.get("protocolVersion") or PROTOCOL_VERSION,
+                    "protocolVersion": PROTOCOL_VERSION,
                     "capabilities": {"tools": {}},
                     "serverInfo": SERVER_INFO}})
             if method == "notifications/initialized":
-                return self._send(202, {})
+                return self._send(202)
             if method == "ping":
                 return self._send(200, {"jsonrpc": "2.0", "id": req_id, "result": {}})
             if method == "tools/list":
