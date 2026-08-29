@@ -9,6 +9,7 @@ __pycache__/
 
 # Node
 node_modules/
+harness/frontend/dist
 harness/frontend/dist/
 
 # Local-only strategy docs (never publish)
