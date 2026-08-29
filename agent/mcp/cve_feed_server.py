@@ -291,15 +291,25 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if urllib.parse.urlparse(self.path).path == "/health":
             return self._send(200, {"ok": True})
+        # Close the keep-alive connection: a bare 404 leaves no framing
+        # delimiter, so a persistent client can hang waiting for the
+        # response to end.
         self.send_response(404)
         self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
 
     def do_POST(self):
         if not urllib.parse.urlparse(self.path).path.startswith("/mcp"):
+            # Close the keep-alive connection: a 405 with no body
+            # delimiter can leave the request body unread on the next
+            # request, desynchronizing the stream.
             self.send_response(405)
             self.send_header("Allow", "POST")
             self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.close_connection = True
             self.end_headers()
             return
         try:
