@@ -9,22 +9,29 @@ never fabricated.
 ## Contract
 1. Read the changed scenario (`scenarios/<id>/app/test_main.py`, its
    `cve-meta.json` for `expected` and the PoC script path).
-2. **Phase 1 — tests:** `sandbox_build` the scenario app (tag
-   `patchproof-test-<id>`, `no_cache`), then `sandbox_exec` with
-   `image: patchproof-test-<id>`, `network: none`:
+2. **Phase 1 — tests:** `sandbox_build` with `context_path` (absolute host
+   path to `scenarios/<id>/app`) and `tag: patchproof-test-<id>` (+ `no_cache`),
+   then `sandbox_exec` with `image: patchproof-test-<id>`, `network: none`:
    `python -m pytest test_main.py -q`. Capture the real exit code.
    `0` = tests PASS; anything else = FAIL (record the code). Mandatory
-   sandbox-only path; direct host pytest is not allowed.
+   sandbox-only path; direct host pytest is not allowed. The MCP schema
+   rejects `context` (relative); always pass `context_path`.
 3. **Phase 2 — PoC (ONE session, every call pinned):** use a single session
    label for EVERY Phase-2 call — `sandbox_exec`, `sandbox_write`,
    `sandbox_read` — and pass `image: patchproof-test-<id>` AND
    `network: none` on EACH call (omitting `image` silently drops to
    `python:3.11-slim`, and omitting `network` recreates the container,
-   discarding the running service). In that session: start the service (use
-   the validated `start_command` from `build-context.json` for arbitrary
-   repos; `uvicorn main:app --host 127.0.0.1 --port 8000 & sleep 3` for
-   scenario fixtures), poll `/health`, `sandbox_write` the PoC to
-   `/srv/poc.py`, run `timeout 60 python3 /srv/poc.py`, then
+   discarding the running service). In that session: `sandbox_write`
+   `cve-meta.json` to `/srv/cve-meta.json` (the image only copies `app/`
+   contents), start the service (use the validated `start_command` from
+   `build-context.json` for arbitrary repos; `setsid nohup uvicorn main:app
+   --host 127.0.0.1 --port 8000 > /tmp/uv.log 2>&1 & sleep 3` for scenario
+   fixtures — `nohup` is required so the server outlives the exec, and
+   `curl` is NOT in `python:3.11-slim` so poll `/health` with
+   `python3 -c "import urllib.request; urllib.request.urlopen(...)"`),
+   `sandbox_write` the PoC to `/srv/poc.py` (use `urllib.parse.urlencode`
+   for query-string injection; raw `'` raises `URL can't contain control
+   characters`), run `timeout 60 python3 /srv/poc.py`, then
    `sandbox_read /srv/verdict.json`. Record the real PoC exit code
    (`0` = exploitable, `1` = NOT_AFFECTED, `3` = service-start failure,
    `4` = timeout) and the verdict's `exploitable` value.
