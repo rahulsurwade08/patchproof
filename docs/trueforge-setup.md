@@ -123,13 +123,19 @@ Settings → Agents → `patchproof-v2` → edit manifest:
 {
   "mode": "SingleAgent",
   "name": "patchproof-v2",
-  "sandbox": {"enabled": false},
+  "sandbox": {"enabled": true, "file_downloads": true},
   "file_downloads": true,
-  "skills": [...7 skills...],
-  "mcp_servers": ["local-sandbox", "cve-feed"]
+  "skills": [...7 PatchProof skills registered in step 6...],
+  "mcp_servers": [
+    {"name": "local-sandbox", "require_approval_for_tools": ["@all"]},
+    {"name": "cve-feed",      "require_approval_for_tools": ["@write", "@destructive"]},
+    {"name": "github"}
+  ]
 }
 ```
 
-The orchestrator skill starts with the `analyzer` skill as the first stage.
+`require_approval_for_tools` is per MCP server in the agent manifest (not on the MCP registration). `local-sandbox` uses `["@all"]` because every sandbox tool call (build/exec/write/read/stop) represents an irreversible exploit-execution step — the human must approve each call individually. `cve-feed` uses the default `["@write","@destructive"]` (read-only data lookup). `github` uses the default (PR operations are gated).
+
+`python3 scripts/harness_setup.py` upserts this manifest idempotently — re-running after schema changes or skill pin updates is safe.
 
 For the combined harness wiring + Chat UI work loop (Initial Setup + Chat UI SDK, cut-order, verification via `http://[::1]:8790` / `127.0.0.1:8081/mcp`), see `docs/harness-loop-plan.md` — the single loop the agent follows. The intermediate `docs/harness-patchproof-setup.md` and `docs/harness-chat-ui-plan.md` were merged into that loop and removed.
