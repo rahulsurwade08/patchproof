@@ -35,6 +35,9 @@ def http_get(path):
     return json.loads(data)
 
 
+TURN_COUNT = [0]
+
+
 def http_post_sse(path, body_data):
     c = http.client.HTTPConnection(HOST, PORT, timeout=300)
     body = json.dumps(body_data).encode()
@@ -79,6 +82,18 @@ def send_turn(prev, msg=None, approvals=None, is_first=False):
 
 def poll_turn(turn_id, timeout=600):
     start = time.time()
+    # Hard cap on total turns. The agent may legitimately need 5–7 turns
+    # for a full sandbox build → write → exec → read → pull → stop cycle,
+    # so the cap is generous. Anything beyond 15 is a runaway loop and we
+    # cancel the session so the run doesn't burn tokens indefinitely.
+    TURN_LIMIT = 15
+    if TURN_COUNT[0] >= TURN_LIMIT:
+        print("  TURN LIMIT REACHED (" + str(TURN_LIMIT) + ")", flush=True)
+        try:
+            http_post_sse("/sessions/" + SID + "/cancel", {})
+        except Exception:
+            pass
+        return
     while time.time() - start < timeout:
         time.sleep(8)
         try:
@@ -106,7 +121,8 @@ def poll_turn(turn_id, timeout=600):
                             "approval": {"status": "allow"}})
                 if approvals:
                     nt, _ = send_turn(turn_id, approvals=approvals, is_first=False)
-                    print("  next turn: " + str(nt), flush=True)
+                    TURN_COUNT[0] += 1
+                    print("  next turn " + str(TURN_COUNT[0]) + ": " + str(nt), flush=True)
                     if nt:
                         poll_turn(nt, timeout=timeout)
             else:
