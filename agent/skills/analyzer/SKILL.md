@@ -163,4 +163,9 @@ assuming `uvicorn main:app` (scenario-fixture default only).
 - The static analyzer is a heuristic. When it says UNKNOWN/REACHABLE, hand off
   to the reproducer; never mark it safe yourself.
 - Return a summary of AT MOST 15 lines: verdict, confidence, rationale,
-  artifact path, and whether sandbox time is warranted.
+  **the top vulnerable code block** (`call_sites[0]` file:line + snippet from
+  `reachability.json` — prioritized so the reviewer sees the exact
+  vulnerable call first), sandbox container/image used, artifact path, and
+  whether sandbox time is warranted. The local docker sandbox state
+  (`sandbox_build` tag, `sandbox_exec` container) must be visible in the
+  summary — the harness is the product.

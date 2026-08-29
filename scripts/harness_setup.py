@@ -218,7 +218,7 @@ def build_agent_manifest(sha):
     # built-in provider is only used to materialize skills and download
     # `verdict.json` / `reachability.json` / `assessment.json` artifacts.
     return {
-        "model": {"name": "openrouter/openrouter-free"},
+        "model": {"name": "openrouter/z-ai/glm-5.3-flash"},
         "mcp_servers": (MCP_ATTACHMENTS
                         + [{"name": n} for n in ATTACHED_NOT_REGISTERED]),
         "skills": [{"name": n} for n in SKILL_PATHS.keys()],

@@ -156,5 +156,9 @@ ENTRYPOINT does not intercept the probe or the startup command.
 - The static analyzer is a heuristic; the sandbox is the arbiter. When the
   verdict is REACHABLE or UNKNOWN, hand off to the reproducer — do not conclude
   "safe" yourself.
-- Return at most 15 lines: verdict, confidence, rationale, artifact path,
-  and whether sandbox time is warranted.
+- Return at most 15 lines: verdict, confidence, rationale, **the top
+  vulnerable code block** (file:line + snippet from `reachability.json`
+  `call_sites` — prioritized, so the reviewer sees the exact vulnerable
+  call first), sandbox container/image if used, artifact path, and whether
+  sandbox time is warranted. The local docker sandbox state must be visible
+  when a reproducer is gated — the harness is the product.

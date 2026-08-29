@@ -39,7 +39,10 @@ run exploit code on the host.
    skeleton): set `TARGET_URL`, adjust payload constants ONLY if cve-meta says so.
 4. Run the PoC. It writes `verdict.json` and exits 0 (exploitable) / 1 (not).
 5. Update `scenarios/<id>/state.json`: attempts count, stage, last verdict path.
-6. Return a summary of AT MOST 15 lines: verdict, evidence line, artifact paths.
+6. Return a summary of AT MOST 15 lines: verdict, evidence line, **the
+   vulnerable code block** (file:line + snippet from `reachability.json`
+   that the PoC targeted — prioritized), local docker sandbox container
+   (`sandbox_exec`/`sandbox_build` tag) and artifact paths.
 
 ## Rules
 
