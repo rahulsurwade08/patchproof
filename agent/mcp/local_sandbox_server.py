@@ -233,10 +233,7 @@ def register_shutdown_cleanup():
 TOOLS = [
     {
         "name": "sandbox_build",
-        "description": (
-            "Build a Docker image on the host from a context dir containing a "
-            "Dockerfile. Build-time network allowed; image runs offline later. "
-            "For arbitrary GitHub repos, run gen_build_context first."),
+        "description": "Build a Docker image from a context dir. Use gen_build_context first for arbitrary repos.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -252,10 +249,7 @@ TOOLS = [
     },
     {
         "name": "sandbox_exec",
-        "description": (
-            "Run a shell command inside a per-session, --network none container. "
-            "`image` is REQUIRED; omitting it silently recreates the container "
-            "with the default image and loses all written files. Call sandbox_build first."),
+        "description": "Run a shell command in a per-session --network none container. image REQUIRED (from sandbox_build).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -270,11 +264,7 @@ TOOLS = [
     },
     {
         "name": "sandbox_write",
-        "description": (
-            "Write a text file into a session container. `image` is REQUIRED; "
-            "otherwise the container is created with the default image and a "
-            "later sandbox_exec with a different image will silently recreate it, "
-            "destroying this file."),
+        "description": "Write a text file into a session container. image REQUIRED (from sandbox_build).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -289,7 +279,7 @@ TOOLS = [
     },
     {
         "name": "sandbox_read",
-        "description": "Read a text file out of a session container (e.g. verdict.json).",
+        "description": "Read a text file from a session container.",
         "inputSchema": {
             "type": "object",
             "properties": {"session": {"type": "string"}, "path": {"type": "string"}},
@@ -298,9 +288,7 @@ TOOLS = [
     },
     {
         "name": "sandbox_pull",
-        "description": (
-            "Copy a file from a session container to a host path. "
-            "Use to land verdict.json in data/output/<repo>/."),
+        "description": "Copy a file from a session container to a host path. Use to land verdict.json in data/output/.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -322,12 +310,7 @@ TOOLS = [
     },
     {
         "name": "gen_build_context",
-        "description": (
-            "For a GitHub repo (or local clone), synthesize a version-matched "
-            "minimal Dockerfile (Dockerfile.patchproof) and write a build context. "
-            "Returns base_image, workdir, entry, start_command, fallback_dockerfile. "
-            "Call BEFORE sandbox_build when the target is a real-world repo, not "
-            "a scenario fixture."),
+        "description": "Synthesize Dockerfile.patchproof for an arbitrary repo. Returns build_context + tag. Call BEFORE sandbox_build.",
         "inputSchema": {
             "type": "object",
             "properties": {
