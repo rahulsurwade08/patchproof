@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""TrueForge harness setup — register MCPs, skills, and the patchproof-v2 agent.
+"""TrueForge harness setup — register MCPs, skills, and the patchproof-v3 agent.
 
 Runs against a running TrueForge server (default http://[::1]:8790) and ensures
 the harness wiring is in place per docs/custom-harness-build-plan.md step 3+5:
   - MCPs: local-sandbox (127.0.0.1:8081) and cve-feed (127.0.0.1:8091)
   - Skills: 7 PatchProof skills (analyzer, orchestrator, reproducer, judge,
     patcher, verifier, test-runner) as git-source skills, pinned to current HEAD
-  - Agent: patchproof-v2 (SingleAgent mode) manifest with attached skills/MCPs
+  - Agent: patchproof-v3 (SingleAgent mode) manifest with attached skills/MCPs
+    — v3 iteration (paid model z-ai/glm-5.3-flash via OpenRouter, vulnerable
+    code block prioritized, local docker sandbox visible). v2 is retained for
+    backwards compat but new runs use v3.
   - Approval policy per MCP server in the agent manifest:
     local-sandbox gates the four exploit/build/write/read tools
     (sandbox_build/exec/write/read) — sandbox_stop is exempt so
@@ -217,8 +220,10 @@ def build_agent_manifest(sha):
     # execution stays on the local-sandbox MCP (--network none), so the
     # built-in provider is only used to materialize skills and download
     # `verdict.json` / `reachability.json` / `assessment.json` artifacts.
+    # v3 uses the paid model from .env (OPENROUTER_MODEL=z-ai/glm-5.3-flash
+    # via OpenRouter provider, registered as z-ai-glm-5.3-flash).
     return {
-        "model": {"name": "openrouter/z-ai/glm-5.3-flash"},
+        "model": {"name": "openrouter/z-ai-glm-5.3-flash"},
         "mcp_servers": (MCP_ATTACHMENTS
                         + [{"name": n} for n in ATTACHED_NOT_REGISTERED]),
         "skills": [{"name": n} for n in SKILL_PATHS.keys()],
@@ -270,6 +275,10 @@ def main():
 
     print("\nAgent:")
     manifest = build_agent_manifest(sha)
+    # v3 is the current iteration (paid model, code-block prioritized); keep v2
+    # for backwards compat so existing sessions remain valid.
+    if not upsert_agent("patchproof-v3", manifest):
+        failures += 1
     if not upsert_agent("patchproof-v2", manifest):
         failures += 1
 
