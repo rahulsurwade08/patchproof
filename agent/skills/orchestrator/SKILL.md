@@ -77,5 +77,20 @@ Artifacts: data/output/<repo>/{reachability,verdict,assessment}.json
 
 If mode is `patch-and-verify` and the reproducer confirms exploitation,
 the report MUST also include the full unified diff inside a ` ```diff `
-fenced block (mode B source fix) or the one-line dep diff (mode A dep bump).
-No prose summary of the change — the diff is the fix.
+fenced block. The diff is the fix — no prose summary, no "see above".
+Format exactly:
+
+````
+```diff
+--- a/app/main.py
++++ b/app/main.py
+@@ -10,3 +10,4 @@
+-vulnerable line
++safe replacement
+```
+````
+
+If your `verdict.json` includes a `source_fix.patch` field, include that
+content in a ` ```python ` fenced block (the new file content) immediately
+after the diff, prefixed with the file path. Reviewers will read the diff
+to see what changed, then the new content to copy.
