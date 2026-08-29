@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 TARGET = os.environ.get("TARGET_URL", "http://127.0.0.1:8000")
@@ -88,7 +89,8 @@ def main() -> int:
     # Inject a always-true WHERE clause to dump all records.
     try:
         _deadline_check(start)
-        result = _get("/search?q=' OR '1'='1")
+        q = urllib.parse.urlencode({"q": "' OR '1'='1"})
+        result = _get(f"/search?{q}")
         results = result.get("results", [])
         if len(results) > 0:
             evidence_parts.append(
