@@ -9,6 +9,7 @@ Tools:
   sandbox_read   -- read a file out of a session container
   sandbox_stop   -- destroy a session container
   sandbox_build  -- build an image on the host (build-time network allowed)
+  gen_build_context -- synthesize Dockerfile.patchproof for a target repo
 
 Isolation contract (mirrors scripts/run_poc_local.sh):
   - containers always run with `--network none` (unless explicitly overridden)
@@ -41,6 +42,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("LOCAL_SANDBOX_PORT", "8081"))
 IMAGE = os.environ.get("LOCAL_SANDBOX_IMAGE", "python:3.11-slim")
 MAX_OUTPUT = 20000
+REPO_ROOT = os.environ.get(
+    "REPO_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 MAX_BODY_BYTES = 1024 * 1024
 PROTOCOL_VERSION = "2025-03-26"
 SERVER_INFO = {"name": "patchproof-local-sandbox", "version": "0.1.0"}
@@ -230,32 +234,18 @@ TOOLS = [
     {
         "name": "sandbox_build",
         "description": (
-            "Build a Docker image on the host from a directory containing a "
-            "Dockerfile (build-time network is allowed; the resulting image "
-            "is what runs offline). Use this to bake scenario dependencies "
-            "(e.g. pinned requirements) into an image before starting an "
-            "offline session with sandbox_exec(image=tag)."),
+            "Build a Docker image on the host from a context dir containing a "
+            "Dockerfile. Build-time network allowed; image runs offline later. "
+            "For arbitrary GitHub repos, run gen_build_context first."),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "tag": {"type": "string",
-                        "description": "image tag to produce, e.g. patchproof-s01"},
-                "context_path": {"type": "string",
-                                 "description": "absolute host path containing the Dockerfile"},
-                "files": {
-                    "type": "object",
-                    "description": (
-                        "optional map of {relative path -> text content} applied "
-                        "over a temp copy of the context before building, e.g. "
-                        "{'requirements.lock': '<patched content>'}"),
-                    "additionalProperties": {"type": "string"},
-                },
-                "no_cache": {"type": "boolean",
-                             "description": "force fresh build (bypass Docker layer cache)"},
-                "dockerfile": {"type": "string",
-                               "description": ("Dockerfile name RELATIVE to the context "
-                                               "(default 'Dockerfile'), e.g. 'Dockerfile.app' "
-                                               "or 'Dockerfile.patchproof'")},
+                "tag": {"type": "string", "description": "image tag, e.g. pp-s01"},
+                "context_path": {"type": "string", "description": "absolute host path to build context"},
+                "files": {"type": "object", "description": "optional {rel-path: text} overrides applied to a temp context copy, e.g. {'requirements.lock': '<patched>'}",
+                          "additionalProperties": {"type": "string"}},
+                "no_cache": {"type": "boolean", "description": "force fresh build (bypass Docker layer cache)"},
+                "dockerfile": {"type": "string", "description": "Dockerfile name RELATIVE to context (default 'Dockerfile'), e.g. 'Dockerfile.patchproof'"},
             },
             "required": ["tag", "context_path"],
         },
@@ -263,35 +253,17 @@ TOOLS = [
     {
         "name": "sandbox_exec",
         "description": (
-            "Run a shell command inside an isolated local Docker container "
-            "for the given session. The container has NO network access; "
-            "services started inside it are reachable only at 127.0.0.1 "
-            "within the same container. The `image` field is REQUIRED — "
-            "without it, the container is created with the default "
-            "python:3.11-slim image and a subsequent call with a different "
-            "image silently recreates the container, losing written files."),
+            "Run a shell command inside a per-session, --network none container. "
+            "`image` is REQUIRED; omitting it silently recreates the container "
+            "with the default image and loses all written files. Call sandbox_build first."),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "session": {"type": "string",
-                            "description": "logical session label; containers are isolated per session"},
-                "command": {"type": "string",
-                            "description": "shell command to execute inside the container"},
-                "timeout_secs": {"type": "number",
-                                 "description": "per-command timeout (default 60, max 600)"},
-                "network": {
-                    "type": "string",
-                    "description": (
-                        "Docker network to attach (default 'none'). Only "
-                        "'none' is accepted: runtime containers are always "
-                        "network-isolated; any other value raises an error."),
-                },
-                "image": {
-                    "type": "string",
-                    "description": ("REQUIRED: image tag from sandbox_build. "
-                                    "Without this the container is recreated "
-                                    "and any previously written files are lost."),
-                },
+                "session": {"type": "string", "description": "logical session label"},
+                "command": {"type": "string", "description": "shell command to run"},
+                "timeout_secs": {"type": "number", "description": "per-command timeout (default 60, max 600)"},
+                "network": {"type": "string", "description": "Docker network (default 'none' is the only accepted value)"},
+                "image": {"type": "string", "description": "REQUIRED: image tag from sandbox_build"},
             },
             "required": ["session", "command", "image"],
         },
@@ -299,22 +271,18 @@ TOOLS = [
     {
         "name": "sandbox_write",
         "description": (
-            "Write a text file into a session container. "
-            "The `image` field is REQUIRED — without it, the container is created "
-            "with the default python:3.11-slim image and a subsequent "
-            "sandbox_exec with a different image silently recreates the container, "
-            "destroying all previously written files."),
+            "Write a text file into a session container. `image` is REQUIRED; "
+            "otherwise the container is created with the default image and a "
+            "later sandbox_exec with a different image will silently recreate it, "
+            "destroying this file."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "session": {"type": "string"},
-                "path": {"type": "string",
-                         "description": "absolute path inside the container, e.g. /srv/poc.py"},
+                "path": {"type": "string", "description": "absolute path inside the container, e.g. /srv/poc.py"},
                 "content": {"type": "string"},
-                "network": {"type": "string",
-                            "description": "Docker network (default 'none'); only honored on container creation"},
-                "image": {"type": "string",
-                          "description": "REQUIRED: image tag from sandbox_build; without this the container is recreated"},
+                "network": {"type": "string", "description": "default 'none'; only honored on creation"},
+                "image": {"type": "string", "description": "REQUIRED: image tag from sandbox_build"},
             },
             "required": ["session", "path", "content", "image"],
         },
@@ -330,11 +298,29 @@ TOOLS = [
     },
     {
         "name": "sandbox_stop",
-        "description": "Destroy a session container. Call when finished with an investigation.",
+        "description": "Destroy a session container. Call when finished.",
         "inputSchema": {
             "type": "object",
             "properties": {"session": {"type": "string"}},
             "required": ["session"],
+        },
+    },
+    {
+        "name": "gen_build_context",
+        "description": (
+            "For a GitHub repo (or local clone), synthesize a version-matched "
+            "minimal Dockerfile (Dockerfile.patchproof) and write a build context. "
+            "Returns base_image, workdir, entry, start_command, fallback_dockerfile. "
+            "Call BEFORE sandbox_build when the target is a real-world repo, not "
+            "a scenario fixture."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {"type": "string", "description": "absolute host path to the cloned target repo"},
+                "out_dir": {"type": "string", "description": "where to write the build context (default: temp dir)"},
+                "force": {"type": "boolean", "description": "overwrite an existing Dockerfile.patchproof"},
+            },
+            "required": ["repo_path"],
         },
     },
 ]
@@ -452,6 +438,29 @@ def tool_call(name, args=None):
         cname = container_name(args.get("session"))
         docker(["rm", "-f", cname])
         return {"stopped": cname}
+    if name == "gen_build_context":
+        # Synthesize Dockerfile.patchproof for an arbitrary target repo. This
+        # is the bridge from a GitHub URL (or local clone) to a sandbox image:
+        # the LLM calls gen_build_context first, then sandbox_build with the
+        # returned build_context path, then sandbox_exec for the reproducer.
+        # gen_context writes to a temp dir by default so the original repo
+        # is never mutated; if out_dir is provided, we accept it as the
+        # build context root (the LLM can hand it straight to sandbox_build).
+        import importlib
+        repo_path = str(args["repo_path"])
+        if not os.path.isabs(repo_path):
+            raise RuntimeError(
+                f"gen_build_context: repo_path must be absolute: {repo_path!r}")
+        out_dir = args.get("out_dir")
+        force = bool(args.get("force"))
+        if not out_dir:
+            out_dir = tempfile.mkdtemp(prefix="patchproof-ctx-")
+        os.makedirs(out_dir, exist_ok=True)
+        # Import lazily so the analyzer module is only loaded when needed.
+        sys.path.insert(0, REPO_ROOT)
+        gc = importlib.import_module("agent.analyzer.gen_context")
+        result = gc.generate(repo_path, out_dir, force)
+        return result
     raise RuntimeError(f"unknown tool: {name}")
 
 
