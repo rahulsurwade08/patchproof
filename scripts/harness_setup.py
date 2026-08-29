@@ -60,7 +60,8 @@ _MCP_REGS = [
 # approval list). github uses the default policy.
 MCP_ATTACHMENTS = [
     {"name": "local-sandbox",
-     "require_approval_for_tools": ["sandbox_build", "sandbox_exec", "sandbox_write", "sandbox_read"]},
+     "require_approval_for_tools": ["sandbox_build", "sandbox_exec",
+                                   "sandbox_write", "sandbox_read", "sandbox_pull"]},
     {"name": "cve-feed",
      "require_approval_for_tools": ["@write", "@destructive"]},
 ]
@@ -214,18 +215,34 @@ def upsert_agent(name, manifest):
     return False
 
 
+def _read_text(path):
+    """Read a text file relative to repo root; return "" if missing."""
+    full = os.path.join(os.path.dirname(os.path.dirname(__file__)), path)
+    try:
+        with open(full, encoding="utf-8") as fh:
+            return fh.read()
+    except (OSError, IOError):
+        return ""
+
+
 def build_agent_manifest(sha, model_name="openrouter/openrouter-free"):
-    # sandbox.enabled: true activates TrueForge's built-in sandbox provider
-    # for skill materialization and file_downloads (artifacts). Exploit
-    # execution stays on the local-sandbox MCP (--network none), so the
-    # built-in provider is only used to materialize skills and download
-    # `verdict.json` / `reachability.json` / `assessment.json` artifacts.
+    # sandbox.enabled: false — TrueForge's built-in provider is paid and
+    # unconfigured (ADR-008), so we keep it off and route ALL execution
+    # through the local-sandbox MCP (--network none, no host network).
+    # Exploit/build/write/read tools are gated by the local-sandbox MCP's
+    # require_approval_for_tools policy; sandbox_stop is exempt so the
+    # mandatory teardown (ADR-012) runs on every path.
     return {
         "model": {"name": model_name},
+        "instructions": _read_text("agent/prompts/system.md"),
         "mcp_servers": (MCP_ATTACHMENTS
                         + [{"name": n} for n in ATTACHED_NOT_REGISTERED]),
         "skills": [{"name": n} for n in SKILL_PATHS.keys()],
-        "config": {"sandbox": {"enabled": True, "file_downloads": True}},
+        "config": {
+            "sandbox": {"enabled": False, "file_downloads": True},
+            "generative_ui": {"enabled": True},
+            "ask_user_questions": {"enabled": True},
+        },
     }
 
 
