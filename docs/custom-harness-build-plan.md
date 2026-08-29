@@ -102,7 +102,7 @@ harness/
       test_skills_registered.py # GET /api/v1/skills lists all 7 PatchProof skills; catalog shows them
       test_mcp_registered.py    # GET /api/v1/mcp-servers shows github (authenticated) + local-sandbox + cve-feed
       test_frontend_build.py    # npm run build succeeds; dist loads the TrueForgeUI chat against [::1]:8790
-      test_agent_manifest.py    # patchproof-v2 manifest: model, mcp_servers, skills[7], sandbox.enabled:true, approvals
+      test_agent_manifest.py    # patchproof-v2 manifest: model, mcp_servers, skills[7], sandbox.enabled:true, approvals ([local-sandbox:sandbox_build|exec|write|read, cve-feed:@write|@destructive+readOnlyHint, github:default])
     e2e/
       test_reachability_run.py  # session turn on [::1]:8790 → tool.call sandbox_build/exec → verdict.json + assessment.json via turn files API
       test_approval_gate.py     # patcher turn pauses with awaiting_approval (Allow/Deny) before any PR/staging action
@@ -128,7 +128,7 @@ harness/
 | 2 `cve-feed` HTTP wrapper | `agent/mcp/cve_feed_server.py` streamable wrapper (≤2 files) — done in PR #71 | `curl http://127.0.0.1:8091/mcp` tools/list; registration done in step 3 |
 | 3 attach skills + MCPs | `scripts/harness_setup.py` (register skills/MCPs/agent) + updated docs — done in PR #72 | `GET /api/v1/skills` lists 7; `GET /api/v1/mcp-servers` lists 2 (local-sandbox + cve-feed); github connector is the catalog entry added in the UI per step 3 of docs/trueforge-setup.md; agent manifest matches spec |
 | 4 `fix/sandbox-reuse` | `local_sandbox_server.py:ensure_container` image check + `sandbox_stop` trap | back-to-back `sandbox_exec` reuse container; no stale `patchproof-sbx` containers after stop |
-| 5 `feat/approval-gate` | manifest `require_approval_for_tools` per MCP server (API) | harness turn shows approval pause before PR/staging |
+| 5 `feat/approval-gate` | manifest `require_approval_for_tools` per MCP server (API) — done in PR #73: `local-sandbox=[sandbox_build,exec,write,read]` (exploit/build/write/read gated; sandbox_stop exempt for mandatory teardown ADR-012); `cve-feed=["@write","@destructive"]` with `readOnlyHint: true` on all 4 tools; `github` uses default (PRs via github MCP, patcher stops before merge/staging) | harness turn pauses before any sandbox_build/exec/write/read call; PRs opened via github MCP; sandbox_stop teardown runs automatically |
 | 6+ test suite v2 | `harness/tests/` recreated per §4, ≤5 files per PR | `pytest harness/tests/unit -q` then integration then e2e, green |
 
 Each PR: `qodo-get-rules` before coding, `qodo-pr-resolver` on findings, reply + `/review` until `Bugs 0/Rules 0`, merge commit, delete branch. No host `docker`/`pytest` except `scripts/run_poc_local.sh` (CI fallback).

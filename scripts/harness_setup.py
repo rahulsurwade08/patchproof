@@ -2,11 +2,18 @@
 """TrueForge harness setup — register MCPs, skills, and the patchproof-v2 agent.
 
 Runs against a running TrueForge server (default http://[::1]:8790) and ensures
-the harness wiring is in place per docs/custom-harness-build-plan.md step 3:
+the harness wiring is in place per docs/custom-harness-build-plan.md step 3+5:
   - MCPs: local-sandbox (127.0.0.1:8081) and cve-feed (127.0.0.1:8091)
   - Skills: 7 PatchProof skills (analyzer, orchestrator, reproducer, judge,
     patcher, verifier, test-runner) as git-source skills, pinned to current HEAD
   - Agent: patchproof-v2 (SingleAgent mode) manifest with attached skills/MCPs
+  - Approval policy per MCP server in the agent manifest:
+    local-sandbox gates the four exploit/build/write/read tools
+    (sandbox_build/exec/write/read) — sandbox_stop is exempt so
+    mandatory teardown (ADR-012) runs on every success/failure/
+    denial/cancellation path; cve-feed uses default ["@write","@destructive"]
+    and tools declare readOnlyHint:true so triage runs autonomously;
+    github uses defaults.
 
 Idempotent: re-running reconciles existing skills/MCPs/agents to match the
 expected configuration (updates drift in pin/repo/path/url). Safe to re-run
@@ -34,7 +41,8 @@ SKILL_PATHS = {
     "verifier":      "agent/skills/verifier",
     "test-runner":   "agent/skills/test-runner",
 }
-MCPS = [
+# Registration entries (posted to /api/v1/mcp-servers).
+_MCP_REGS = [
     {"name": "local-sandbox",
      "description": "Keyless local Docker sandbox",
      "url": os.environ.get("LOCAL_SANDBOX_URL", "http://127.0.0.1:8081/mcp")},
@@ -42,8 +50,20 @@ MCPS = [
      "description": "Dual-source CVE legitimacy (CVE.org + OSV.dev)",
      "url": os.environ.get("CVE_FEED_URL", "http://127.0.0.1:8091/mcp")},
 ]
+# Attachment entries in the agent manifest (mcp_servers field).
+# Exploit/build/write/read tools require human approval; sandbox_stop is excluded
+# so mandatory container teardown (ADR-012) runs on all paths (success, failure,
+# denial, cancellation). CVE-feed tools use readOnlyHint annotations (not this
+# approval list). github uses the default policy.
+MCP_ATTACHMENTS = [
+    {"name": "local-sandbox",
+     "require_approval_for_tools": ["sandbox_build", "sandbox_exec", "sandbox_write", "sandbox_read"]},
+    {"name": "cve-feed",
+     "require_approval_for_tools": ["@write", "@destructive"]},
+]
 # Connectors the agent attaches but that are NOT created by this script
 # (configured separately via catalog UI / OAuth, see docs/trueforge-setup.md).
+# github uses the default approval policy: ["@write", "@destructive"].
 ATTACHED_NOT_REGISTERED = ["github"]
 
 
@@ -216,8 +236,8 @@ def build_agent_manifest(sha):
         "file_downloads": True,
         "skills": [{"type": "git", "name": n, "repo": SKILL_REPO,
                     "path": p, "pin": sha} for n, p in SKILL_PATHS.items()],
-        "mcp_servers": [{"name": m["name"]} for m in MCPS]
-                        + [{"name": n} for n in ATTACHED_NOT_REGISTERED],
+        "mcp_servers": (MCP_ATTACHMENTS
+                        + [{"name": n} for n in ATTACHED_NOT_REGISTERED]),
     }
 
 
@@ -228,7 +248,7 @@ def check_endpoints():
         print(f"TrueForge unreachable at {BASE_URL}: {detail}", file=sys.stderr)
         return False
     print(f"TrueForge OK: {BASE_URL}/health")
-    for mcp in MCPS:
+    for mcp in _MCP_REGS:
         ok, detail = _external_health(f"{mcp['url'].rsplit('/', 1)[0]}/health")
         if not ok:
             print(f"MCP unreachable: {mcp['name']} at {mcp['url']}: {detail}",
@@ -249,7 +269,7 @@ def main():
     failures = 0
 
     print("MCPs:")
-    for mcp in MCPS:
+    for mcp in _MCP_REGS:
         if not register_mcp(mcp):
             failures += 1
 

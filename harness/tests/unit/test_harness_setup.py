@@ -88,8 +88,17 @@ def test_build_agent_manifest():
     assert {s["name"] for s in m["skills"]} == set(hs.SKILL_PATHS.keys())
     assert {s["type"] for s in m["skills"]} == {"git"}
     assert all(s["repo"] == hs.SKILL_REPO for s in m["skills"])
-    # MCP attachments: 2 API-registered + 1 catalog (github)
-    assert m["mcp_servers"] == [{"name": "local-sandbox"}, {"name": "cve-feed"}, {"name": "github"}]
+    # MCP attachments: 2 API-registered + 1 catalog (github).
+    # local-sandbox gates the 4 exploit/build/write/read tools but NOT
+    # sandbox_stop (mandatory teardown per ADR-012 must run on all paths).
+    # cve-feed uses default ["@write","@destructive"]; tools declare
+    # readOnlyHint:true so triage runs autonomously.
+    assert m["mcp_servers"] == [
+        {"name": "local-sandbox",
+         "require_approval_for_tools": ["sandbox_build", "sandbox_exec", "sandbox_write", "sandbox_read"]},
+        {"name": "cve-feed",      "require_approval_for_tools": ["@write", "@destructive"]},
+        {"name": "github"},
+    ]
 
 
 def test_skill_paths_cover_7():
@@ -100,7 +109,7 @@ def test_skill_paths_cover_7():
 
 
 def test_mcps_cover_local_sandbox_and_cve_feed():
-    names = {m["name"] for m in hs.MCPS}
+    names = {m["name"] for m in hs._MCP_REGS}
     assert "local-sandbox" in names
     assert "cve-feed" in names
 
@@ -108,8 +117,8 @@ def test_mcps_cover_local_sandbox_and_cve_feed():
 def test_register_mcp_idempotent(monkeypatch):
     db = make_db()
     monkeypatch.setattr(hs, "_http", fake_http_factory(db))
-    assert hs.register_mcp(hs.MCPS[0])
-    assert hs.register_mcp(hs.MCPS[0])
+    assert hs.register_mcp(hs._MCP_REGS[0])
+    assert hs.register_mcp(hs._MCP_REGS[0])
 
 
 def test_register_skill_idempotent(monkeypatch):
@@ -138,7 +147,7 @@ def test_main_skips_existing_no_failures(monkeypatch):
     monkeypatch.setattr(hs, "_http", fake_http_factory(db))
     monkeypatch.setattr(hs, "current_head_sha", lambda: "a" * 40)
     # Pre-populate so the "already exists" path is exercised
-    db["mcps"] = {m["name"]: {"id": 1, **m} for m in hs.MCPS}
+    db["mcps"] = {m["name"]: {"id": 1, **m} for m in hs._MCP_REGS}
     db["skills"] = {n: {"id": 1, "name": n, "pin": "a" * 40, "repo": hs.SKILL_REPO, "path": p}
                     for n, p in hs.SKILL_PATHS.items()}
     db["agents"] = {"patchproof-v2": {"id": 1, "name": "patchproof-v2"}}

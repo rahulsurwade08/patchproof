@@ -154,6 +154,11 @@ def test_dispatch_initialize_and_tools_list():
     tools = srv.dispatch("tools/list", {})["tools"]
     assert {t["name"] for t in tools} == {
         "cve_get_cve", "osv_query_package", "osv_get_vuln", "cve_cross_check"}
+    # All cve-feed tools are read-only; the agent's approval policy
+    # `["@write","@destructive"]` matches tools without `readOnlyHint: true`,
+    # so the cve_cross_check triage path runs autonomously.
+    for t in tools:
+        assert t["annotations"]["readOnlyHint"] is True, t["name"]
 
 
 def test_dispatch_unknown_tool_is_jsonrpc_error():
