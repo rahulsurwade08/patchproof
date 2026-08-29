@@ -275,3 +275,50 @@ e2e scenario tests (currently a placeholder) and reproducer MCP path
 regressions. Frontend work is explicitly next-release; do not re-engage
 without a directive.
 
+**Update 2026-08-30:** `config.sandbox.enabled` flipped to `false` on
+all agents. TrueForge's built-in sandbox provider (paid, unconfigured per
+ADR-008) exposed its own `exec`/`shell` tool to the agent, producing
+"Invalid credentials" errors in the session and final report. With `enabled:
+false`, the built-in tool is not exposed; the agent sees only the
+`local-sandbox` MCP tools. The agent's `instructions` field carries the
+boundary rules (allowlist/denylist/network/data/secrets boundaries) and
+the common pipeline order, sourced from `agent/prompts/system.md`. This
+change is reflected in the manifest at `scripts/harness_setup.py` and
+the test assertions in `harness/tests/integration/test_agent_manifest.py`
+and `harness/tests/unit/test_harness_setup.py`.
+
+## ADR-019 — sandbox_pull + Mode B source-fix patcher
+**Status:** accepted 2026-08-30
+
+**Context.** The reproducer's `verdict.json` was written inside the container
+at `/srv/verdict.json`. When the container was torn down at session end,
+the verdict disappeared. The agent's final report existed in the SSE stream
+but not as a durable host artifact. Additionally, the patcher skill handled
+only dep-bump scenarios; arbitrary-repo code vulnerabilities (e.g. `os.system`
+injection, SQL f-string) had no fix output.
+
+**Decision.** Add a `sandbox_pull` MCP tool (docker cp from container to host)
+and update the reproducer's final call to copy `/srv/verdict.json` to
+`data/output/<repo>/verdict.json`. The patcher gains two modes:
+- **Mode A (dep bump):** bump requirements.lock (existing behaviour).
+- **Mode B (source fix):** produce a unified diff of the vulnerable source
+  file, write the patched file to the container, rebuild, re-run the PoC
+  (must exit 1 / exploitable false), and open a PR with the diff
+  verbatim in a ` ```diff ` fenced block.
+
+**sandbox_pull schema:** `{session, path (container), host_path (host)}`.
+`image` is NOT required (container identified by session label). Approval
+required (writes to host). Source: `agent/mcp/local_sandbox_server.py`.
+
+**Mode B pipeline:** verdict → identify vulnerable file → generate unified diff
+→ `sandbox_write` patched file → `sandbox_build` new image → re-run PoC →
+verify exit 1 → open PR with diff block. Agent boundary rules require
+the diff as the PR body (not a prose description).
+
+**Affected files:** `local_sandbox_server.py` (new tool),
+`agent/skills/reproducer/SKILL.md` (calls sandbox_pull),
+`agent/skills/patcher/SKILL.md` (Mode A + Mode B),
+`agent/skills/orchestrator/SKILL.md` (pipeline order + diff in report),
+`scripts/harness_setup.py` (approval list updated to include sandbox_pull).
+
+
