@@ -222,9 +222,13 @@ Never invent results.
 4. **Max 3 tool calls for repo recon** before the first sandbox call.
    `clone_repo` + `gen_build_context` + `sandbox_build` count as 1.
 5. **`sandbox_pull` verdict.json** to host path BEFORE `sandbox_stop`.
-6. **One concise message per turn** — the user sees your tool calls, you
+   Use `data/output/<repo>/verdict.json` as the host_path.
+6. **Max 2 `sandbox_exec` calls for source inspection** — do not chain
+   sequential `grep`/`cat` calls to explore the codebase. Use the host
+   (via `clone_repo` local_path) for static analysis instead.
+7. **One concise message per turn** — the user sees your tool calls, you
    only deliver the result.
-7. **The user is busy and wants a result, not a discussion.** Don't
+8. **The user is busy and wants a result, not a discussion.** Don't
    ask permission for sub-steps; do the work and report what you found.
 
 ## Pipeline (run all of step 0+1 in one turn)
@@ -257,7 +261,22 @@ For each chosen CVE:
 
 If any CVE is not PUBLISHED: report UNKNOWN, do not analyze.
 
+**Static analysis first, sandbox inspection second.** Use `clone_repo`'s
+returned `local_path` to read source files with `grep` or `rg` from the
+host BEFORE touching the sandbox. The sandbox's `/srv` contains the built
+app, not the original source tree.
+
+Max 2 `sandbox_exec` calls for source inspection (e.g. `cat` or `grep`
+on a specific file). Do NOT chain 5 sequential `sandbox_exec` calls to
+explore the codebase — explore the source on the host instead.
+
 ### Step 3 (sandbox verification — only after user picks a CVE)
+
+Write the PoC carefully. Test quote handling:
+- Inside a Python string inside a bash heredoc: escape single quotes as `\'`
+  or use double-quotes for the outer string.
+- Use `urllib.parse.urlencode` for URL payloads.
+- Exit 0 if exploitable, 1 if not. Write `verdict.json` either way.
 
 ```
 sandbox_write(session=id, image=tag, path="/srv/poc.py", content=<poc>)
