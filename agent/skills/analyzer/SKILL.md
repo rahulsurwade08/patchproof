@@ -13,7 +13,40 @@ UNKNOWN — and decide whether sandbox time is warranted.
 
 - Target repo path (triage target, **not** a scenario fixture).
 - Advisory: `data/inbox/<cve>.json` or a CVE id (derived from OSV/CVE.org at
-  runtime — never invented, ADR-010).
+  runtime — never invented, ADR-010). **Alternatively**, omit the advisory and
+  request auto-discovery below.
+
+## Auto-Discovery Mode
+
+If no CVE advisory is provided, the analyst can auto-discover CVEs present in
+the repo by querying OSV.dev for all declared dependencies. To trigger this
+mode, send the reachability command without a CVE id, e.g.:
+
+```
+python agent/analyzer/reach.py --discover <repo-path>
+```
+
+or via the harness MCP sandbox sequence:
+
+1. `sandbox_build` — build repo image: `{context_path: "<repo-path>", tag: "<unique-tag>", dockerfile: "Dockerfile.patchproof"}`
+2. `sandbox_write` — inject the analyzer script and a minimal discovery entrypoint:
+   `{session: "<session-label>", path: "/srv/reach.py", content: "<script-content>", image: "<tag>"}`
+3. `sandbox_exec` — run discovery:
+   `{session: "<session-label>", image: "<tag>", command: "python3 /srv/reach.py --discover /srv"}`
+4. `sandbox_read` — retrieve the output:
+   `{session: "<session-label>", path: "/srv/out/discovered_cves.json"}`
+
+The output `discovered_cves.json` contains a sorted list of CVEs with:
+  - `cve_id`: e.g. `CVE-2020-14343`
+  - `package`: affected package name
+  - `version`: affected version range or `any`
+  - `summary`: short description
+  - `aliases`: CVE.org + OSV ids
+
+After discovery, you can:
+- (a) Select a specific CVE from the list for reachability analysis
+- (b) Run reachability checks on all found CVEs
+- (c) Report the full list to the user for their selection decision
 
 ## Method (deterministic script)
 
@@ -22,6 +55,9 @@ Run the triage script on the host workdir — static analysis only:
 ```
 python agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
 ```
+
+If no advisory is given and `--discover` was used earlier, the script reads
+`discovered_cves.json` from the output directory and proceeds to evaluate each CVE.
 
 It runs the triage pipeline — dep-pin → call-site scan → input-source trace —
 and writes `data/output/<repo>/reachability.json`. Your job is to run it, read

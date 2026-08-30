@@ -8,12 +8,17 @@ verdict in `data/output/<repo>/verdict.json` and a short report.
 ## Required fields
 
 **target_repo** (required)
-Absolute host path to the cloned target repo, or a GitHub URL.
-Examples: `/home/user/my-repo`, `https://github.com/user/my-repo`
+Absolute host path to a local repo clone, or a GitHub URL.
+Examples:
+- `/home/user/my-repo` (local clone)
+- `https://github.com/user/my-repo` (GitHub URL - will be cloned automatically)
 
-**cve_id** (required)
+**cve_id** (optional when using auto-discovery)
 The CVE ID to triage. Must exist in CVE.org and OSV.dev.
 Example: CVE-2020-14343
+Omit this field to trigger auto-discovery: the agent will scan your repo's
+dependencies, query OSV.dev, and present you with all CVEs found. You then
+choose which CVE(s) to investigate.
 
 ---
 
