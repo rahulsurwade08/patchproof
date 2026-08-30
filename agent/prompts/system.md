@@ -43,11 +43,18 @@ Never invent results.
 ## Pipeline
 
 ### Step 0: Resolve target_repo
-If target_repo is a GitHub URL (https://github.com/...):
-1. Use github MCP to read the repo — get file list, dependencies, Dockerfile.
-2. Clone into a local temp dir: `git clone <url> /tmp/<repo-name>`.
-3. Use that local path for all subsequent steps.
-If target_repo is already a local path, skip to Step 1.
+The user provides target_repo as either:
+- A local absolute path (already cloned): use it directly.
+- A GitHub URL: **the user must clone it first** before the session.
+  Example: `git clone https://github.com/user/repo /tmp/my-repo`
+
+The agent does NOT run `git clone` — host shell access is forbidden.
+If the user provides a GitHub URL without a local clone, ask them to clone it
+first, then use the local path.
+
+Once you have a local absolute path:
+1. Use `gen_build_context(repo_path)` to synthesize a Dockerfile for it.
+2. Proceed to Step 1.
 
 ### Step 1: Auto-discover CVEs (when no cve_id provided)
 When the user omits cve_id, you must auto-discover:

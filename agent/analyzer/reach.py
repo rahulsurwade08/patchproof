@@ -623,58 +623,88 @@ def discover_cves(repo_path):
           "summary": "...", "aliases": [...], "affected": true/false}]
 
     Fails closed: if OSV lookup returns an error, the package is skipped
-    silently (no CVEs reported for it).
+    silently (no CVEs reported for it). Network errors are logged to stderr
+    once per package, not per call.
     """
     found = deps.scan_repo(repo_path)
     if not found:
         return []
 
     discovered = {}
+    seen_packages = set()
     for pkg_name, entries in found.items():
-        ecosystem = _ecosystem_for(pkg_name, found)
-        # Try with version first (more accurate)
-        for entry in entries:
-            version = entry.get("version")
-            if version:
-                cves = _osv_query_package(ecosystem, pkg_name, version)
-            else:
-                cves = _osv_query_package(ecosystem, pkg_name)
-            for cve in cves:
-                cve_id = _extract_cve_id(cve)
-                if cve_id is None:
-                    continue
-                key = (cve_id, pkg_name, version or "unknown")
-                if key not in discovered:
-                    discovered[key] = {
-                        "cve_id": cve_id,
-                        "package": pkg_name,
-                        "version": version or "unknown",
-                        "summary": cve.get("summary", ""),
-                        "aliases": cve.get("aliases", []),
-                        "affected": version is not None or True,
-                    }
+        # Pick the first pinned version if available; otherwise any version
+        version = None
+        for e in entries:
+            if e.get("pinned") and e.get("version"):
+                version = e["version"]
+                break
 
-    # Also check without specific versions (catches any version vulnerability)
-    for pkg_name in found:
+        # Query once per package (not once per entry) to avoid N+1 calls
+        if pkg_name in seen_packages:
+            continue
+        seen_packages.add(pkg_name)
+
         ecosystem = _ecosystem_for(pkg_name, found)
-        cves = _osv_query_package(ecosystem, pkg_name)
-        for cve in cves:
-            cve_id = _extract_cve_id(cve)
+        vulns = _osv_query_package(ecosystem, pkg_name, version)
+        for vuln in vulns:
+            cve_id = _extract_cve_id(vuln)
             if cve_id is None:
                 continue
-            # Check if any version of this package is affected
-            key = (cve_id, pkg_name, "any")
-            if key not in discovered and (cve_id, pkg_name, "unknown") not in discovered:
-                discovered[key] = {
-                    "cve_id": cve_id,
-                    "package": pkg_name,
-                    "version": "any",
-                    "summary": cve.get("summary", ""),
-                    "aliases": cve.get("aliases", []),
-                    "affected": True,
-                }
+            key = (cve_id, pkg_name)
+            if key in discovered:
+                continue
+            # Determine if the pinned version is actually in the
+            # affected range. If no version is pinned, mark as unknown.
+            in_range = _version_in_affected_ranges(
+                version, vuln.get("affected", []), pkg_name, ecosystem
+            ) if version else None
+            discovered[key] = {
+                "cve_id": cve_id,
+                "package": pkg_name,
+                "version": version or "unknown",
+                "summary": vuln.get("summary", ""),
+                "aliases": vuln.get("aliases", []),
+                "affected": in_range if in_range is not None else True,
+            }
 
     return sorted(discovered.values(), key=lambda x: (x["cve_id"], x["package"]))
+
+
+def _version_in_affected_ranges(version, affected_list, pkg_name, ecosystem):
+    """Check if a version falls in any of the affected ranges for the package.
+
+    Returns True/False, or None if the version can't be compared (e.g. the
+    affected list has no ranges for this ecosystem/package).
+    """
+    for aff in affected_list or []:
+        pkg = aff.get("package") or {}
+        if pkg.get("name", "").lower() != pkg_name.lower():
+            continue
+        if pkg.get("ecosystem", "") and pkg["ecosystem"] != ecosystem:
+            continue
+        for r in aff.get("ranges") or []:
+            events = r.get("events") or []
+            introduced = None
+            fixed = None
+            for ev in events:
+                if "introduced" in ev:
+                    introduced = ev["introduced"]
+                if "fixed" in ev:
+                    fixed = ev["fixed"]
+            if introduced is None and fixed is None:
+                continue
+            try:
+                from agent.analyzer.versions import version_in_range
+                range_spec = (f">={introduced}" if introduced else ">=0") + (
+                    f",<{fixed}" if fixed else ""
+                )
+                if version_in_range(version, range_spec):
+                    return True
+            except Exception:
+                continue
+        return False
+    return None
 
 
 def _extract_cve_id(vuln):
@@ -694,9 +724,9 @@ def _osv_query_package(ecosystem, name, version=None):
 
     Uses the standard OSV query API (same data source as the cve-feed MCP).
     Returns a list of vuln dicts with at least {"id", "aliases", "summary"}.
-    Returns [] on network error or non-200 response (fail closed).
+    Logs to stderr on network/parse errors; returns [] so the caller treats
+    a failed lookup as "no CVEs found" (fail-closed for discover_cves).
     """
-    # Build query: either by version or by package+ecosystem
     if version:
         query = {
             "version": version,
@@ -715,17 +745,16 @@ def _osv_query_package(ecosystem, name, version=None):
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
-        vulns = []
-        for vuln_id in (data.get("vulns") or []):
-            # Fetch the full record to get aliases/summary
-            if isinstance(vuln_id, dict):
-                vulns.append(vuln_id)
-            elif isinstance(vuln_id, str):
-                vuln = _osv_fetch_vuln(vuln_id)
-                if vuln:
-                    vulns.append(vuln)
+        vulns = data.get("vulns") or []
+        if not isinstance(vulns, list):
+            print(f"OSV query for {ecosystem}/{name}@{version or 'any'}: "
+                  f"unexpected response type {type(vulns).__name__}; skipping",
+                  file=sys.stderr)
+            return []
         return vulns
-    except Exception:
+    except Exception as exc:
+        print(f"OSV query for {ecosystem}/{name}@{version or 'any'}: {exc}; "
+              f"skipping (fail-closed)", file=sys.stderr)
         return []
 
 
