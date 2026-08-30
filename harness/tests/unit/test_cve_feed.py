@@ -40,13 +40,19 @@ def test_summarize_cve_falls_back_to_adp():
     assert srv.summarize_cve(rec)["description"] == "adp"
 
 
-def test_summarize_osv_list_caps_at_ten():
-    vulns = [{"id": f"OSV-{i}", "aliases": ["CVE-1"], "summary": "s" * 300}
+def test_summarize_osv_list_no_cap():
+    """summarize_osv_list returns ALL vulns without truncation.
+
+    The old 10-item cap caused real CVEs to be hidden (e.g. jinja2 had 12
+    CVEs, aiohttp had 89 — users only saw 6 and 10). No cap is intentional.
+    """
+    vulns = [{"id": f"OSV-{i}", "aliases": [f"CVE-{i}"], "summary": "s" * 300}
              for i in range(15)]
     out = srv.summarize_osv_list(vulns)
-    assert len(out) == 10
+    assert len(out) == 15  # was 10 — cap removed for completeness
     assert out[0]["summary"] == "s" * 200
-    assert out[0]["aliases"] == ["CVE-1"]
+    assert out[0]["aliases"] == ["CVE-0"]
+    assert out[-1]["aliases"] == ["CVE-14"]  # last item present (was dropped)
 
 
 # ------------------------------------------------- handlers with fake HTTP

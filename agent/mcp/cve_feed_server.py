@@ -154,11 +154,17 @@ def osv_query_page(query, page_token=None):
 
 
 def summarize_osv_list(vulns):
-    """Display helper: compact, capped list for osv_query_package."""
+    """Display helper: full list for osv_query_package (no silent truncation).
+
+    Returns all vulns, each trimmed to a compact display shape. The 10-item
+    cap was removed because PatchProof triage needs the COMPLETE CVE list —
+    a silent cap at 10 hid real vulnerabilities (e.g. jinja2 had 12 CVEs,
+    aiohttp had 89 — the user only saw 6 and 10).
+    """
     return [
         {"id": v.get("id"), "aliases": v.get("aliases") or [],
          "summary": (v.get("summary") or "")[:200]}
-        for v in vulns[:10]
+        for v in vulns
     ]
 
 
@@ -166,7 +172,18 @@ def osv_query(args):
     query = {"package": {"ecosystem": args["ecosystem"], "name": args["name"]}}
     if args.get("version"):
         query["version"] = args["version"]
-    return summarize_osv_list(osv_query_page(query).get("vulns") or [])
+    # Use osv_query_all so the result is the full set across pages, not just
+    # the first page (OSV paginates large result sets; the first page has
+    # ~10 entries by default).
+    vulns, truncated = osv_query_all(args, max_pages=10)
+    result = summarize_osv_list(vulns)
+    if truncated:
+        result = {"vulns": result,
+                  "truncated": True,
+                  "note": ("OSV result set exceeds 10 pages; some CVEs may "
+                           "not be listed. Use osv_get_vuln to check a "
+                           "specific CVE id.")}
+    return result
 
 
 def osv_query_all(args, max_pages=5):
