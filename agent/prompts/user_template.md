@@ -8,23 +8,27 @@ verdict in `data/output/<repo>/verdict.json` and a short report.
 ## Required fields
 
 **target_repo** (required)
-Absolute host path to a local repo clone.
-Example: `/home/user/my-repo` (you must clone the repo yourself first)
-Note: the agent cannot run `git clone` on the host (boundary rule).
+Either a local absolute path or a GitHub URL.
+Examples:
+- `/home/user/my-repo` (local clone)
+- `https://github.com/user/my-repo` (GitHub URL)
 
-**cve_id** (optional when using auto-discovery)
-The CVE ID to triage. Must exist in CVE.org and OSV.dev.
+The agent will:
+- For a local path: auto-discover CVEs in its dependencies.
+- For a GitHub URL: read `requirements.txt` / `pyproject.toml` /
+  `package.json` from the repo, then auto-discover CVEs.
+
+**cve_id** (optional)
+Specific CVE to triage. If omitted, the agent auto-discovers all CVEs
+in the repo's dependencies and lets you pick which to investigate.
 Example: CVE-2020-14343
-Omit this field to trigger auto-discovery: the agent will scan your repo's
-dependencies, query OSV.dev, and present you with all CVEs found. You then
-choose which CVE(s) to investigate.
 
 ---
 
 ## Optional fields
 
 **mode** (optional, default: triage)
-- `triage` — full pipeline: legitimacy check, reachability analysis, PoC, verdict.
+- `triage` — full pipeline: CVE discovery, reachability, PoC, verdict.
 - `reproduce-only` — skip static analysis; go straight to sandbox PoC.
 - `patch-and-verify` — after confirming exploitation, produce and verify a fix.
 
@@ -51,7 +55,8 @@ After the session, `data/output/<repo>/verdict.json` contains:
 ```
 
 A short (≤ 15 line) report is returned in the chat, including:
-- CVE ID and verdict
+- List of discovered CVEs (when auto-discovery is used)
+- The selected CVE ID and verdict
 - The vulnerable code location (file:line)
 - One-line evidence summary
 - Artifact paths on the host
