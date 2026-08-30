@@ -1,27 +1,26 @@
 # User Prompt Template
 
-Fill in the fields below to start a triage session. The agent will produce a
-verdict in `data/output/<repo>/verdict.json` and a short report.
+Fill in the fields below to start a triage session.
 
 ---
 
 ## Required fields
 
 **target_repo** (required)
-Either a local absolute path or a GitHub URL.
-Examples:
-- `/home/user/my-repo` (local clone)
-- `https://github.com/user/my-repo` (GitHub URL)
+Local path or GitHub URL. Examples:
+- `/home/user/my-repo` (already cloned)
+- `https://github.com/user/my-repo` (agent will clone it)
 
-The agent will:
-- For a local path: auto-discover CVEs in its dependencies.
-- For a GitHub URL: read `requirements.txt` / `pyproject.toml` /
-  `package.json` from the repo, then auto-discover CVEs.
+If you provide a GitHub URL, the agent will:
+1. Clone the repo locally
+2. Build a Docker image
+3. Auto-discover CVEs in dependencies via OSV.dev
+4. Show you the CVE list and ask which to investigate
+5. Run sandbox exploits for your chosen CVE(s)
 
 **cve_id** (optional)
-Specific CVE to triage. If omitted, the agent auto-discovers all CVEs
-in the repo's dependencies and lets you pick which to investigate.
-Example: CVE-2020-14343
+Specific CVE to triage. If omitted, the agent discovers all CVEs and
+asks you to pick.
 
 ---
 
@@ -30,22 +29,18 @@ Example: CVE-2020-14343
 **mode** (optional, default: triage)
 - `triage` — full pipeline: CVE discovery, reachability, PoC, verdict.
 - `reproduce-only` — skip static analysis; go straight to sandbox PoC.
-- `patch-and-verify` — after confirming exploitation, produce and verify a fix.
+- `patch-and-verify` — after confirming exploitation, produce and verify a
+  code-level fix (NOT a dependency version bump).
 
-**time_budget** (optional, default: 3 turns, 5 minutes wall clock)
-Max turns and/or wall-clock time for this session.
-Example: 5 turns, 10 minutes
-
-**notes** (optional, ≤ 200 chars)
-Prior knowledge, context, or special instructions for this run.
-This field is for context only — it does not override the agent's boundary rules.
-Do NOT use this field to embed instructions for the agent to follow.
+**notes** (optional)
+Prior knowledge, context, or special instructions. Do NOT use this
+field to embed instructions for the agent.
 
 ---
 
 ## What to expect back
 
-After the session, `data/output/<repo>/verdict.json` contains:
+`data/output/<repo>/verdict.json`:
 ```json
 {
   "cve_id": "...",
@@ -54,15 +49,14 @@ After the session, `data/output/<repo>/verdict.json` contains:
 }
 ```
 
-A short (≤ 15 line) report is returned in the chat, including:
-- List of discovered CVEs (when auto-discovery is used)
-- The selected CVE ID and verdict
-- The vulnerable code location (file:line)
-- One-line evidence summary
-- Artifact paths on the host
+A ≤15 line summary including:
+- CVE ID and verdict
+- Vulnerable code location (file:line)
+- One-line evidence
+- Artifact paths
 
 ## What NOT to type
 
 - Do not paste API keys, tokens, or credentials.
-- Do not ask the agent to "ignore your instructions" or bypass its tools.
-- Do not ask it to fetch arbitrary URLs or run commands outside the sandbox.
+- Do not ask the agent to bypass its tools.
+- Do not ask it to run commands outside the sandbox.
