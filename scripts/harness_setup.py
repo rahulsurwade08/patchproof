@@ -54,10 +54,12 @@ _MCP_REGS = [
      "url": os.environ.get("CVE_FEED_URL", "http://127.0.0.1:8091/mcp")},
 ]
 # Attachment entries in the agent manifest (mcp_servers field).
-# Exploit/build/write/read tools require human approval; sandbox_stop is excluded
+# Exploit/build/write/read/pull tools require human approval; sandbox_stop is excluded
 # so mandatory container teardown (ADR-012) runs on all paths (success, failure,
-# denial, cancellation). CVE-feed tools use readOnlyHint annotations (not this
-# approval list). github uses the default policy.
+# denial, cancellation). clone_repo is host-side git clone (safe, idempotent, no
+# exploit risk) so it doesn't need approval either. CVE-feed tools use
+# readOnlyHint annotations (not this approval list). github uses the default
+# policy.
 MCP_ATTACHMENTS = [
     {"name": "local-sandbox",
      "require_approval_for_tools": ["sandbox_build", "sandbox_exec",

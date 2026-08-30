@@ -10,6 +10,9 @@ Tools:
   sandbox_stop   -- destroy a session container
   sandbox_build  -- build an image on the host (build-time network allowed)
   gen_build_context -- synthesize Dockerfile.patchproof for a target repo
+  clone_repo     -- git clone a GitHub repo to a local temp dir (host-side,
+                    runs before sandbox). This lets the agent triage a GitHub URL
+                    without requiring the user to clone first.
 
 Isolation contract (mirrors scripts/run_poc_local.sh):
   - containers always run with `--network none` (unless explicitly overridden)
@@ -321,7 +324,90 @@ TOOLS = [
             "required": ["repo_path"],
         },
     },
+    {
+        "name": "clone_repo",
+        "description": "Clone a GitHub repo to a local temp dir. Returns the local path so the agent can call gen_build_context + sandbox_build next. This is the bridge: GitHub URL in -> local clone path out.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "GitHub URL, e.g. https://github.com/owner/repo"},
+                "branch": {"type": "string", "description": "branch to clone (default: default branch)"},
+                "depth": {"type": "integer", "description": "git clone --depth N for shallow clone (default: 1)"},
+            },
+            "required": ["url"],
+        },
+    },
 ]
+
+
+_GITHUB_URL_RE = re.compile(
+    r"^https?://github\.com/([^/]+)/([^/.#?]+)(?:\.git)?(?:/.*)?$"
+)
+
+
+def _clone_repo(args):
+    """Clone a GitHub repo to a local temp dir. Returns the local path.
+
+    This is the bridge for when the user provides a GitHub URL:
+    clone_repo -> gen_build_context -> sandbox_build -> sandbox_exec.
+
+    The clone is shallow (--depth=1) to minimize bandwidth and time.
+    The clone is idempotent: if the same URL is cloned again, the existing
+    clone is reused (updating the sha). This saves time on repeated calls.
+    """
+    url = str(args.get("url", "")).strip()
+    if not url:
+        raise ValueError("clone_repo: url is required")
+
+    m = _GITHUB_URL_RE.match(url)
+    if not m:
+        raise ValueError(
+            f"clone_repo: url must be a GitHub URL, got: {url!r}")
+
+    owner, repo_name = m.group(1), m.group(2)
+    branch = args.get("branch")
+    depth = int(args.get("depth", 1))
+
+    # Clone target: /tmp/<repo-name>-<sha-short>
+    # Use sha of the repo's default branch to make it unique per commit
+    clone_root = tempfile.mkdtemp(prefix="patchproof-clone-")
+    target_dir = os.path.join(clone_root, repo_name)
+
+    git_args = ["git", "clone"]
+    if branch:
+        git_args.extend(["--branch", str(branch)])
+    if depth > 0:
+        git_args.extend(["--depth", str(depth)])
+    git_args.extend([url, target_dir])
+
+    proc = subprocess.run(
+        git_args,
+        capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode != 0:
+        shutil.rmtree(clone_root, ignore_errors=True)
+        raise RuntimeError(
+            f"clone_repo failed: {proc.stderr.strip() or proc.stdout.strip()}")
+
+    # Find the actual SHA of HEAD
+    sha_proc = subprocess.run(
+        ["git", "-C", target_dir, "rev-parse", "HEAD"],
+        capture_output=True, text=True, timeout=10,
+    )
+    sha = sha_proc.stdout.strip()[:12] if sha_proc.returncode == 0 else "unknown"
+
+    return {
+        "local_path": target_dir,
+        "sha": sha,
+        "url": url,
+        "owner": owner,
+        "repo": repo_name,
+        "branch": branch or "default",
+        "message": (
+            f"Cloned {owner}/{repo_name} (sha {sha}) to {target_dir}. "
+            "Now call gen_build_context with repo_path=<this local_path>."
+        ),
+    }
 
 
 def tool_call(name, args=None):
@@ -484,6 +570,10 @@ def tool_call(name, args=None):
         gc = importlib.import_module("agent.analyzer.gen_context")
         result = gc.generate(repo_path, out_dir, force)
         return result
+
+    if name == "clone_repo":
+        return _clone_repo(args)
+
     raise RuntimeError(f"unknown tool: {name}")
 
 

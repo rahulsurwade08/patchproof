@@ -100,12 +100,12 @@ For local path:
   - Read that file via sandbox_read OR copy it via sandbox_pull.
 
 For GitHub URL `https://github.com/OWNER/REPO`:
-  - Call `get_file_contents(owner="OWNER", repo="REPO", path="requirements.txt")`.
-  - If 404: try `path="pyproject.toml"`, then `path="package.json"`.
-  - **The MCP returns only a metadata stub with a SHA.** The actual file
-    content must be fetched via `get_commit` with `detail="files"` using
-    either the commit SHA (from `list_commits`) or the blob SHA.
-  - Parse the manifest for (name, version) pairs.
+  - **Call `clone_repo(url="<url>")`** FIRST. It runs `git clone` on the
+    host, returns the local path (e.g. `/tmp/patchproof-clone-xxx/dvpwa`).
+    This is the only reliable way to get the repo onto the local filesystem.
+  - Once you have the local path, proceed as if the user gave a local path.
+  - The clone is shallow (--depth=1), so it downloads only the latest commit.
+  - The clone is idempotent: re-cloning the same URL updates the existing clone.
 
 ### Step 1: Discover CVEs
 

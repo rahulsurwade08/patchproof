@@ -45,7 +45,30 @@ def test_tool_registry():
     names = {t["name"] for t in srv.TOOLS}
     assert names == {"sandbox_build", "sandbox_exec", "sandbox_write",
                      "sandbox_read", "sandbox_stop", "sandbox_pull",
-                     "gen_build_context"}
+                     "gen_build_context", "clone_repo"}
+
+
+def test_clone_repo_url_validation():
+    """clone_repo rejects non-GitHub URLs."""
+    for bad in ["https://gitlab.com/x/y", "https://github.com",
+                "not a url", "", "https://github.com/"]:
+        with pytest.raises((ValueError, RuntimeError)):
+            srv._clone_repo({"url": bad})
+
+
+def test_clone_repo_url_parsing():
+    """_GITHUB_URL_RE correctly parses GitHub URLs."""
+    cases = [
+        ("https://github.com/owner/repo", ("owner", "repo")),
+        ("https://github.com/owner/repo.git", ("owner", "repo")),
+        ("https://github.com/rahulsurwade08/dvpwa", ("rahulsurwade08", "dvpwa")),
+        ("https://github.com/owner/repo/tree/main", ("owner", "repo")),
+    ]
+    for url, (exp_owner, exp_repo) in cases:
+        m = srv._GITHUB_URL_RE.match(url)
+        assert m is not None, f"failed to parse: {url}"
+        assert m.group(1) == exp_owner
+        assert m.group(2) == exp_repo
 
 
 def test_unknown_tool_raises():
@@ -339,7 +362,7 @@ def test_http_initialize_and_tools_list(http_server):
     assert body["result"]["serverInfo"]["name"] == "patchproof-local-sandbox"
     status, body = _post(http_server, {
         "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
-    assert len(body["result"]["tools"]) == 7
+    assert len(body["result"]["tools"]) == 8  # 7 tools + clone_repo
 
 
 def test_http_unknown_tool_is_jsonrpc_error(http_server):
