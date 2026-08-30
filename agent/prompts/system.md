@@ -59,17 +59,43 @@ Never invent results.
 ### Step 0: Get package list
 The user provides `target_repo` as a local path or GitHub URL.
 
-For GitHub URL `https://github.com/OWNER/REPO`:
-  - `get_file_contents(owner="OWNER", repo="REPO", path="requirements.txt")`
-  - If 404: try `path="pyproject.toml"`, then `path="package.json"`.
-  - Parse the manifest. Extract (name, version) for each dependency.
-
 For local path:
   - Run `python agent/analyzer/reach.py --discover <repo_path> --out /tmp/discover`
   - It calls osv.dev for each package and writes discovered_cves.json.
   - Read that file via sandbox_read OR copy it via sandbox_pull.
 
-DO NOT browse directory listings. DO NOT list commits. Read the file.
+For GitHub URL `https://github.com/OWNER/REPO`:
+  - Call `get_file_contents(owner="OWNER", repo="REPO", path="requirements.txt")`.
+  - If 404: try `path="pyproject.toml"`, then `path="package.json"`.
+
+  **IMPORTANT — GitHub MCP limitation**: `get_file_contents` returns only a
+  metadata stub, not raw content. The response looks like:
+    `{"content": "successfully downloaded text file (SHA: abc123...)"}`
+  That SHA is the file's **blob SHA** (NOT a commit SHA). You cannot get the
+  file content back from this tool alone.
+
+  To get the actual file content, use ONE of these methods:
+
+  - **Method A** (preferred): Call `get_commit` with the LAST commit that
+    touched the file. Use `list_commits` first to find it (the response
+    includes commit messages you can grep for "Update dependencies" or
+    "Project upload"). Then call `get_commit(owner, repo, sha=<commit-sha>,
+    detail="files")` to get the file diffs/patches. The `files[].patch` field
+    contains the content.
+
+  - **Method B**: Call `get_commit` with the **blob SHA** from
+    `get_file_contents` as the `sha` parameter, and `detail="files"`. The
+    response includes the blob content directly.
+
+  - **Method C** (last resort): If the user has not yet cloned the repo,
+    skip the GitHub MCP and just ASK the user to paste the manifest content.
+    This is faster than fighting the MCP.
+
+  Parse the manifest for (name, version) pairs. If the manifest has no
+  version pins, treat as unversioned and query OSV without a version.
+
+DO NOT browse directory listings. DO NOT list commits without a plan.
+Read the file by known path, then extract content using the methods above.
 
 ### Step 1: Discover CVEs
 For each package, call `osv_query_package(ecosystem="PyPI", name="<pkg>")`.
