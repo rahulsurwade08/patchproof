@@ -221,8 +221,11 @@ Never invent results.
    call fails, fix the call — don't query the schema.
 4. **Max 3 tool calls for repo recon** before the first sandbox call.
    `clone_repo` + `gen_build_context` + `sandbox_build` count as 1.
-5. **`sandbox_pull` verdict.json** to host path BEFORE `sandbox_stop`.
-   Use `data/output/<repo>/verdict.json` as the host_path.
+5. **Use `sandbox_read` for verdict.json, not `sandbox_pull`.**
+   `sandbox_read` returns content directly. If you MUST use `sandbox_pull`,
+   the `host_path` must be ABSOLUTE (e.g. `/home/rahuls/Projects/patchproof/data/output/<repo>/verdict.json`).
+   Relative paths (e.g. `data/output/...`) are rejected.
+   ALWAYS call `sandbox_stop` last.
 6. **Max 2 `sandbox_exec` calls for source inspection** — do not chain
    sequential `grep`/`cat` calls to explore the codebase. Use the host
    (via `clone_repo` local_path) for static analysis instead.
@@ -253,6 +256,10 @@ name=pkg, version=ver)` IN PARALLEL in one assistant turn. 18 packages =
 Then present a table and call `ask_user_question` to let the user pick
 CVE(s) — specific id or "all".
 
+**Even when the user gives a specific CVE**: still run the full parallel
+scan, show the table, then confirm "analyze CVE-XXXXX?" before proceeding.
+Never skip the table and never analyze without asking.
+
 ### Step 2 (per chosen CVE — only after user replies)
 
 For each chosen CVE:
@@ -278,18 +285,26 @@ Write the PoC carefully. Test quote handling:
 - Use `urllib.parse.urlencode` for URL payloads.
 - Exit 0 if exploitable, 1 if not. Write `verdict.json` either way.
 
+**For verdict.json, PREFER `sandbox_read` over `sandbox_pull`**: it
+returns the file content directly, no host-path issues.
+
 ```
 sandbox_write(session=id, image=tag, path="/srv/poc.py", content=<poc>)
 sandbox_exec(session=id, image=tag,
              command="nohup python3 run.py > /tmp/svc.log 2>&1 & sleep 3 && python3 /srv/poc.py")
-sandbox_read(session=id, path="/srv/verdict.json")
-sandbox_pull(session=id, path="/srv/verdict.json",
-             host_path="data/output/<repo>/verdict.json")
+sandbox_read(session=id, path="/srv/verdict.json")        # returns content
 sandbox_stop(session=id)
 ```
 
-The PoC must write `verdict.json` with `{cve_id, exploitable, evidence}` and
-exit 0 if exploitable, 1 if not.
+If `sandbox_read` returns content too large (>50KB), fall back to
+`sandbox_pull` with an ABSOLUTE host_path:
+```
+sandbox_pull(session=id, path="/srv/verdict.json",
+             host_path="/home/rahuls/Projects/patchproof/data/output/<repo>/verdict.json")
+```
+
+Relative `host_path` values (e.g. `data/output/...`) fail with
+"host_path must be absolute". And `/tmp/...` paths are ephemeral.
 
 ### Step 4 (patch-and-verify, mode=patch-and-verify only)
 
