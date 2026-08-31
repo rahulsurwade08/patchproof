@@ -36,6 +36,7 @@ def http_get(path):
 
 
 TURN_COUNT = [0]
+AUTO_APPROVE_ALL = [False]
 
 
 def http_post_sse(path, body_data):
@@ -80,12 +81,62 @@ def send_turn(prev, msg=None, approvals=None, is_first=False):
     return http_post_sse("/sessions/" + SID + "/turns", body)
 
 
+def fetch_model_messages_for_turn(turn_id):
+    """Return all model.message events for a turn, keyed by their ID."""
+    try:
+        d = http_get("/sessions/" + SID + "/turns/" + turn_id + "/events")
+        events = d.get("data", [])
+    except Exception:
+        return {}
+    result = {}
+    for ev in events:
+        ev_data = ev.get("event", {})
+        if ev_data.get("type") == "model.message" and ev_data.get("tool_calls"):
+            result[ev_data["id"]] = ev_data
+        for tc in ev_data.get("tool_calls", []):
+            func = tc.get("function", {})
+            args_str = func.get("arguments", "{}")
+            try:
+                args = json.loads(args_str)
+            except Exception:
+                args = {}
+            inp = args.get("input", {})
+            mcp = inp.get("mcp_server", "?")
+            tname = inp.get("tool_name", "?")
+            result[tc["id"]] = {"mcp": mcp, "tool": tname}
+    return result
+
+
+def fetch_tool_call_info(call_id):
+    """Look up tool call details from session events by tool_call.id."""
+    try:
+        d = http_get("/sessions/" + SID + "/events?limit=100")
+        events = d.get("data", [])
+    except Exception:
+        return {}
+    for ev in events:
+        ev_data = ev.get("event", {})
+        if ev_data.get("type") != "model.message":
+            continue
+        for tc in ev_data.get("tool_calls", []):
+            if tc.get("id") == call_id:
+                func = tc.get("function", {})
+                args_str = func.get("arguments", "{}")
+                try:
+                    args = json.loads(args_str)
+                except Exception:
+                    args = {}
+                inp = args.get("input", {})
+                return {
+                    "mcp": inp.get("mcp_server", "?"),
+                    "tool": inp.get("tool_name", "?"),
+                    "params": {k: v for k, v in inp.items()
+                               if k not in ("mcp_server", "tool_name")}}
+    return {}
+
+
 def poll_turn(turn_id, timeout=600):
     start = time.time()
-    # Hard cap on total turns. The agent may legitimately need 5–7 turns
-    # for a full sandbox build → write → exec → read → pull → stop cycle,
-    # so the cap is generous. Anything beyond 15 is a runaway loop and we
-    # cancel the session so the run doesn't burn tokens indefinitely.
     TURN_LIMIT = 15
     if TURN_COUNT[0] >= TURN_LIMIT:
         print("  TURN LIMIT REACHED (" + str(TURN_LIMIT) + ")", flush=True)
@@ -112,13 +163,43 @@ def poll_turn(turn_id, timeout=600):
                 approvals = []
                 for a in actions:
                     for tc in a.get("tool_calls", []):
-                        name = tc.get("name", "?")
-                        print("  APPROVE " + name + " " + tc["id"], flush=True)
+                        cid = tc["id"]
+                        info = fetch_tool_call_info(cid)
+                        mcp = info.get("mcp", "?")
+                        tname = info.get("tool", "call_tool")
+                        params = info.get("params", {})
+                        short = {k: (str(v)[:60] if not isinstance(v, str) else v[:60])
+                                 for k, v in params.items()}
+                        print(f"  ? APPROVE [{mcp}] {tname}({short})", flush=True)
+                        if AUTO_APPROVE_ALL[0]:
+                            status_val = "allow"
+                            print(f"  -> auto-allowed", flush=True)
+                        else:
+                            while True:
+                                try:
+                                    reply = input("  [y]es / [n]o / [a]ll-yes / [q]uit: ").strip().lower()
+                                except (EOFError, KeyboardInterrupt):
+                                    reply = "q"
+                                if reply in ("y", ""):
+                                    status_val = "allow"
+                                    break
+                                elif reply == "n":
+                                    status_val = "deny"
+                                    break
+                                elif reply == "a":
+                                    status_val = "allow"
+                                    AUTO_APPROVE_ALL[0] = True
+                                    break
+                                elif reply == "q":
+                                    print("  Quitting.", flush=True)
+                                    return
+                                else:
+                                    print("  Invalid. y / n / a / q", flush=True)
                         approvals.append({
                             "type": "user.tool_approval",
                             "thread_id": "main",
-                            "tool_call_id": tc["id"],
-                            "approval": {"status": "allow"}})
+                            "tool_call_id": cid,
+                            "approval": {"status": status_val}})
                 if approvals:
                     nt, _ = send_turn(turn_id, approvals=approvals, is_first=False)
                     TURN_COUNT[0] += 1
@@ -154,7 +235,7 @@ def write_telemetry(turn_id, status, tokens):
 
 
 def load_fields_from_file(path):
-    """Accept a .json file or KEY=VALUE lines."""
+    """Accept a .json file or KEY=VALUE / key:value lines."""
     if path.endswith(".json"):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
@@ -162,30 +243,48 @@ def load_fields_from_file(path):
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
-            if "=" in line and not line.startswith("#"):
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
                 k, v = line.split("=", 1)
-                fields[k.strip()] = v.strip()
+            elif ":" in line:
+                k, v = line.split(":", 1)
+            else:
+                continue
+            fields[k.strip()] = v.strip()
     return fields
 
 
 if __name__ == "__main__":
-    SID = sys.argv[1]
+    auto_approve = "--auto" in sys.argv
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__)
+        sys.exit(0)
+
+    SID = sys.argv[1] if len(sys.argv) >= 2 else None
+    if not SID:
+        print("Usage: run_session.py <session_id> [--auto] [--help]")
+        sys.exit(1)
+    AUTO_APPROVE_ALL[0] = auto_approve
+    if auto_approve:
+        print("Auto-approve mode: --all-yes set", flush=True)
+
     msg = None
     if len(sys.argv) >= 3:
         arg2 = sys.argv[2]
-        if os.path.isfile(arg2):
-            fields = load_fields_from_file(arg2)
-            rendered = render_template(fields)
-            if rendered:
-                msg = rendered
+        if not arg2.startswith("--"):
+            if os.path.isfile(arg2):
+                fields = load_fields_from_file(arg2)
+                rendered = render_template(fields)
+                if rendered:
+                    msg = rendered
+                else:
+                    lines = ["# Triage request"]
+                    for k, v in fields.items():
+                        lines.append(k + ": " + v)
+                    msg = "\n".join(lines)
             else:
-                # Fallback: build a minimal prompt from the fields
-                lines = ["# Triage request"]
-                for k, v in fields.items():
-                    lines.append(k + ": " + v)
-                msg = "\n".join(lines)
-        else:
-            msg = arg2
+                msg = arg2
     if not msg:
         msg = "Continue."
 
