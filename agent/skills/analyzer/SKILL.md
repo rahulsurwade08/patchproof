@@ -175,8 +175,8 @@ Confirm the generated entry point is the real app before building, then
 `start_command`) to `data/output/<repo>/build-context.json`** and hand that
 start command to the reproducer: sandbox startup overrides the Dockerfile
 `CMD`, so the reproducer MUST launch the service with this command instead of
-assuming `uvicorn main:app` (legacy default; arbitrary repos use
-the recorded start_command).
+assuming the historical `uvicorn main:app` default. Arbitrary repos use
+the recorded start_command.
 
 ## Rules
 

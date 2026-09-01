@@ -3,8 +3,7 @@
 > Scanners tell you you're *maybe* vulnerable. PatchProof tells you the truth
 > about **your** code: it proves whether a flagged CVE is actually *reachable*
 > with attacker-controlled input in your repo, exploits the exact code inside an
-> isolated sandbox to confirm, then fixes it, verifies the fix works, cleans up,
-> and asks permission before shipping.
+> isolated sandbox to confirm, proposes a fix, and asks permission before shipping.
 
 ## 0. Product theses (decided)
 
@@ -121,7 +120,7 @@ Capability map:
 | Sandbox execution | PoC exploit code and patch test suites — never run on host |
 | Human approval | Merge-and-deploy-to-staging step pauses until approved (comment-based) |
 | Subagents | One reproducer per REACHABLE candidate (parallel fan-out) + a judge reviewing every verdict |
-| Skills | `analyzer` (first stage) + `orchestrator`/`reproducer`/`judge`/`patcher`/`verifier`/`test-runner` load as stages match |
+| Skills | `analyzer` (first stage) + `orchestrator`/`reproducer`/`judge`/`patcher`/`verifier` load as stages match |
 
 ## 5. Analyzer (reachability triage engine)
 
@@ -134,7 +133,7 @@ The functional core for arbitrary repos. All Python.
 | Dep-pin parser | part of `reach.py` | Parse `requirements*.txt/.lock`, `pyproject.toml`, `package.json` etc. for pinned versions |
 | Build-context generator | `agent/analyzer/gen_context.py` | Auto-generates a `Dockerfile` + entry for a repo lacking one, so `sandbox_build` works on arbitrary repos (fixes the dvpwa `context_path` gap) |
 | Output dir | `data/output/<repo>/` | Auditable `reachability.json`, `verdict.json`, `assessment.json` per run (gitignored) |
-| Python MCP servers | `agent/mcp-fastapi/...` | Migrated `cve-feed` + `local-sandbox` servers in Python (ADR-011) |
+| Python MCP servers | `agent/mcp/*.py` | `cve-feed` + `local-sandbox` servers in Python (ADR-011) |
 
 `reachability.json` schema (draft):
 
@@ -170,29 +169,22 @@ Honesty rules (ADR-010):
 ## 6. Run graph (lean orchestration, no framework)
 
 The pipeline is naturally a DAG (fan-out reproducers, judge→reproducer loop, the
-approval gate). We encode it as a **run spec + per-node status store** rather
-than a graph framework (ADR-014). No new dependency; we own the representation.
+approval gate). We encode it as **filesystem state + skill prompts** rather than
+a graph framework (ADR-014). No new dependency; we own the representation.
 
-- **Run spec** (`data/output/<repo>/run-spec.json`): nodes = skills
-  (`analyzer`, `reproducer×N`, `judge`, `patcher`, `verifier`, `test-runner`),
-  each with `{id, skill, inputs: [artifact refs], outputs: [artifact paths],
-  gate?: "approval", retries}`; edges = handoffs.
-- **Status store** (`data/output/<repo>/run-status.json`): per node
-  `{state: pending|running|succeeded|failed|blocked, started, finished,
-  artifact_paths, evidence list}`. The orchestrator walks the graph via the
-  harness, invoking each skill as a harness turn/MCP call.
- - **Interaction surface:** the status store is queryable per node — "what did this skill do, with what evidence, what's its state" — feeding the audit rather than a flat transcript.
-- Teardown is a terminal node that always runs (ADR-012).
+Each node reads exactly its inputs from `data/output/<repo>/` and writes its
+outputs there. The orchestrator walks the sequence via the harness, invoking
+each skill as a turn. Teardown is the terminal node that always runs (ADR-012).
 
 ## 7. Memory & token budget
 
 ### Memory model (three tiers)
 
 - **Long-term (source of truth): the file system.** Every run's durable state
-  lives under `data/output/<repo>/` — `run-spec.json`, `run-status.json`,
-  `reachability.json`, `verdict.json`, `assessment.json`, plus raw sandbox logs
-  (kept in files, never in context). Files survive, are auditable, feed the
-  dashboard, and let a session **resume by reading one small state file**.
+  lives under `data/output/<repo>/` — `reachability.json`, `verdict.json`,
+  `assessment.json`, plus raw sandbox logs (kept in files, never in context).
+  Files survive, are auditable, and let a session **resume by reading one small
+  state file**.
 - **Working memory (in-session): the run graph + artifact pointers.** Each skill
   node reads only the artifacts it needs and writes only its outputs; the
   orchestrator holds pointers (`artifact_paths`), not content. No cross-node
@@ -233,9 +225,7 @@ Per-node model-token budget (estimates):
 
 ### Token utilization decisions (agreed)
 
-- **Telemetry:** the run-status store records `total_tokens`/request count per
-  node, so `run-status.json` doubles as a quota dashboard and shows exactly where
-  budget goes before further optimization.
+- **Telemetry:** per-node status is tracked per run to show where budget goes before further optimization.
 - **Retry policy (cap 3):** on a low-confidence / disagreeing judge, retry the
   **narrow node only** (e.g. the reproducer), keeping prior node artifacts —
   never re-run from the analyzer up.
@@ -278,8 +268,7 @@ target and must not be less secure than the code it audits.
 
 **Secrets**
 - `.env`/keys never committed or displayed; refer to keys by name only.
-- Narrowest-scope GitHub token; no keys in `data/output/`, `run-status.json`,
-  telemetry, or commit messages.
+- Narrowest-scope GitHub token; no keys in `data/output/`, telemetry, or commit messages.
 - Per-push secrets scan (grep key patterns) added to the pre-push gate so a key
   can't sneak into a commit.
 
@@ -328,4 +317,5 @@ target and must not be less secure than the code it audits.
 
 ## 11. Outstanding improvements
 
-See the issue tracker for open items. Priority: make verdict observable on host, token optimization, max-3-turns guard.
+See the issue tracker for open items. Priority: token optimization, stronger
+sandbox isolation (microVMs), telemetry baseline.
