@@ -1,8 +1,8 @@
 # PatchProof
 
 Scanners say *"maybe vulnerable."* PatchProof proves whether you actually are —
-by exploiting your exact code inside an isolated sandbox — fixes it, verifies
-the fix works, and asks permission before shipping.
+by exploiting your exact code inside an isolated sandbox — proposes a fix,
+and asks permission before shipping.
 
 ## The problem it solves
 

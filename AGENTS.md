@@ -65,7 +65,7 @@ bash scripts/reset_state.sh
 
 - `agent/analyzer/` — reachability triage engine (`reach.py`, `gen_context.py`, `deps.py`)
 - `agent/mcp/` — MCP servers (`local_sandbox_server.py`, `cve_feed_server.py`)
-- `agent/prompts/` — subagent prompts (orchestrator, analyzer, reproducer, judge, patcher, verifier, test-runner)
+- `agent/prompts/` — subagent prompts (orchestrator, analyzer, reproducer, judge, patcher, verifier)
 - `agent/skills/` — harness skills (SKILL.md per node)
 - `data/output/<repo>/` — per-run artifacts: `reachability.json`, `verdict.json`, `assessment.json` (gitignored)
 
