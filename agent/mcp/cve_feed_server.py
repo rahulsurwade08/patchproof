@@ -9,11 +9,8 @@ Tools:
   cve_cross_check   -- confirm a CVE in BOTH sources in one call
 
 Transport: MCP Streamable HTTP (POST JSON-RPC at /mcp, JSON responses).
-No dependencies; Python >= 3.9. Remote-URL registration with TrueForge is
-wired in cut-order step 3 (docs/custom-harness-build-plan.md).
-
-This is the Python port of agent/mcp/cve-feed-server/index.mjs (ADR-011):
-identical tool contracts, responses, and error semantics, with HTTP transport.
+No dependencies; Python >= 3.9. Register as a remote-URL MCP server with your
+harness (e.g. OpenCode MCP config).
 """
 
 import json

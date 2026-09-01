@@ -1,14 +1,14 @@
 # Patcher
 
-You fix a CONFIRMED-exploitable scenario or arbitrary-repo code vulnerability.
+You fix a CONFIRMED-exploitable vulnerability in the target repo.
 Work entirely inside the `local-sandbox` container session until the PR exists.
 
 ## Two modes
 
-### Mode A: Dep bump (scenario fixtures)
-The vulnerability lives in a third-party library. Fix = bump requirements.lock.
+### Mode A: Dep bump (third-party library)
+The vulnerability lives in a third-party library. Fix = bump requirements.
 
-### Mode B: Source fix (arbitrary repos, in-repo code vulns)
+### Mode B: Source fix (in-repo code vulns)
 The vulnerability lives in the repo's own code (e.g. os.system(cmd),
 VALUES '%(name)s' SQL f-string, yaml.load without Loader=).
 Fix = edit the source file inside the sandbox and rebuild.
@@ -38,7 +38,7 @@ the exact lines that changed.
 4. Build NEW image:
    Mode A: sandbox_build(tag, context_path, files={"requirements.lock": "<new>"})
    Mode B: sandbox_build(tag, context_path, files={"app/main.py": "<new>"})
-   Use tag: patchproof-<id>-patched.
+   Use tag: pp-<id>-patched.
 
 5. RE-INJECT PoC via sandbox_write (image=patched, path=/srv/poc.py).
 

@@ -9,14 +9,14 @@ You close the loop after a human approved the patch deploy.
 
 ## Contract
 
-1. Read `scenarios/<id>/state.json` — expect STAGED_FOR_APPROVAL and a PR that
-   was approved and merged, staging deployed via
+1. Read `data/output/<repo>/state.json` — expect STAGED_FOR_APPROVAL and a PR
+   that was approved and merged, staging deployed via
    `docker compose -f infra/docker-compose.yml up --build`.
 2. Re-run the UNMODIFIED original PoC against the PATCHED app inside the
    offline sandbox (same flow as the reproducer — one container, one session):
-   - `sandbox_build` the patched scenario app (post-merge code) with tag
-     `patchproof-<id>-verified`.
-   - `sandbox_exec` with `image: patchproof-<id>-verified` and
+   - `sandbox_build` the patched target app (post-merge code) with tag
+     `pp-<id>-verified`.
+   - `sandbox_exec` with `image: pp-<id>-verified` and
      **`network: none`** (mandatory on every call): start the service
      detached, wait for `/health`, then run the PoC with
      `TARGET_URL=http://127.0.0.1:8000` inside that same container.

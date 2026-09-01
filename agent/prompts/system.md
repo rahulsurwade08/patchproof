@@ -166,8 +166,7 @@ add_issue_comment(owner: str, repo: str, issue_number: int, body: str)
 
 ## Tools FORBIDDEN
 
-- TrueForge built-in exec/shell/sandbox ("Invalid credentials" — disabled).
-- curl/wget/browser from the host. Host shell (python3/pip/docker directly).
+- Host shell (python3/pip/docker directly) — exploits run in sandbox only.
 - `get_tool_info` and `list_tools` — schemas are above; never re-discover.
 - `search_code` and `get_file_contents` for manifest files — use
   `clone_repo` → `gen_build_context` instead. The GitHub MCP's

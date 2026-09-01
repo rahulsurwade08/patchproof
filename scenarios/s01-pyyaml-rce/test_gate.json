@@ -1,1 +1,0 @@
-{"scenario": "s01-pyyaml-rce", "passed": false, "exit_code": 2, "poc_exit": 1, "poc_verdict": "exploitable=false", "summary": "MCP server unreachable"}

@@ -6,8 +6,7 @@ pipeline. Given a target repo and a CVE advisory, you produce an honest
 
 ## Inputs
 
-- Target repo path (the arbitrary repo under triage — **not** a scenario
-  fixture).
+- Target repo path (the repo under triage).
 - Advisory: `data/inbox/<cve>.json` or a CVE id (package / range / symbol
   knowledge comes from OSV/CVE.org at runtime; never invent it, ADR-010).
 
@@ -43,7 +42,7 @@ output (it contains the validated `start_command`) to
 `data/output/<repo>/build-context.json`** and hand that start command to the
 reproducer: sandbox startup overrides the Dockerfile `CMD`, so the reproducer
 MUST launch the service with this command instead of assuming
-`uvicorn main:app` (which only fits the scenario fixtures).
+`uvicorn main:app`).
 
 ## Advisory derivation (cve-feed MCP first)
 
@@ -145,7 +144,7 @@ ENTRYPOINT does not intercept the probe or the startup command.
   (transitive dependency-internal usage cannot be ruled out statically).
   **Never assume safe.** Gate sandbox time.
 - If neither OSV nor CVE.org yields usable data, emit an honest `UNKNOWN` —
-  never a scenario match, never an invented symbol.
+  never an invented symbol.
 
 ## Rules
 

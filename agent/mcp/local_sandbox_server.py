@@ -14,7 +14,7 @@ Tools:
                     runs before sandbox). This lets the agent triage a GitHub URL
                     without requiring the user to clone first.
 
-Isolation contract (mirrors scripts/run_poc_local.sh):
+Isolation contract:
   - containers always run with `--network none` (unless explicitly overridden)
   - exploit traffic can only reach 127.0.0.1 inside the container
   - nothing executes on the host itself

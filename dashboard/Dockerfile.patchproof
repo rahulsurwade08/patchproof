@@ -1,7 +1,0 @@
-FROM python:3.11-slim
-WORKDIR /srv
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements-dev.txt
-COPY app.py test_dashboard.py ./
-COPY static ./static
-CMD ["python", "-m", "pytest", "test_dashboard.py", "-q"]
