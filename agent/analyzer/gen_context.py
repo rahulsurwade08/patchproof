@@ -599,6 +599,28 @@ def generate(repo_path, out_dir=None, force=False):
     version = detect_runtime_version(repo_path, "py" if is_py else "js")
     base = (f"python:{version}-slim" if is_py else f"node:{version}-slim")
 
+    # Auto-replace legacy compiled C-extension packages with their pure-binary
+    # wheel equivalents when the synthesized slim image cannot build them
+    # (psycopg2 2.7 lacks Python 3.8 source compat; psycopg2-binary ships
+    # wheels for all current Pythons and is API-compatible). Only safe when
+    # the manifest path is editable (we own the synthesized context).
+    # Strategy: strip the version constraint so pip picks the newest
+    # psycopg2-binary with wheels for the detected runtime version.
+    if is_py and manifest_name in ("requirements.txt", "requirements") and out_dir != repo_path:
+        req_path = os.path.join(out_dir, manifest_path)
+        if os.path.isfile(req_path):
+            with open(req_path, encoding="utf-8") as fh:
+                lines = fh.readlines()
+            changed = False
+            for i, line in enumerate(lines):
+                stripped = line.split("#", 1)[0].strip()
+                if re.match(r"^psycopg2(?!-binary)", stripped):
+                    lines[i] = "psycopg2-binary\n"
+                    changed = True
+            if changed:
+                with open(req_path, "w", encoding="utf-8") as fh:
+                    fh.writelines(lines)
+
     lines = [_GENERATED_MARKER, f"FROM {base}", "WORKDIR /srv"]
     # Compiled dependencies (psycopg2, cffi, ...) need tooling the slim
     # base lacks — install a uniform, per-language build-tools layer BEFORE

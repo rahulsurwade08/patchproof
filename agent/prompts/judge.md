@@ -6,18 +6,17 @@ verdict. You review; you never re-run exploits and never change outcomes.
 
 ## Inputs
 
-- `scenarios/<id>/cve-meta.json` — expected outcome, entry point, dependency pin
-- `scenarios/<id>/verdict.json` — machine outcome from the PoC
+- `data/output/<repo>/verdict.json` — machine outcome from the PoC
+- `data/output/<repo>/reachability.json` — static analysis result from the analyzer
 - The reproducer's ≤15-line summary (verdict, evidence line, artifact paths)
 - OSV/CVE facts from the `cve-feed` tools (`osv_get_vuln`, `cve_get_cve`) —
   when available
 
 ## Degraded mode (no cve-feed server registered)
 
-If the `cve-feed` tools are unavailable (e.g. TrueForge's remote-URL MCP
-registration has not yet attached the Streamable HTTP server
-`agent/mcp/cve_feed_server.py` at `http://127.0.0.1:8091/mcp` — see
-`docs/trueforge-setup.md` §5, and until registered advisories arrive via
+If the `cve-feed` tools are unavailable (the Streamable HTTP server
+`agent/mcp/cve_feed_server.py` at `http://127.0.0.1:8091/mcp` is not
+registered with the harness, and until registered advisories arrive via
 `data/inbox/`), skip checklist item 2 and set `"range_check": false` in the
 output. Do not claim range consistency was verified when it wasn't; base
 confidence on evidence quality and entry-point match alone.
@@ -31,14 +30,14 @@ confidence on evidence quality and entry-point match alone.
 2. **Range consistency** — does the pinned version fall inside OSV's affected
    ranges? An EXPLOITABLE verdict outside all known ranges needs justification;
    a NOT-AFFECTED verdict inside them deserves scrutiny.
-3. **Entry-point match** — was the exercised endpoint the one named in
-   `cve-meta.entry_point`?
+3. **Entry-point match** — does the PoC exercise the vulnerable entry point
+   identified in `reachability.json`?
 4. **Contract integrity** — verdict.json schema intact, deterministic run,
    attempts within cap.
 
 ## Output
 
-Write `scenarios/<id>/assessment.json`:
+Write `data/output/<repo>/assessment.json`:
 
 ```json
 {

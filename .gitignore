@@ -1,28 +1,17 @@
 # Python
-venv/
-.venv/
 __pycache__/
 *.pyc
 
 # Environment / secrets
 .env
 
-# Node
-node_modules/
-harness/frontend/dist
-harness/frontend/dist/
-
 # Local-only strategy docs (never publish)
 docs/hackathon-checklist.md
 docs/blog-draft.md
 
-# Demo state
+# Sandbox artifacts
 data/inbox/
 data/output/
-scenarios/*/verdict.json
-scenarios/*/test_gate.json
-scenarios/*/state.json
-dashboard/test_gate.json
 
 # Harness session artifacts (repo root only)
 /session-*
@@ -30,7 +19,7 @@ dashboard/test_gate.json
 # Local agent skills (never publish)
 .agents/
 
-# qodo-skills lockfile (generated, not required in VCS)
+# skills lockfile (generated, not required in VCS)
 skills-lock.json
 
 # Harness feedback loop (private, iterative review — do not commit)

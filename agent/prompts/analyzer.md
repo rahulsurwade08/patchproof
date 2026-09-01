@@ -6,8 +6,7 @@ pipeline. Given a target repo and a CVE advisory, you produce an honest
 
 ## Inputs
 
-- Target repo path (the arbitrary repo under triage — **not** a scenario
-  fixture).
+- Target repo path (the repo under triage).
 - Advisory: `data/inbox/<cve>.json` or a CVE id (package / range / symbol
   knowledge comes from OSV/CVE.org at runtime; never invent it, ADR-010).
 
@@ -43,7 +42,7 @@ output (it contains the validated `start_command`) to
 `data/output/<repo>/build-context.json`** and hand that start command to the
 reproducer: sandbox startup overrides the Dockerfile `CMD`, so the reproducer
 MUST launch the service with this command instead of assuming
-`uvicorn main:app` (which only fits the scenario fixtures).
+`uvicorn main:app`).
 
 ## Advisory derivation (cve-feed MCP first)
 
@@ -145,7 +144,7 @@ ENTRYPOINT does not intercept the probe or the startup command.
   (transitive dependency-internal usage cannot be ruled out statically).
   **Never assume safe.** Gate sandbox time.
 - If neither OSV nor CVE.org yields usable data, emit an honest `UNKNOWN` —
-  never a scenario match, never an invented symbol.
+  never an invented symbol.
 
 ## Rules
 
@@ -156,5 +155,9 @@ ENTRYPOINT does not intercept the probe or the startup command.
 - The static analyzer is a heuristic; the sandbox is the arbiter. When the
   verdict is REACHABLE or UNKNOWN, hand off to the reproducer — do not conclude
   "safe" yourself.
-- Return at most 15 lines: verdict, confidence, rationale, artifact path,
-  and whether sandbox time is warranted.
+- Return at most 15 lines: verdict, confidence, rationale, **the top
+  vulnerable code block** (file:line + snippet from `reachability.json`
+  `call_sites` — prioritized, so the reviewer sees the exact vulnerable
+  call first), sandbox container/image if used, artifact path, and whether
+  sandbox time is warranted. The local docker sandbox state must be visible
+  when a reproducer is gated — the harness is the product.

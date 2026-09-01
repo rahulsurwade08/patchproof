@@ -1,3 +1,0 @@
-# Pin exact versions. Include the vulnerable dependency.
-fastapi==0.110.0
-uvicorn==0.29.0

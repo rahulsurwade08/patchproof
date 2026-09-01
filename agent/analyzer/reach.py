@@ -5,7 +5,11 @@ sandbox_exec):
     python agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
     python -m agent.analyzer.reach <repo-path> <cve-or-advisory> [--out <dir>]
 
+    # Auto-discovery mode: find all CVEs affecting repo packages
+    python agent/analyzer/reach.py --discover <repo-path> [--out <dir>]
+
 Writes reachability.json into --out (default data/output/<repo-basename>/).
+For --discover, writes discovered_cves.json instead.
 
 Triage pipeline: dep-pin short-circuit -> call-site scan -> input-source trace.
 
@@ -583,18 +587,246 @@ def _default_outdir(repo_path):
     return os.path.join("data", "output", os.path.basename(os.path.abspath(repo_path)))
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description="PatchProof reachability analyzer")
-    parser.add_argument("repo_path", help="path to the target repository")
-    parser.add_argument("cve_or_advisory", help="advisory JSON path or a CVE id")
-    parser.add_argument("--out", help="output directory (default data/output/<repo-basename>)")
-    args = parser.parse_args(argv)
+_OSV_API = "https://api.osv.dev/v1/query"
+_ECOSYSTEM_MAP = {
+    "pypi": "PyPI", "pip": "PyPI", "python": "PyPI",
+    "npm": "npm", "yarn": "npm",
+    "go": "Go", "cargo": "cargo",
+}
 
-    advisory = _load_advisory(args.cve_or_advisory)
-    out_dir = args.out or _default_outdir(args.repo_path)
-    record = reach(args.repo_path, advisory, out_dir)
+
+def _ecosystem_for(pkg_name, scan):
+    """Determine the OSV ecosystem name for a package based on its manifest entries.
+
+    Python packages (from requirements.txt, pyproject.toml) map to PyPI.
+    npm packages (from package.json) map to npm.
+    """
+    entries = scan.get(pkg_name, [])
+    for e in entries:
+        manifest = e.get("manifest", "")
+        if manifest in ("requirements", "pyproject.toml"):
+            return "PyPI"
+        elif manifest == "package.json":
+            return "npm"
+    # Defaults: try Python first, then npm
+    normalized = deps._normalize(pkg_name)
+    if normalized in scan:
+        return "PyPI"
+    return "npm"
+
+
+def discover_cves(repo_path):
+    """Auto-discover CVEs in a repo by querying OSV for each declared package.
+
+    Returns a sorted list of CVE dicts:
+        [{"cve_id": "CVE-YYYY-NNNN", "package": "name", "version": "x.y.z",
+          "summary": "...", "aliases": [...], "affected": true/false}]
+
+    Fails closed: if OSV lookup returns an error, the package is skipped
+    silently (no CVEs reported for it). Network errors are logged to stderr
+    once per package, not per call.
+    """
+    found = deps.scan_repo(repo_path)
+    if not found:
+        return []
+
+    discovered = {}
+    seen_packages = set()
+    for pkg_name, entries in found.items():
+        # Pick the first pinned version if available; otherwise any version
+        version = None
+        for e in entries:
+            if e.get("pinned") and e.get("version"):
+                version = e["version"]
+                break
+
+        # Query once per package (not once per entry) to avoid N+1 calls
+        if pkg_name in seen_packages:
+            continue
+        seen_packages.add(pkg_name)
+
+        ecosystem = _ecosystem_for(pkg_name, found)
+        vulns = _osv_query_package(ecosystem, pkg_name, version)
+        for vuln in vulns:
+            cve_id = _extract_cve_id(vuln)
+            if cve_id is None:
+                continue
+            key = (cve_id, pkg_name)
+            if key in discovered:
+                continue
+            # Determine if the pinned version is actually in the
+            # affected range. If no version is pinned, mark as unknown.
+            in_range = _version_in_affected_ranges(
+                version, vuln.get("affected", []), pkg_name, ecosystem
+            ) if version else None
+            discovered[key] = {
+                "cve_id": cve_id,
+                "package": pkg_name,
+                "version": version or "unknown",
+                "summary": vuln.get("summary", ""),
+                "aliases": vuln.get("aliases", []),
+                "affected": in_range if in_range is not None else True,
+            }
+
+    return sorted(discovered.values(), key=lambda x: (x["cve_id"], x["package"]))
+
+
+def _version_in_affected_ranges(version, affected_list, pkg_name, ecosystem):
+    """Check if a version falls in any of the affected ranges for the package.
+
+    Returns True/False, or None if the version can't be compared (e.g. the
+    affected list has no ranges for this ecosystem/package).
+    """
+    for aff in affected_list or []:
+        pkg = aff.get("package") or {}
+        if pkg.get("name", "").lower() != pkg_name.lower():
+            continue
+        if pkg.get("ecosystem", "") and pkg["ecosystem"] != ecosystem:
+            continue
+        for r in aff.get("ranges") or []:
+            events = r.get("events") or []
+            introduced = None
+            fixed = None
+            for ev in events:
+                if "introduced" in ev:
+                    introduced = ev["introduced"]
+                if "fixed" in ev:
+                    fixed = ev["fixed"]
+            if introduced is None and fixed is None:
+                continue
+            try:
+                from agent.analyzer.versions import version_in_range
+                range_spec = (f">={introduced}" if introduced else ">=0") + (
+                    f",<{fixed}" if fixed else ""
+                )
+                if version_in_range(version, range_spec):
+                    return True
+            except Exception:
+                continue
+        return False
+    return None
+
+
+def _extract_cve_id(vuln):
+    """Extract the primary CVE ID from an OSV vulnerability record.
+
+    OSV IDs are like GHSA-xxx or PYSEC-yyy. We prefer the CVE alias.
+    """
+    aliases = vuln.get("aliases", [])
+    for alias in aliases:
+        if alias.startswith("CVE-"):
+            return alias
+    return None
+
+
+def _osv_query_package(ecosystem, name, version=None):
+    """Query OSV.dev for vulnerabilities affecting a package.
+
+    Uses the standard OSV query API (same data source as the cve-feed MCP).
+    Returns a list of vuln dicts with at least {"id", "aliases", "summary"}.
+    Logs to stderr on network/parse errors; returns [] so the caller treats
+    a failed lookup as "no CVEs found" (fail-closed for discover_cves).
+    """
+    if version:
+        query = {
+            "version": version,
+            "package": {"name": name, "ecosystem": ecosystem},
+        }
+    else:
+        query = {
+            "package": {"name": name, "ecosystem": ecosystem},
+        }
+
+    try:
+        req = urllib.request.Request(
+            _OSV_API,
+            data=json.dumps(query).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+        vulns = data.get("vulns") or []
+        if not isinstance(vulns, list):
+            print(f"OSV query for {ecosystem}/{name}@{version or 'any'}: "
+                  f"unexpected response type {type(vulns).__name__}; skipping",
+                  file=sys.stderr)
+            return []
+        return vulns
+    except Exception as exc:
+        print(f"OSV query for {ecosystem}/{name}@{version or 'any'}: {exc}; "
+              f"skipping (fail-closed)", file=sys.stderr)
+        return []
+
+
+def _osv_fetch_vuln(vuln_id):
+    """Fetch a full OSV vulnerability record by ID."""
+    try:
+        with urllib.request.urlopen(
+            OSV_QUERY_URL + vuln_id, timeout=15
+        ) as resp:
+            return json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+
+def _handle_discover(args):
+    """Auto-discover CVEs from repo packages via OSV.dev.
+
+    Scans every manifest in the repo for declared packages, then queries
+    OSV.dev for each. Writes the deduplicated CVE list to
+    <out>/discovered_cves.json. Print a short summary to stdout.
+    """
+    repo_path = args.repo_path
+    if not repo_path or not os.path.isdir(repo_path):
+        print(f"Error: {repo_path} is not a valid directory", file=sys.stderr)
+        sys.exit(1)
+
+    cves = discover_cves(repo_path)
+    out_dir = args.out or _default_outdir(repo_path)
+    os.makedirs(out_dir, exist_ok=True)
+
+    print(f"Found {len(cves)} CVEs across {len(set(c['package'] for c in cves))} packages:")
+    for cve in cves:
+        print(f"  {cve['cve_id']} in {cve['package']} (v{cve['version']})")
+
+    outfile = os.path.join(out_dir, "discovered_cves.json")
+    with open(outfile, "w", encoding="utf-8") as fh:
+        json.dump(cves, fh, indent=2, ensure_ascii=False)
+
+    print(f"\nWrote {len(cves)} CVEs to {outfile}", file=sys.stderr)
+
+
+def _handle_regular(args):
+    """Original mode: analyze a specific CVE/advisory against the repo."""
+    repo_path = args.repo_path
+    advisory_path = args.cve_or_advisory
+    if not repo_path or not advisory_path:
+        print("Error: repo_path and cve_or_advisory required", file=sys.stderr)
+        sys.exit(1)
+    if not os.path.isdir(repo_path):
+        print(f"Error: {repo_path} is not a valid directory", file=sys.stderr)
+        sys.exit(1)
+
+    advisory = _load_advisory(advisory_path)
+    out_dir = args.out or _default_outdir(repo_path)
+    record = reach(repo_path, advisory, out_dir)
     print(json.dumps(record, indent=2, ensure_ascii=False))
     print(f"\nwrote {os.path.join(out_dir, 'reachability.json')}", file=sys.stderr)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="PatchProof reachability analyzer")
+    parser.add_argument("repo_path", nargs="?", default=None, help="path to the target repository")
+    parser.add_argument("cve_or_advisory", nargs="?", default=None, help="advisory JSON path or a CVE id")
+    parser.add_argument("--out", help="output directory (default data/output/<repo-basename>)")
+    parser.add_argument("--discover", action="store_true", default=False,
+                        help="auto-discover CVEs from repo packages via OSV.dev")
+    args = parser.parse_args(argv)
+
+    if args.discover:
+        _handle_discover(args)
+    else:
+        _handle_regular(args)
     return 0
 
 

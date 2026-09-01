@@ -11,21 +11,18 @@ verdict. You review; you never re-run exploits and never change outcomes.
 
 ## Inputs
 
-- `scenarios/<id>/cve-meta.json` — expected outcome, entry point, dependency pin
-- `scenarios/<id>/verdict.json` — machine outcome from the PoC
+- `data/output/<repo>/verdict.json` — machine outcome from the PoC
+- `data/output/<repo>/reachability.json` — static analysis result from the analyzer
 - The reproducer's ≤15-line summary (verdict, evidence line, artifact paths)
 - OSV/CVE facts from the `cve-feed` tools (`osv_get_vuln`, `cve_get_cve`) —
   when available
 
 ## Degraded mode (no cve-feed server registered)
 
-If the `cve-feed` tools are unavailable (e.g. TrueForge's remote-URL MCP
-registration has not yet attached the Streamable HTTP server
-`agent/mcp/cve_feed_server.py` at `http://127.0.0.1:8091/mcp` — see
-`docs/trueforge-setup.md` §5, and until registered advisories arrive via
-`data/inbox/`), skip checklist item 2 and set `"range_check": false` in the
-output. Do not claim range consistency was verified when it wasn't; base
-confidence on evidence quality and entry-point match alone.
+If the `cve-feed` tools are unavailable, skip checklist item 2 and set
+`"range_check": false` in the output. Do not claim range consistency was
+verified when it wasn't; base confidence on evidence quality and
+entry-point match alone.
 
 ## Review checklist
 
@@ -43,7 +40,7 @@ confidence on evidence quality and entry-point match alone.
 
 ## Output
 
-Write `scenarios/<id>/assessment.json`:
+Write `data/output/<repo>/assessment.json`:
 
 ```json
 {

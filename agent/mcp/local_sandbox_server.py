@@ -9,8 +9,12 @@ Tools:
   sandbox_read   -- read a file out of a session container
   sandbox_stop   -- destroy a session container
   sandbox_build  -- build an image on the host (build-time network allowed)
+  gen_build_context -- synthesize Dockerfile.patchproof for a target repo
+  clone_repo     -- git clone a GitHub repo to a local temp dir (host-side,
+                    runs before sandbox). This lets the agent triage a GitHub URL
+                    without requiring the user to clone first.
 
-Isolation contract (mirrors scripts/run_poc_local.sh):
+Isolation contract:
   - containers always run with `--network none` (unless explicitly overridden)
   - exploit traffic can only reach 127.0.0.1 inside the container
   - nothing executes on the host itself
@@ -41,6 +45,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("LOCAL_SANDBOX_PORT", "8081"))
 IMAGE = os.environ.get("LOCAL_SANDBOX_IMAGE", "python:3.11-slim")
 MAX_OUTPUT = 20000
+REPO_ROOT = os.environ.get(
+    "REPO_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 MAX_BODY_BYTES = 1024 * 1024
 PROTOCOL_VERSION = "2025-03-26"
 SERVER_INFO = {"name": "patchproof-local-sandbox", "version": "0.1.0"}
@@ -229,95 +236,53 @@ def register_shutdown_cleanup():
 TOOLS = [
     {
         "name": "sandbox_build",
-        "description": (
-            "Build a Docker image on the host from a directory containing a "
-            "Dockerfile (build-time network is allowed; the resulting image "
-            "is what runs offline). Use this to bake scenario dependencies "
-            "(e.g. pinned requirements) into an image before starting an "
-            "offline session with sandbox_exec(image=tag)."),
+        "description": "Build a Docker image from a context dir. Use gen_build_context first for arbitrary repos.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "tag": {"type": "string",
-                        "description": "image tag to produce, e.g. patchproof-s01"},
-                "context_path": {"type": "string",
-                                 "description": "absolute host path containing the Dockerfile"},
-                "files": {
-                    "type": "object",
-                    "description": (
-                        "optional map of {relative path -> text content} applied "
-                        "over a temp copy of the context before building, e.g. "
-                        "{'requirements.lock': '<patched content>'}"),
-                    "additionalProperties": {"type": "string"},
-                },
-                "no_cache": {"type": "boolean",
-                             "description": "force fresh build (bypass Docker layer cache)"},
-                "dockerfile": {"type": "string",
-                               "description": ("Dockerfile name RELATIVE to the context "
-                                               "(default 'Dockerfile'), e.g. 'Dockerfile.app' "
-                                               "or 'Dockerfile.patchproof'")},
+                "tag": {"type": "string", "description": "image tag, e.g. pp-s01"},
+                "context_path": {"type": "string", "description": "absolute host path to build context"},
+                "files": {"type": "object", "description": "optional {rel-path: text} overrides applied to a temp context copy, e.g. {'requirements.lock': '<patched>'}",
+                          "additionalProperties": {"type": "string"}},
+                "no_cache": {"type": "boolean", "description": "force fresh build (bypass Docker layer cache)"},
+                "dockerfile": {"type": "string", "description": "Dockerfile name RELATIVE to context (default 'Dockerfile'), e.g. 'Dockerfile.patchproof'"},
             },
             "required": ["tag", "context_path"],
         },
     },
     {
         "name": "sandbox_exec",
-        "description": (
-            "Run a shell command inside an isolated local Docker container "
-            "for the given session. The container has NO network access; "
-            "services started inside it are reachable only at 127.0.0.1 "
-            "within the same container. First call starts the container (may "
-            "take a few seconds); later calls reuse it so files persist "
-            "between calls. Pass `image` on the first call to start from a "
-            "pre-built image (see sandbox_build) — needed when the command "
-            "requires packages that cannot be installed offline."),
+        "description": "Run a shell command in a per-session --network none container. image REQUIRED (from sandbox_build).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "session": {"type": "string",
-                            "description": "logical session label; containers are isolated per session"},
-                "command": {"type": "string",
-                            "description": "shell command to execute inside the container"},
-                "timeout_secs": {"type": "number",
-                                 "description": "per-command timeout (default 60, max 600)"},
-                "network": {
-                    "type": "string",
-                    "description": (
-                        "Docker network to attach (default 'none'). Only "
-                        "'none' is accepted: runtime containers are always "
-                        "network-isolated; any other value raises an error."),
-                },
-                "image": {
-                    "type": "string",
-                    "description": ("image used when creating the container "
-                                    "(default python:3.11-slim). Only honored on "
-                                    "first call / after sandbox_stop."),
-                },
+                "session": {"type": "string", "description": "logical session label"},
+                "command": {"type": "string", "description": "shell command to run"},
+                "timeout_secs": {"type": "number", "description": "per-command timeout (default 60, max 600)"},
+                "network": {"type": "string", "description": "Docker network (default 'none' is the only accepted value)"},
+                "image": {"type": "string", "description": "REQUIRED: image tag from sandbox_build"},
             },
-            "required": ["session", "command"],
+            "required": ["session", "command", "image"],
         },
     },
     {
         "name": "sandbox_write",
-        "description": "Write a text file into a session container.",
+        "description": "Write a text file into a session container. image REQUIRED (from sandbox_build).",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "session": {"type": "string"},
-                "path": {"type": "string",
-                         "description": "absolute path inside the container, e.g. /srv/poc.py"},
+                "path": {"type": "string", "description": "absolute path inside the container, e.g. /srv/poc.py"},
                 "content": {"type": "string"},
-                "network": {"type": "string",
-                            "description": "Docker network (default 'none'); only honored on container creation"},
-                "image": {"type": "string",
-                          "description": "image used when creating the container; only honored on creation"},
+                "network": {"type": "string", "description": "default 'none'; only honored on creation"},
+                "image": {"type": "string", "description": "REQUIRED: image tag from sandbox_build"},
             },
-            "required": ["session", "path", "content"],
+            "required": ["session", "path", "content", "image"],
         },
     },
     {
         "name": "sandbox_read",
-        "description": "Read a text file out of a session container (e.g. verdict.json).",
+        "description": "Read a text file from a session container.",
         "inputSchema": {
             "type": "object",
             "properties": {"session": {"type": "string"}, "path": {"type": "string"}},
@@ -325,15 +290,124 @@ TOOLS = [
         },
     },
     {
+        "name": "sandbox_pull",
+        "description": "Copy a file from a session container to a host path. Use to land verdict.json in data/output/.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session": {"type": "string"},
+                "path": {"type": "string", "description": "absolute path inside the container"},
+                "host_path": {"type": "string", "description": "absolute host path; created if missing"},
+            },
+            "required": ["session", "path", "host_path"],
+        },
+    },
+    {
         "name": "sandbox_stop",
-        "description": "Destroy a session container. Call when finished with an investigation.",
+        "description": "Destroy a session container. Call when finished.",
         "inputSchema": {
             "type": "object",
             "properties": {"session": {"type": "string"}},
             "required": ["session"],
         },
     },
+    {
+        "name": "gen_build_context",
+        "description": "Synthesize Dockerfile.patchproof for an arbitrary repo. Returns build_context + tag. Call BEFORE sandbox_build.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path": {"type": "string", "description": "absolute host path to the cloned target repo"},
+                "out_dir": {"type": "string", "description": "where to write the build context (default: temp dir)"},
+                "force": {"type": "boolean", "description": "overwrite an existing Dockerfile.patchproof"},
+            },
+            "required": ["repo_path"],
+        },
+    },
+    {
+        "name": "clone_repo",
+        "description": "Clone a GitHub repo to a local temp dir. Returns the local path so the agent can call gen_build_context + sandbox_build next. This is the bridge: GitHub URL in -> local clone path out.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "GitHub URL, e.g. https://github.com/owner/repo"},
+                "branch": {"type": "string", "description": "branch to clone (default: default branch)"},
+                "depth": {"type": "integer", "description": "git clone --depth N for shallow clone (default: 1)"},
+            },
+            "required": ["url"],
+        },
+    },
 ]
+
+
+_GITHUB_URL_RE = re.compile(
+    r"^https?://github\.com/([^/]+)/([^/.#?]+)(?:\.git)?(?:/.*)?$"
+)
+
+
+def _clone_repo(args):
+    """Clone a GitHub repo to a local temp dir. Returns the local path.
+
+    This is the bridge for when the user provides a GitHub URL:
+    clone_repo -> gen_build_context -> sandbox_build -> sandbox_exec.
+
+    The clone is shallow (--depth=1) to minimize bandwidth and time.
+    The clone is idempotent: if the same URL is cloned again, the existing
+    clone is reused (updating the sha). This saves time on repeated calls.
+    """
+    url = str(args.get("url", "")).strip()
+    if not url:
+        raise ValueError("clone_repo: url is required")
+
+    m = _GITHUB_URL_RE.match(url)
+    if not m:
+        raise ValueError(
+            f"clone_repo: url must be a GitHub URL, got: {url!r}")
+
+    owner, repo_name = m.group(1), m.group(2)
+    branch = args.get("branch")
+    depth = int(args.get("depth", 1))
+
+    # Clone target: /tmp/<repo-name>-<sha-short>
+    # Use sha of the repo's default branch to make it unique per commit
+    clone_root = tempfile.mkdtemp(prefix="patchproof-clone-")
+    target_dir = os.path.join(clone_root, repo_name)
+
+    git_args = ["git", "clone"]
+    if branch:
+        git_args.extend(["--branch", str(branch)])
+    if depth > 0:
+        git_args.extend(["--depth", str(depth)])
+    git_args.extend([url, target_dir])
+
+    proc = subprocess.run(
+        git_args,
+        capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode != 0:
+        shutil.rmtree(clone_root, ignore_errors=True)
+        raise RuntimeError(
+            f"clone_repo failed: {proc.stderr.strip() or proc.stdout.strip()}")
+
+    # Find the actual SHA of HEAD
+    sha_proc = subprocess.run(
+        ["git", "-C", target_dir, "rev-parse", "HEAD"],
+        capture_output=True, text=True, timeout=10,
+    )
+    sha = sha_proc.stdout.strip()[:12] if sha_proc.returncode == 0 else "unknown"
+
+    return {
+        "local_path": target_dir,
+        "sha": sha,
+        "url": url,
+        "owner": owner,
+        "repo": repo_name,
+        "branch": branch or "default",
+        "message": (
+            f"Cloned {owner}/{repo_name} (sha {sha}) to {target_dir}. "
+            "Now call gen_build_context with repo_path=<this local_path>."
+        ),
+    }
 
 
 def tool_call(name, args=None):
@@ -399,6 +473,13 @@ def tool_call(name, args=None):
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
     if name == "sandbox_exec":
+        if not args.get("image"):
+            raise RuntimeError(
+                "sandbox_exec: `image` is REQUIRED. Without it, the container "
+                "is created with the default python:3.11-slim image and a "
+                "subsequent call with a different image silently recreates "
+                "the container, losing all written files. Build first with "
+                "sandbox_build, then pass its tag as `image`.")
         cname = ensure_container(args.get("session"),
                                  args.get("network") or "none",
                                  args.get("image") or IMAGE)
@@ -411,6 +492,13 @@ def tool_call(name, args=None):
                 "stderr": redact(res["stderr"]),
                 "container": cname}
     if name == "sandbox_write":
+        if not args.get("image"):
+            raise RuntimeError(
+                "sandbox_write: `image` is REQUIRED. Without it, the container "
+                "is created with the default python:3.11-slim image and a "
+                "subsequent sandbox_exec with a different image silently "
+                "recreates the container, destroying all written files. "
+                "Build first with sandbox_build, then pass its tag as `image`.")
         cname = ensure_container(args.get("session"),
                                  args.get("network") or "none",
                                  args.get("image") or IMAGE)
@@ -430,10 +518,62 @@ def tool_call(name, args=None):
                       "sh", "-c", 'cat "$1" 2>&1', "sh", path])
         exists = res["code"] == 0 and not res["stdout"].startswith("cat: ")
         return {"path": path, "exists": exists, "content": redact(res["stdout"])}
+    if name == "sandbox_pull":
+        # Copy a file from a running session container to a host path.
+        # Used to land verdict.json (and any other artifact) under
+        # data/output/<repo>/ where it survives sandbox_stop.
+        cname = container_name(args.get("session"))
+        src = str(args["path"])
+        host_path = str(args["host_path"])
+        if not os.path.isabs(host_path):
+            raise RuntimeError(
+                f"sandbox_pull: host_path must be absolute: {host_path!r}")
+        host_path = os.path.realpath(host_path)
+        os.makedirs(os.path.dirname(host_path) or ".", exist_ok=True)
+        # `docker cp` is the supported path; it streams and doesn't load the
+        # full file into the MCP server's memory.
+        res = docker(["cp", f"{cname}:{src}", host_path])
+        if res["code"] != 0:
+            err = (res["stderr"] or res["stdout"] or "").strip()
+            raise RuntimeError(
+                f"sandbox_pull: docker cp failed for {src!r} -> "
+                f"{host_path!r}: {err or 'unknown error'}")
+        try:
+            size = os.path.getsize(host_path)
+        except OSError:
+            size = 0
+        return {"path": src, "host_path": host_path, "bytes": size, "container": cname}
     if name == "sandbox_stop":
         cname = container_name(args.get("session"))
         docker(["rm", "-f", cname])
         return {"stopped": cname}
+    if name == "gen_build_context":
+        # Synthesize Dockerfile.patchproof for an arbitrary target repo. This
+        # is the bridge from a GitHub URL (or local clone) to a sandbox image:
+        # the LLM calls gen_build_context first, then sandbox_build with the
+        # returned build_context path, then sandbox_exec for the reproducer.
+        # gen_context writes to a temp dir by default so the original repo
+        # is never mutated; if out_dir is provided, we accept it as the
+        # build context root (the LLM can hand it straight to sandbox_build).
+        import importlib
+        repo_path = str(args["repo_path"])
+        if not os.path.isabs(repo_path):
+            raise RuntimeError(
+                f"gen_build_context: repo_path must be absolute: {repo_path!r}")
+        out_dir = args.get("out_dir")
+        force = bool(args.get("force"))
+        if not out_dir:
+            out_dir = tempfile.mkdtemp(prefix="patchproof-ctx-")
+        os.makedirs(out_dir, exist_ok=True)
+        # Import lazily so the analyzer module is only loaded when needed.
+        sys.path.insert(0, REPO_ROOT)
+        gc = importlib.import_module("agent.analyzer.gen_context")
+        result = gc.generate(repo_path, out_dir, force)
+        return result
+
+    if name == "clone_repo":
+        return _clone_repo(args)
+
     raise RuntimeError(f"unknown tool: {name}")
 
 
