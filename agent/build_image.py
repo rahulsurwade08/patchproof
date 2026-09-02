@@ -36,6 +36,28 @@ def image_exists(tag: str) -> bool:
     return bool(r.stdout.strip())
 
 
+_SUBDIR_CANDIDATES = (
+    "src", "server", "app", "web", "webapp", "www", "client",
+    "frontend", "backend",
+)
+
+
+def _find_in_subdirs(repo: Path, targets: list[str]) -> Path | None:
+    """Walk depth-1 subdirs looking for any of targets.
+
+    ponytail: shallow walk only (depth 1). Deeper walks are a research
+    project. Add subdirs to _SUBDIR_CANDIDATES as real repos surface new ones.
+    """
+    for sub in _SUBDIR_CANDIDATES:
+        subpath = repo / sub
+        if subpath.is_dir():
+            for t in targets:
+                found = subpath / t
+                if found.is_file():
+                    return subpath
+    return None
+
+
 def detect_runtime(repo: Path) -> tuple[str, str, int] | None:
     """Detect runtime, entry command, and port for a repo.
 
@@ -43,16 +65,32 @@ def detect_runtime(repo: Path) -> tuple[str, str, int] | None:
     port is the TCP port the server will bind to.
 
     Detection order:
-      1. package.json with "scripts": {"start": "..."}  -> node
-      2. server.js / app.js / index.js / main.js at root       -> node
-      3. manage.py / run.py / app.py / main.py at root         -> python
+      1. package.json at root or depth-1 subdir with start script -> node
+      2. server.js / app.js / index.js / main.js at root or subdir  -> node
+      3. manage.py / run.py / app.py / main.py at root or subdir    -> python
       4. None (falls back to a sleep-hold for non-server repos)
 
     ponytail: no TypeScript build, no monorepo/workspace walk.
     Node port is always 3000 (Express convention); the app must read
     PATCHPROOF_PORT env or bind to 0.0.0.0.
     """
-    pkg_json = repo / "package.json"
+    # Check root first
+    result = _detect_at(repo)
+    if result:
+        return result
+    # Shallow subdir walk: find first package.json or py entrypoint
+    sub = _find_in_subdirs(repo, ["package.json", "manage.py", "run.py", "app.py", "main.py"])
+    if sub:
+        result = _detect_at(sub)
+        if result:
+            rel = sub.relative_to(repo)
+            return result[0], f"cd {rel} && {result[1]}", result[2]
+    return None
+
+
+def _detect_at(base: Path) -> tuple[str, str, int] | None:
+    """Detect runtime at a specific directory (root or subdir)."""
+    pkg_json = base / "package.json"
     if pkg_json.exists():
         try:
             import json
@@ -61,14 +99,13 @@ def detect_runtime(repo: Path) -> tuple[str, str, int] | None:
             start = scripts.get("start") or scripts.get("dev")
             if start:
                 cmd = start
-                # strip leading "node " if the script already has it
                 if cmd.startswith("node "):
                     cmd = cmd[5:].strip()
                 return "node", f"node {cmd}", 3000
         except (OSError, ValueError):
             pass
         for fname in ("server.js", "app.js", "index.js", "main.js"):
-            if (repo / fname).exists():
+            if (base / fname).exists():
                 return "node", f"node {fname}", 3000
 
     for fname, cmd, port in (
@@ -77,9 +114,8 @@ def detect_runtime(repo: Path) -> tuple[str, str, int] | None:
         ("app.py",     "python3 app.py",                                5000),
         ("main.py",    "python3 main.py",                               8000),
     ):
-        if (repo / fname).exists():
+        if (base / fname).exists():
             return "python", cmd, port
-
     return None
 
 
