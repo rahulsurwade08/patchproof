@@ -50,10 +50,11 @@ Each CVE gets its own container — failures on CVE-1 cannot bleed into CVE-2.
 
 ## Get started
 
-### 1. Start the sandbox harness
+### 1. Start the MCP servers
 
 ```bash
-python3 agent/mcp/local_sandbox_server.py &
+python3 agent/mcp/local_sandbox_server.py &   # sandbox tools: sandbox_build, sandbox_exec, etc.
+python3 agent/mcp/cve_feed_server.py &        # CVE tools: cve_get_cve, osv_query_package, etc.
 ```
 
 ### 2. Run the agent
@@ -96,7 +97,8 @@ Results are written to `data/output/<repo>/report.md` and `data/output/<repo>/re
 | `agent/build_image.py` | Per-repo Docker image build, SHA-cached |
 | `agent/exploit.py` | Sandbox harness helpers (exec, write, read, stop, pull) |
 | `agent/analyzer/reach.py` | Static reachability analysis (dep-pin → call-sites → input trace) |
-| `agent/mcp/local_sandbox_server.py` | MCP server — start this before running |
+| `agent/mcp/local_sandbox_server.py` | MCP server — sandbox tools (sandbox_build, sandbox_exec, etc.) |
+| `agent/mcp/cve_feed_server.py` | MCP server — CVE tools (cve_get_cve, osv_query_package, etc.) |
 | `.opencode/agents/patchproof.md` | The LLM agent definition |
 | `.opencode/command/patchproof.md` | `/patchproof` command |
 
