@@ -113,17 +113,13 @@ Findings:
 
 ### Robustness
 
-**1. `exploit.py:96-99` — service start check is fragile.** Checks `"READY" in r.get("stdout", "")`. If the service prints something before "READY" (e.g., a warning or debug log), the check still works because it's a substring search. But if the service crashes after printing "READY" but before the PoC runs, the function proceeds with a dead service. The PoC then fails or times out, producing a misleading "service start failed" verdict. Severity: medium. Fix: check `start_cmd` exit code too, not just stdout.
+**1. `build_image.py:83-90` — port 8080 hardcoded for health check.** `start.sh` waits for `127.0.0.1:8080`, but `detect_entrypoint` only hardcodes port 8080 for `manage.py runserver 0.0.0.0:8080`. Generic `app.py`/`main.py` default to Flask's 5000 or FastAPI's 8000. For these, the health check hangs and `run_exploit_for_cve` returns "service start failed" even if the service started on a different port. Severity: high. Fix: detect port from the entry command, or default to 8000.
 
-**2. `exploit.py:91-117` — no container cleanup on MCP failure.** If `write_()` or `exec_()` raises (MCP server down, connection error), the `finally` block calls `stop_()`, which is also an MCP call — if that fails too, the container is orphaned. Severity: low. In practice the MCP server is local and reliable.
+**2. `exploit.py:96-99` — service start check is fragile.** Checks `"READY" in r.get("stdout", "")`. If the service crashes after printing "READY" but before the PoC runs, the function proceeds with a dead service. The PoC then fails or times out, producing a misleading "service start failed" verdict. Severity: medium. Fix: check `start_cmd` exit code too, not just stdout.
 
-**3. `build_image.py:107-125` — symlink-based build context.** `(ctx / item.name).symlink_to(item)` for directories. If a directory in the repo is a symlink pointing outside the repo, Docker will follow it and copy external content into the image. Also, symlinks to `data/` or `venv/` (which are in the root but not filtered) could cause issues. Severity: medium. Fix: skip symlinks entirely (copy dirs instead).
+**3. `build_image.py:107-125` — symlink build context.** `(ctx / item.name).symlink_to(item)` for directories. If a directory in the repo is a symlink pointing outside the repo, Docker follows it and copies external content into the image. Severity: medium. Fix: skip symlinks entirely (copy dirs instead).
 
-**4. `build_image.py:112-119` — `.env` excluded, but `_env`, `.env.local`, `.env.production` are not.** Any dotfile in the repo root gets copied into the image. Severity: low. Fix: filter all dot-prefixed items.
-
-**5. `local_sandbox_server.py:469-471` — `MAX_OUTPUT = 20000` truncation: `res["stdout"] + res["stderr"]` could be up to 40000 chars before truncation. Truncation is post-redaction. Not a real issue.**
-
-**6. `cve_feed_server.py:186-201` — `osv_query_all` caps at 5 pages (50 entries). The `max_pages=5` default means if OSV has >5 pages of vulnerabilities for a package, the result is silently truncated and `truncated=True` is returned. For packages like `aiohttp` (89 CVEs across many pages), this under-reports. Severity: medium. Fix: increase cap or paginate to completion for small-package-name lookups.
+**4. `cve_feed_server.py:226` — `cross_check` uses `osv_query_all` default `max_pages=5` but `osv_query_package` uses `max_pages=10`.** For packages with >5 pages of CVEs, `cross_check` silently truncates while `osv_query_package` doesn't. The two tools give inconsistent results for the same package. Severity: low. Fix: align the page caps.
 
 ### API / Contract
 
@@ -165,22 +161,23 @@ Findings:
 | 4 | yagni | `exploit.py` helpers add indirection; agent calls MCP directly | `exploit.py` | 118 conf |
 | 5 | yagni | `session_id()` one-liner | `exploit.py:24-25` | 2 |
 
-### Code review: 18 findings
+### Code review: 17 findings
 
 | Rank | Severity | Category | Finding |
 |---|---|---|---|
-| 1 | medium | robustness | Service start check doesn't verify service is still alive |
-| 2 | medium | robustness | Symlink build context can follow external symlinks into image |
-| 3 | medium | robustness | `osv_query_all` silently caps at 5 pages, under-reporting CVEs |
-| 4 | medium | api/contract | `--cve` mode with no triage.json bypasses all analysis |
+| 1 | high | robustness | Port 8080 hardcoded in health check; `app.py`/`main.py` default to 5000/8000 |
+| 2 | medium | robustness | Service start check doesn't verify service stays alive after "READY" |
+| 3 | medium | robustness | Symlink build context can follow external symlinks into image |
+| 4 | medium | api/contract | `--cve` mode with no triage.json bypasses all analysis + reachability |
 | 5 | low | correctness | `pull_()` wrong param names (dead code) |
 | 6 | low | correctness | `read_()` passes unused `image` param |
-| 7 | low | correctness | `_version_in_affected_ranges` fragile ecosystem check |
+| 7 | low | correctness | `_version_in_affected_ranges` fragile ecosystem check (empty string skips guard) |
 | 8 | low | docs | `exploit.py` docstring misleading |
 | 9 | low | docs | ADR-010, ADR-011 references in code are stale |
 | 10 | low | robustness | Dotfiles other than `.env` copied into image |
 | 11 | low | robustness | No container cleanup if `stop_()` MCP call fails |
-| 12 | style | api | `main()` has unreachable `return 0` |
+| 12 | low | robustness | `cross_check` and `osv_query_package` use different page caps (5 vs 10) |
+| 13 | style | api | `main()` has unreachable `return 0` |
 
 ### Small wins (not auto-fixed, code-reviewer's notes)
 
