@@ -178,12 +178,18 @@ def _derive_vuln_funcs(advisory, pkg):
     return sorted(funcs)
 
 
+_ESM_IMPORT_RE = re.compile(
+    r"import\s+(?:(?:\*\s+as\s+\w+\s+)?|(?:\{\s*[^}]*\})?\s*|(?:\w+\s+)?)from\s+['\"]([^'\"]+)['\"]"
+)
+
+
 def _is_direct_call(line, funcs, pkg):
     """True if the line invokes one of the vulnerable functions or the package.
 
     Word-boundary matching keeps distinct identifiers like ``safe_load`` from
-    matching the vulnerable ``load`` token. Recognizes Python import forms and
-    CommonJS ``require()``/dynamic ``import()``.
+    matching the vulnerable ``load`` token. Recognizes Python import forms,
+    CommonJS ``require()``/dynamic ``import()``, and ESM default imports
+    (``import x from 'pkg'``).
     """
     low = line.lower()
     for fn in funcs:
@@ -193,18 +199,25 @@ def _is_direct_call(line, funcs, pkg):
            re.search(rf"\.{re.escape(fn)}\(", low):
             return True
     if pkg:
-        plow = re.escape(pkg.lower().split(".")[-1])
-        if re.search(rf"import {plow}\b", low) or re.search(rf"from {plow}\b", low) or \
-           re.search(rf"""require\(['"]{plow}['"]\)""", low) or \
-           re.search(rf"""import\(['"]{plow}['"]\)""", low):
+        plow = pkg.lower()
+        if re.search(rf"import\s.+\sfrom\s+['\"]{re.escape(plow)}['\"]", low) or \
+           re.search(rf"from\s+['\"]{re.escape(plow)}['\"]", low) or \
+           re.search(rf"""require\(['"]{re.escape(plow)}['"]\)""", low) or \
+           re.search(rf"""import\(['"]{re.escape(plow)}['"]\)""", low):
             return True
     return False
 
 
 def _is_pkg_reference(line, pkg):
     low = line.lower()
-    plow = pkg.lower().split(".")[-1]
-    return (f"import {plow}" in low or f"from {plow}" in low or f"{plow}." in low or
+    plow = pkg.lower()
+    # ponytail: ESM default/destructuring/namespace imports like
+    # `import x from 'pkg'` or `import {foo} from 'pkg'` or
+    # `import * as x from 'pkg'`.
+    m = _ESM_IMPORT_RE.search(low)
+    if m and m.group(1) == plow:
+        return True
+    return (f"from {plow}" in low or f"{plow}." in low or
             f"require('{plow}')" in low or f'require("{plow}")' in low)
 
 
