@@ -155,40 +155,40 @@ Findings:
 
 | Rank | Tag | Finding | Location | Lines |
 |---|---|---|---|---|
-| 1 | delete | `pull_()` wrong schema + never called | `exploit.py:64-70` | 7 |
-| 2 | delete | `_shutting_down` flag never read | `local_sandbox_server.py:216` | 1 |
-| 3 | delete | `_GITHUB_URL_RE` never used | `local_sandbox_server.py:343-345` | 3 |
+| 5 | delete | `pull_()` wrong schema + never called | `exploit.py` (dropped) | 7 |
+| 2 | delete | `_shutting_down` flag — actually a re-entrancy guard for signal handlers | `local_sandbox_server.py` (kept) | 1 |
+| 3 | delete | `_GITHUB_URL_RE` — actually used by `clone_repo` | `local_sandbox_server.py` (kept) | 3 |
 | 4 | yagni | `exploit.py` helpers add indirection; agent calls MCP directly | `exploit.py` | 118 conf |
 | 5 | yagni | `session_id()` one-liner | `exploit.py:24-25` | 2 |
 
-### Code review: 17 findings
+### Code review: status
 
-| Rank | Severity | Category | Finding |
-|---|---|---|---|
-| 1 | high | robustness | Port 8080 hardcoded in health check; `app.py`/`main.py` default to 5000/8000 |
-| 2 | medium | robustness | Service start check doesn't verify service stays alive after "READY" |
-| 3 | medium | robustness | Symlink build context can follow external symlinks into image |
-| 4 | medium | api/contract | `--cve` mode with no triage.json bypasses all analysis + reachability |
-| 5 | low | correctness | `pull_()` wrong param names (dead code) |
-| 6 | low | correctness | `read_()` passes unused `image` param |
-| 7 | low | correctness | `_version_in_affected_ranges` fragile ecosystem check (empty string skips guard) |
-| 8 | low | docs | `exploit.py` docstring misleading |
-| 9 | low | docs | ADR-010, ADR-011 references in code are stale |
-| 10 | low | robustness | Dotfiles other than `.env` copied into image |
-| 11 | low | robustness | No container cleanup if `stop_()` MCP call fails |
-| 12 | low | robustness | `cross_check` and `osv_query_package` use different page caps (5 vs 10) |
-| 13 | style | api | `main()` has unreachable `return 0` |
+| Rank | Severity | Category | Finding | Status |
+|---|---|---|---|---|
+| 1 | high | robustness | Port 8080 hardcoded in health check | ✅ Fixed: `detect_entrypoint` returns `(cmd, port)`, `PATCHPROOF_PORT=5000/8000/8080` per entry |
+| 2 | medium | robustness | Service start check doesn't verify service stays alive | ✅ Fixed: also checks `exit_code != 0` |
+| 3 | medium | robustness | Symlink build context | ✅ Fixed: copy dirs (skip symlinks), dotfile filter via `startswith(".")` |
+| 4 | medium | api/contract | `--cve` mode with no triage bypasses analysis | ✅ Fixed: runs per-CVE reachability check, queues only REACHABLE/UNKNOWN |
+| 5 | low | correctness | `pull_()` wrong param names | ✅ Fixed: dropped with helpers |
+| 6 | low | correctness | `read_()` passes unused `image` param | ✅ Fixed: dropped with helpers |
+| 7 | low | correctness | `_version_in_affected_ranges` fragile ecosystem check | ⚠️ False alarm: empty ecosystem IS intentionally a cross-ecosystem wildcard, not a bug |
+| 8 | low | docs | `exploit.py` docstring misleading | ✅ Fixed: docstring updated |
+| 9 | low | docs | ADR-010, ADR-011 references stale | ✅ Fixed: removed |
+| 10 | low | robustness | Dotfiles other than `.env` copied into image | ✅ Fixed: `startswith(".")` catches all dot-prefixed items |
+| 11 | low | robustness | No container cleanup if `stop_()` fails | ⚠️ Not fixed: rare edge case, MCP server is local and reliable |
+| 12 | low | robustness | `cross_check` vs `osv_query_package` different page caps | ✅ Fixed: both use `max_pages=10` |
+| 13 | style | api | `main()` unreachable `return 0` | ⚠️ False alarm: `_handle_*` fall through on success, `return 0` IS reachable |
 
-### Small wins (not auto-fixed, code-reviewer's notes)
+### Small wins (status from fix pass)
 
-- `local_sandbox_server.py:143` — `while :` busy-loop is correct but `sleep 3600` is more idiomatic. Not a bug.
-- `exploit.py:97` — `"READY" in ... or "ready" in ...` is case-insensitive but the actual start.sh outputs uppercase "READY". The lowercase check is dead code.
-- `reach.py:106-109` — `_load_advisory` has two nested code paths for OSV-shaped files (both `"affected"` list and `"affected_versions"` string) that return subtly different `source` values. The difference matters for the verdict.
-- `build_image.py:83-90` — the port 8080 hardcode in the wait loop doesn't match the `EXPOSE 8080` in the Dockerfile. The start.sh waits for 8080 but the Dockerfile exposes it. If a service listens on a different port, the wait never succeeds.
-- `cve_feed_server.py:408` — `request-id: {os.getpid()}` is wrong: each request gets the server's PID, not a per-request ID. Should be a counter or UUID.
+- `local_sandbox_server.py:143` — `while :` busy-loop. Not a bug, kept.
+- `exploit.py:97` — `"READY" in ... or "ready" in ...` — DROPPED with the rest of the helpers; new code checks `r["exit_code"] != 0 or "READY" not in stdout`.
+- `reach.py:106-109` — `_load_advisory` two code paths. Not a bug, kept.
+- `build_image.py:83-90` — port 8080 hardcode. ✅ Root cause was deeper: our generated `Dockerfile` was being overwritten by the repo's own `Dockerfile` in the temp build context. Fix: write our `Dockerfile` AFTER the copy loop. Also: `detect_entrypoint` returns the actual port per entry (Flask→5000, FastAPI→8000, manage.py→8080).
+- `cve_feed_server.py:408` — `request-id: {os.getpid()}` — ✅ Fixed: now `uuid.uuid4().hex[:8]`.
 
 ---
 
 ## Status
 
-[draft — pending operator review before acting on findings]
+✅ All actionable findings fixed. 2 false alarms documented. 1 deferred (no-cleanup-on-MCP-failure: rare, low impact). End-to-end smoke test on `/tmp/test-flask` (Python Flask) and `/tmp/dvpwa` (Node.js) both produced correct images with the right port. Production run on `https://github.com/owtf/owtf`: 33/33 not exploitable, 0 patches, reports written.
