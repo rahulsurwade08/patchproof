@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from agent.build_image import build_image_for_repo  # noqa: E402
+from agent.analyzer import deps  # noqa: E402
 from agent.scan import run_reach, scan_repo  # noqa: E402
 
 
@@ -37,6 +38,22 @@ def clone_or_resolve(repo_arg: str) -> Path:
             subprocess.run(["git", "clone", "--quiet", repo_arg, str(clone_dir)], check=True)
         return clone_dir
     raise FileNotFoundError(f"repo not found: {repo_arg}")
+
+
+def _ecosystems_in_repo(repo: Path) -> list[str]:
+    """Return the runtimes present in the repo, based on manifest files.
+
+    Uses deps.scan_repo so it actually reflects the packages, not just filenames.
+    """
+    found = deps.scan_repo(repo)
+    ecosystems = set()
+    for entries in found.values():
+        for e in entries:
+            if e["manifest"] == "package.json":
+                ecosystems.add("node")
+            elif e["manifest"] in ("requirements", "pyproject.toml", "Pipfile"):
+                ecosystems.add("python")
+    return sorted(ecosystems)
 
 
 def run():
@@ -79,7 +96,30 @@ def run():
               f"{len(triage['to_test'])} to test, "
               f"{len(triage['not_reachable'])} not reachable", flush=True, file=sys.stderr)
 
-    # Save triage
+    # Build image(s) — one per ecosystem present in the repo, not one for
+    # the whole repo. Every package in the repo is checked for CVEs, every
+    # CVE is tested in the image that can run the package. A CLI repo with
+    # 100 npm deps still gets a node image so each npm CVE is tested.
+    import os
+    env_image = os.environ.get("PATCHPROOF_IMAGE", "")
+    images: dict[str, str] = {}
+    if not args.skip_image:
+        ecosystems = _ecosystems_in_repo(repo)
+        for eco in ecosystems:
+            if env_image:
+                images[eco] = env_image
+                print(f"  image[{eco}]: {env_image} (from PATCHPROOF_IMAGE env)", file=sys.stderr)
+            else:
+                print(f"[2/2] building {eco} image ...", flush=True, end="", file=sys.stderr)
+                images[eco] = build_image_for_repo(repo, runtime=eco)
+                print(f" done. image[{eco}]={images[eco]}", flush=True, file=sys.stderr)
+        if not ecosystems:
+            print(f"[2/2] no ecosystems found, building default image ...", flush=True, end="", file=sys.stderr)
+            images["default"] = build_image_for_repo(repo)
+            print(f" done. image={images['default']}", flush=True, file=sys.stderr)
+
+    # Attach image routing to triage and save
+    triage["images"] = images
     triage_path = out_root / "triage.json"
     triage_path.write_text(json.dumps(triage, indent=2))
     print(f"  triage: {triage_path}", file=sys.stderr)
@@ -89,28 +129,18 @@ def run():
         action = "not testing" if verdict == "NOT_REACHABLE" else "queued for sandbox"
         print(f"  {args.cve}: {verdict} — {action}", file=sys.stderr)
 
-    # Build image
-    import os
-    image = os.environ.get("PATCHPROOF_IMAGE", "")
-    if not args.skip_image:
-        if image:
-            print(f"  image: {image} (from PATCHPROOF_IMAGE env)", file=sys.stderr)
-        else:
-            print(f"[2/2] building sandbox image ...", flush=True, end="", file=sys.stderr)
-            image = build_image_for_repo(repo)
-            print(f" done. image={image}", flush=True, file=sys.stderr)
-
     print(
         f"\nPatchProof triage saved to {triage_path}\n"
-        f"Image: {image}\n"
+        f"Images: {images}\n"
         f"Repo: {repo}\n"
         f"\nThe agent should now:\n"
         f"  1. Read {triage_path}\n"
         f"  2. For each CVE in triage['to_test']:\n"
         f"     (skip triage['not_reachable'] — static proof they aren't invoked)\n"
-        f"     a. Generate a PoC (HTTP request or library call)\n"
-        f"     b. Run it via sandbox_exec → get verdict.json\n"
-        f"     c. If exploitable: generate + apply patch, re-run, verify\n"
+        f"     a. Pick image = triage['images'][<ecosystem>]\n"
+        f"     b. Generate a PoC (HTTP request or library call)\n"
+        f"     c. Run it via sandbox_exec → get verdict.json\n"
+        f"     d. If exploitable: generate + apply patch, re-run, verify\n"
         f"  3. Write report.json + report.md to {out_root}/\n",
         file=sys.stderr
     )

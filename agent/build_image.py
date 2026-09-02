@@ -58,6 +58,18 @@ def _find_in_subdirs(repo: Path, targets: list[str]) -> Path | None:
     return None
 
 
+def _fallback_for(runtime: str, repo: Path) -> tuple[str, int]:
+    """Pick a server entrypoint for a forced runtime, or sleep-hold.
+
+    Used by build_image_for_repo when runtime is forced but detect_runtime
+    found nothing (e.g. caller asks for node on a CLI repo). Same sleep-hold
+    as the auto-detect fallback.
+    """
+    if runtime == "python":
+        return "python3 -c 'import time; time.sleep(3600)'", 8080
+    return "node -e 'setInterval(()=>{},1<<30)'", 3000
+
+
 def detect_runtime(repo: Path) -> tuple[str, str, int] | None:
     """Detect runtime, entry command, and port for a repo.
 
@@ -119,19 +131,32 @@ def _detect_at(base: Path) -> tuple[str, str, int] | None:
     return None
 
 
-def build_image_for_repo(repo: Path) -> str:
-    """Return the docker image tag to use for this repo."""
+def build_image_for_repo(repo: Path, runtime: str | None = None) -> str:
+    """Build and return a sandbox image tag for this repo.
+
+    Args:
+        repo: repo path
+        runtime: force a runtime ("python" or "node"). If None, auto-detect
+                 via detect_runtime. Exists so callers can build a specific
+                 runtime regardless of server entrypoint detection.
+    """
     sha = repo_sha(repo)
-    tag = f"{IMAGE_PREFIX}:{repo.name}-{sha}"
+    if runtime:
+        tag = f"{IMAGE_PREFIX}:{repo.name}-{sha}-{runtime}"
+    else:
+        tag = f"{IMAGE_PREFIX}:{repo.name}-{sha}"
 
     if image_exists(tag):
         return tag
 
-    runtime_info = detect_runtime(repo)
-    if runtime_info:
-        runtime, entrypoint, port = runtime_info
+    if runtime is None:
+        runtime_info = detect_runtime(repo)
+        if runtime_info:
+            runtime, entrypoint, port = runtime_info
+        else:
+            runtime, entrypoint, port = "python", "python3 -c 'import time; time.sleep(3600)'", 8080
     else:
-        runtime, entrypoint, port = "python", "python3 -c 'import time; time.sleep(3600)'", 8080
+        entrypoint, port = _fallback_for(runtime, repo)
 
     # ponytail: each sandbox_exec starts a fresh container, so the kill loop
     # was dead code (and a footgun: pgrep -f "main.py" would match anything on
