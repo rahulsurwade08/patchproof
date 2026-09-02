@@ -67,7 +67,8 @@ python3 agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
 - `agent/exploit.py` — sandbox harness helpers (`exec_`, `write_`, `read_`, `stop_`, `pull_`, `run_exploit_for_cve`)
 - `agent/analyzer/` — reachability triage engine (`reach.py`, `deps.py`)
 - `agent/mcp/` — MCP servers (`local_sandbox_server.py`, `cve_feed_server.py`)
-- `agent/prompts/` — LLM subagent prompts (orchestrator, analyzer, reproducer, judge, patcher, verifier)
+- `agent/skills/` — LLM subagent skills (SKILL.md per node: orchestrator, analyzer, reproducer, judge, patcher, verifier)
+- `SKILL.md` (repo root) — installable opencode skill (copied by `scripts/install.sh`)
 - `agent/skills/` — harness skills (SKILL.md per node)
 - `data/output/<repo>/` — per-run artifacts: `triage.json`, `reachability.json`, `verdict.json`, `assessment.json`, `report.{md,json}` (gitignored)
 
