@@ -23,9 +23,8 @@ Transport: MCP Streamable HTTP (POST JSON-RPC at /mcp, JSON responses,
 no session state beyond the docker containers themselves).
 No external dependencies; Python >= 3.9.
 
-This is the Python port of agent/mcp/local-sandbox-server/index.mjs
-(ADR-011): identical tool contracts, responses, isolation flags, redaction,
-crash recovery, and error semantics.
+Identical tool contracts, responses, isolation flags, redaction, crash
+recovery, and error semantics to the previous node.js implementation.
 """
 
 import hashlib

@@ -15,7 +15,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from agent.build_image import build_image_for_repo  # noqa: E402
-from agent.scan import scan_repo  # noqa: E402
+from agent.scan import run_reach, scan_repo  # noqa: E402
 
 
 def clone_or_resolve(repo_arg: str) -> Path:
@@ -53,18 +53,24 @@ def run():
     out_root.mkdir(parents=True, exist_ok=True)
 
     if args.cve:
-        # Single-CVE mode: skip discovery, use existing triage if available
+        # Single-CVE mode: load existing triage if present, else run the
+        # per-CVE reachability check so the agent has a real verdict
+        # (NOT_REACHABLE → skip, REACHABLE/UNKNOWN → test) instead of
+        # blindly trusting the user-supplied CVE id.
         triage_path = out_root / "triage.json"
         if triage_path.exists():
             triage = json.loads(triage_path.read_text())
         else:
+            reach = run_reach(repo, args.cve, out_root / "_reach" / args.cve)
+            verdict = reach.get("verdict", "UNKNOWN")
             triage = {
                 "repository": repo.name,
-                "cves_discovered": 0,
-                "not_reachable": [],
-                "exploitable": [args.cve],
+                "cves_discovered": 1,
+                "to_test": [args.cve] if verdict in ("REACHABLE", "UNKNOWN") else [],
+                "not_reachable": [args.cve] if verdict == "NOT_REACHABLE" else [],
+                "exploitable": [],
                 "not_exploitable": [],
-                "reachability": {},
+                "reachability": {args.cve: reach},
             }
     else:
         print(f"[1/2] scanning {repo} ...", flush=True, end="", file=sys.stderr)
@@ -77,6 +83,11 @@ def run():
     triage_path = out_root / "triage.json"
     triage_path.write_text(json.dumps(triage, indent=2))
     print(f"  triage: {triage_path}", file=sys.stderr)
+    if args.cve:
+        reach = triage.get("reachability", {}).get(args.cve, {})
+        verdict = reach.get("verdict", "UNKNOWN")
+        action = "not testing" if verdict == "NOT_REACHABLE" else "queued for sandbox"
+        print(f"  {args.cve}: {verdict} — {action}", file=sys.stderr)
 
     # Build image
     import os

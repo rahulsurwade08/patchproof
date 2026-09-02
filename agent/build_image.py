@@ -37,17 +37,22 @@ def image_exists(tag: str) -> bool:
     return bool(r.stdout.strip())
 
 
-def detect_entrypoint(repo: Path) -> str | None:
-    """Best-effort: find a runnable command in the repo."""
-    # ponytail: heuristic only — looks for the most common patterns
-    for candidate in [
-        ("run.py", "python3 run.py"),
-        ("app.py", "python3 app.py"),
-        ("main.py", "python3 main.py"),
-        ("manage.py", "python3 manage.py runserver 0.0.0.0:8080"),
-    ]:
-        if (repo / candidate[0]).exists():
-            return candidate[1]
+def detect_entrypoint(repo: Path) -> tuple[str, int] | None:
+    """Best-effort: find a runnable command in the repo. Returns (cmd, port).
+
+    ponytail: heuristic only — covers the common patterns. Add a real
+    manifest parser (pyproject script entry-points, Procfile, etc.) when
+    repos we care about need it.
+    """
+    candidates = [
+        ("run.py", "python3 run.py", 8080),
+        ("app.py", "python3 app.py", 5000),
+        ("main.py", "python3 main.py", 8000),
+        ("manage.py", "python3 manage.py runserver 0.0.0.0:8080", 8080),
+    ]
+    for fname, cmd, port in candidates:
+        if (repo / fname).exists():
+            return cmd, port
     return None
 
 
@@ -60,29 +65,27 @@ def build_image_for_repo(repo: Path) -> str:
         return tag
 
     # Build context = repo itself (read-only mount at build time)
-    entrypoint = detect_entrypoint(repo) or "python3 -c 'import time; time.sleep(3600)'"
+    entry = detect_entrypoint(repo) or ("python3 -c 'import time; time.sleep(3600)'", 8080)
+    entrypoint, port = entry
     req_files = [f for f in ("requirements.txt", "pyproject.toml", "Pipfile") if (repo / f).exists()]
 
-    # ponytail: Dockerfile is templated inline; upgrade to a proper template
-    # engine when we support more than Python. start.sh is required by
-    # exploit.py to know the service is ready.
+    # ponytail: Dockerfile + start.sh are templated inline; upgrade to a
+    # proper template engine when we support more than Python. The container
+    # exposes PATCHPROOF_PORT so the agent can health-check the actual port
+    # the service bound to (Flask→5000, FastAPI→8000, uvicorn→8080).
     start_sh = f"""#!/bin/bash
 set +e
 ENTRYPOINT="{entrypoint.strip()}"
-# Strip leading "python3 " or "python " from entrypoint if present
 ENTRYPOINT="${{ENTRYPOINT#python3 }}"
 ENTRYPOINT="${{ENTRYPOINT#python }}"
-# Kill stale app processes
 for p in $ENTRYPOINT app.py run.py main.py; do
     pids=$(pgrep -f "$p" 2>/dev/null)
     [ -n "$pids" ] && kill -9 $pids 2>/dev/null
 done
 sleep 1
-# Start the app
-python3 $ENTRYPOINT >> /tmp/srv.log 2>&1 &
-# Wait for port 8080 (max 10s)
+PATCHPROOF_PORT={port} python3 $ENTRYPOINT >> /tmp/srv.log 2>&1 &
 for i in $(seq 1 20); do
-    python3 -c "import socket; s=socket.socket(); s.settimeout(0.5); s.connect(('127.0.0.1', 8080)); s.close(); exit(0)" 2>/dev/null && {{
+    python3 -c "import socket; s=socket.socket(); s.settimeout(0.5); s.connect(('127.0.0.1', {port})); s.close(); exit(0)" 2>/dev/null && {{
         echo READY
         exit 0
     }}
@@ -98,25 +101,32 @@ COPY . /srv/
 RUN chmod +x start.sh
 """ + (
         "RUN pip install --no-cache-dir -r requirements.txt\n" if "requirements.txt" in req_files else ""
-    ) + """
-EXPOSE 8080
+    ) + f"""
+EXPOSE {port}
+ENV PATCHPROOF_PORT={port}
 CMD ["/srv/start.sh"]
 """
 
-    # Build with a temp context dir to avoid embedding secrets
+    # Build with a temp context dir to avoid embedding secrets.
+    # Copy repo contents first, then overwrite with our generated files
+    # (so any Dockerfile in the repo doesn't replace ours).
     ctx = Path(f"/tmp/pp-build-{sha}")
     ctx.mkdir(exist_ok=True)
-    (ctx / "Dockerfile").write_text(dockerfile)
     (ctx / "start.sh").write_text(start_sh)
-    # Symlink only the needed files (avoid .git, .env, etc.)
+    skip_names = {".git", ".venv", "venv", "__pycache__", "node_modules"}
     for item in repo.iterdir():
-        if item.name in {".git", ".env", "venv", "__pycache__", ".venv", "node_modules"}:
+        if item.name in skip_names or item.name.startswith("."):
             continue
         target = ctx / item.name
+        if item.is_symlink():
+            continue
         if item.is_dir():
-            target.symlink_to(item)
+            shutil.copytree(item, target, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns(".env*", "__pycache__", "node_modules"))
         else:
             target.write_bytes(item.read_bytes())
+    # Must write AFTER copying so we overwrite any Dockerfile from the repo
+    (ctx / "Dockerfile").write_text(dockerfile)
 
     subprocess.run(
         ["docker", "build", "-t", tag, str(ctx)],
