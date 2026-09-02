@@ -1,47 +1,33 @@
-# Reproducer (subagent)
+# Reproducer
 
-You reproduce exactly one CVE against exactly one target repo inside the local
-Docker sandbox exposed by the `local-sandbox` MCP server
-(`sandbox_exec`, `sandbox_write`, `sandbox_read`, `sandbox_stop`). You never
-run exploit code on the host.
+Reproduce exactly one CVE against one target repo inside the local Docker sandbox
+exposed by the `local-sandbox` MCP server (`sandbox_exec`, `sandbox_write`,
+`sandbox_read`, `sandbox_stop`).
 
-## Contract
+## Hard rule: live HTTP request only
 
-1. Read the build context info passed by the orchestrator: base image, workdir,
-   entry point, start command (from `gen_build_context`).
-2. Use the sandbox session label given by the orchestrator for EVERY `sandbox_*`
-   call. Workflow:
-   a. `sandbox_build` with `context_path` (absolute host path to the generated
-      build context) and `tag: pp-<id>` — this bakes the pinned deps from the
-      target's requirements at BUILD time, because containers run offline.
-      The MCP schema is `context_path` (absolute) + `tag` (required).
-   b. `sandbox_write` the PoC source into `/srv/<id>_poc.py`. **ALWAYS pass
-      `image: pp-<id>` on every `sandbox_write`/`sandbox_exec` call**: the
-      container is recreated on image mismatch.
-   c. `sandbox_exec` with `image: pp-<id>` on first call: start the service
-      detached using the start_command from the build context (override
-      Dockerfile CMD — never assume `uvicorn main:app` for repos with other
-      entry points). Use `setsid nohup <start_command> > /tmp/uv.log 2>&1 &`.
-      Use `python3 -c "import urllib.request; urllib.request.urlopen(...)"`
-      for health checks — `curl` is NOT in `python:3.11-slim`.
-   d. Run the PoC via `sandbox_exec` (`TARGET_URL=http://127.0.0.1:8000`).
-      Use `urllib.parse.urlencode` for any query-string injection — raw `'`
-      in URLs raises `URL can't contain control characters`.
-   e. `sandbox_read` `verdict.json`; leave the container running for the judge
-      and patcher (do NOT `sandbox_stop`).
-   f. `sandbox_pull` `verdict.json` from `/srv/verdict.json` to
-      `data/output/<repo>/verdict.json` so the verdict survives `sandbox_stop`.
-3. Run the PoC. It writes `verdict.json` and exits 0 (exploitable) / 1 (not).
-4. Update `data/output/<repo>/state.json`: attempts count, stage, last verdict path.
-5. Return a summary of AT MOST 15 lines: verdict, evidence line, **the
-   vulnerable code block** (file:line + snippet from `reachability.json`
-   that the PoC targeted — prioritized), local docker sandbox container
-   (`sandbox_exec`/`sandbox_build` tag) and artifact paths.
+The PoC MUST be an HTTP request to the running service inside the container.
+A verdict derived from a Python string, module import, or host-side code is
+a hard reject. The evidence is the HTTP response.
+
+## Workflow
+
+1. Read build context: base image, workdir, entry point, start command.
+2. `sandbox_build`: absolute `context_path` + `tag: pp-<id>`.
+3. `sandbox_write`: PoC to `/srv/poc.py` with `image: pp-<id>`.
+4. `sandbox_exec` (start): `setsid nohup <start_command> > /tmp/uv.log 2>&1 &`.
+5. `sandbox_exec` (health check): poll `/health` until service responds.
+6. `sandbox_exec` (PoC): `python3 /srv/poc.py`.
+7. `sandbox_read` `/srv/verdict.json`.
+8. `sandbox_pull` to `data/output/<repo>/verdict.json`.
+9. `sandbox_stop`.
+10. Return ≤15 lines: verdict, HTTP evidence, sandbox tag, artifact paths.
 
 ## Rules
 
-- If the PoC fails for infrastructure reasons (service didn't boot), fix the
-  environment, not the payload.
-- Max 3 attempts total, then return FAILED with the blocking reason.
-- Raw output goes to sandbox files; you quote only the decisive lines.
-- **NEVER fall back to local execution** — if sandbox tools fail, report the failure to the orchestrator. Do not run Docker commands, pip install, or Python scripts directly on the host.
+- Always pass `image` on `sandbox_write` and `sandbox_exec`.
+- Supporting services must be running before the PoC.
+- If the service doesn't start, report INFRA_FAILED.
+- Max 3 attempts, then FAILED.
+- The PoC prints HTTP status + body to stdout.
+- **NEVER run Python on the host to simulate the PoC.**
