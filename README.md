@@ -4,11 +4,22 @@
 
 Give it a repo, it finds all flagged vulnerabilities, runs real exploits against your actual code in an isolated sandbox, and tells you which are exploitable and which are safe. If something is exploitable, it writes and verifies the fix.
 
+## Install in your opencode
+
+```bash
+git clone https://github.com/rahulsurwade08/patchproof.git ~/patchproof
+~/patchproof/scripts/install.sh                # copies skill + MCP config
+python3 ~/patchproof/agent/mcp/local_sandbox_server.py &   # :8081
+python3 ~/patchproof/agent/mcp/cve_feed_server.py &         # :8091
+```
+
+Then in opencode, say "scan this repo for CVEs" and PatchProof takes over.
+
 ## How it works
 
 PatchProof runs entirely inside Docker containers with `--network none` — your host never executes untrusted code.
 
-The flow has two parts: a mechanical driver (Python) that clones, scans, and builds the image, and an LLM agent that generates PoCs, runs exploits, judges verdicts, and produces patches.
+The flow has two parts: a mechanical driver (Python) that clones, scans, and builds images, and an LLM agent that generates PoCs, runs exploits, judges verdicts, and produces patches.
 
 ```
 User invokes /patchproof
@@ -21,9 +32,13 @@ User invokes /patchproof
 │  2. agent/scan.py — query OSV.dev for every package   │
 │     → run reachability analysis per CVE                │
 │     → bucket as to_test / not_reachable               │
-│  3. agent/build_image.py — build Docker image          │
-│     (SHA-cached: pp-sandbox:<repo>-<sha>)             │
+│  3. agent/build_image.py — build ONE image per        │
+│     ecosystem present in the repo:                    │
+│     • python (python:3.11-slim + pip install)         │
+│     • node   (node:20-slim   + npm install)           │
+│     (SHA-cached: pp-sandbox:<repo>-<sha>-<runtime>)  │
 │  4. Write data/output/<repo>/triage.json              │
+│     (includes triage['images'] for per-CVE routing)   │
 └─────────────────────────────────────────────────────────┘
         │
         ▼
@@ -31,6 +46,7 @@ User invokes /patchproof
 │  PatchProof LLM agent (the brain)                      │
 │                                                         │
 │  For each CVE in triage['to_test']:                   │
+│    • Pick image = triage['images'][<ecosystem>]      │
 │    • Read reachability.json (call sites)              │
 │    • Generate a PoC script (HTTP request)             │
 │    • sandbox_write /srv/poc.py                        │
@@ -46,9 +62,9 @@ User invokes /patchproof
 └─────────────────────────────────────────────────────────┘
 ```
 
-Each CVE gets its own container — failures on CVE-1 cannot bleed into CVE-2.
+Each CVE gets its own container — failures on CVE-1 cannot bleed into CVE-2. Each ecosystem gets its own image — npm CVEs run in a real node:20-slim container with the package installed, not in a python:3.11-slim sleep-hold.
 
-## Get started
+## Get started (without opencode)
 
 ### 1. Start the MCP servers
 
@@ -94,11 +110,13 @@ Results are written to `data/output/<repo>/report.md` and `data/output/<repo>/re
 |---|---|
 | `agent/orchestrate.py` | Mechanical driver — clone, scan, build image, write triage.json |
 | `agent/scan.py` | CVE discovery + reachability bucketing (to_test / not_reachable) |
-| `agent/build_image.py` | Per-repo Docker image build, SHA-cached |
-| `agent/exploit.py` | Sandbox harness helpers (exec, write, read, stop, pull) |
+| `agent/build_image.py` | Per-repo Docker image build, SHA-cached, one per ecosystem |
+| `agent/exploit.py` | Sandbox harness helper (`run_exploit_for_cve`) |
 | `agent/analyzer/reach.py` | Static reachability analysis (dep-pin → call-sites → input trace) |
 | `agent/mcp/local_sandbox_server.py` | MCP server — sandbox tools (sandbox_build, sandbox_exec, etc.) |
 | `agent/mcp/cve_feed_server.py` | MCP server — CVE tools (cve_get_cve, osv_query_package, etc.) |
+| `SKILL.md` | opencode skill (installed via `scripts/install.sh`) |
+| `scripts/install.sh` | Idempotent installer — copies skill + MCP config into `~/.config/opencode/` |
 | `.opencode/agents/patchproof.md` | The LLM agent definition |
 | `.opencode/command/patchproof.md` | `/patchproof` command |
 
@@ -142,7 +160,12 @@ No. Everything runs inside Docker containers with `--network none`. Your machine
 It queries OSV.dev at runtime for every package in your `requirements.txt` or lock file. No CVE data is hardcoded. The cve_feed MCP server (port 8091) can also be used to cross-check CVEs against CVE.org.
 
 **Does it work on non-Python repos?**
-Currently Python only.
+Yes. As of the multi-ecosystem routing change (PR #93), PatchProof builds one image per ecosystem present in the repo:
+- Repos with `package.json` get a `node:20-slim` image with `npm install` ran.
+- Repos with `requirements.txt` / `pyproject.toml` / `Pipfile` get a `python:3.11-slim` image.
+- Repos with both get both. Each CVE is routed to the matching image.
+
+TypeScript / yarn / pnpm / monorepos: not yet. Add when a real caller needs it.
 
 **What's the difference between the CLI and the agent?**
 The CLI (`agent/orchestrate.py`) handles the deterministic parts: cloning, scanning, building the image, and writing `triage.json`. The LLM agent handles the creative parts: writing PoCs, judging verdicts, and generating patches.
