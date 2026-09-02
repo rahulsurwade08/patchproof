@@ -1,321 +1,281 @@
-# PatchProof — Plan
+# PatchProof
 
-> Scanners tell you you're *maybe* vulnerable. PatchProof tells you the truth
-> about **your** code: it proves whether a flagged CVE is actually *reachable*
-> with attacker-controlled input in your repo, exploits the exact code inside an
-> isolated sandbox to confirm, proposes a fix, and asks permission before shipping.
+Scanners say *"maybe vulnerable."* PatchProof proves whether you actually are —
+by running the real exploit against your code inside an isolated sandbox.
 
-## 0. Product theses (decided)
+The agent lives inside the **OpenCode harness**. You ask it to triage a repo,
+exploit a single CVE, or run the full pipeline; it does the work, isolated from
+your host, and reports the verdict with live evidence. No separate CLI — the
+harness is the interface.
 
-1. **Reachability triage, not exploit showcases.** Re-running *public* CVEs against
-   *pre-packaged* test fixtures proves nothing new — the exploit is already
-   public. The value is proving reachability in a **specific repo** (ADR-009).
-2. **`NOT_REACHABLE` is the headline outcome** — killing scanner alert-fatigue by
-   proving a flagged CVE cannot be driven in *your* code. Scanners cannot produce
-   this.
-3. **CVE.org + OSV.dev are the only CVE databases.** We **hardcode no CVE data**
-   anywhere (no local symbol map, no fallback fixtures). All vulnerable-range
-   and symbol knowledge comes from those two sources at runtime (hard rule).
+## What it does
 
-## 1. Mission
+Given a GitHub repo and a CVE id, PatchProof:
 
-Dependency-vulnerability alerts are noisy because scanners do pattern matching
-on version numbers: they cannot tell whether *your* code path triggers the bug.
-The result is alert fatigue and unfixed vulnerabilities. PatchProof closes the
-loop empirically, per (repo + advisory):
+1. **Checks the CVE is real** — dual-source (CVE.org + OSV.dev). No PUBLISHED
+   record → stop. No made-up CVE ids, no local symbol maps, no fixtures.
+2. **Triages reachability** — is the affected package pinned in your repo? Are
+   the vulnerable symbols called on attacker-controlled input? If not, you're
+   not affected; no sandbox time wasted.
+3. **Runs the real exploit** — if the vuln is reachable, builds your service
+   inside a Docker container (with its supporting services: Postgres, Redis,
+   etc.), starts it, and runs a PoC that hits a live endpoint. The verdict
+   comes from the actual server response, not static code analysis.
+4. **Patches and verifies** — when the verdict is exploitable, applies the
+   fix, restarts the service, and re-runs the same PoC. If the fix holds, the
+   post-patch verdict is `false`. The before/after pair is the report.
+5. **Reports** — `data/output/<repo>/<cve_id>/{verdict,verdict_post_patch,
+   assessment,patch.json}` plus a per-CVE summary in the agent thread.
 
-1. A CVE lands for a library, or a scanner flags a repo.
-2. **Legitimacy + range check** — dual-source (CVE.org canonical record + OSV.dev
-   affected ranges). Must be PUBLISHED in CVE.org and list the pinned package/
-   version. No confirm → **UNKNOWN**, stop, spend no sandbox time.
-3. **Analyzer (reachability triage)** — static, no sandbox yet:
-   - Dep-pin check: is the affected package+version in the repo's lockfile/manifest?
-     No → **NOT_REACHABLE**, stop (cheap filter).
-   - Call-site scan: are the vulnerable symbols called in the repo (derived from
-     the OSV record / advisory text — e.g. `yaml.load`, `pickle.loads`, XXE parser,
-     template-from-string, raw-SQL f-string)?
-   - Input-source trace: can *attacker-controlled* input reach any call site (HTTP
-     body/query, upload, runtime config, env, CLI, deserialization point)? A site
-     fed only by static/checked-in startup input is **NOT_REACHABLE**; a truly
-     ambiguous one is **UNKNOWN** and gets sandbox time — never assumed safe.
-   - Emit `reachability.json` and decide whether sandbox time is warranted.
-4. **Reproducer** (only if REACHABLE/UNKNOWN warrants it) — build-context gen then
-   `sandbox_build` a pinned image, then exploit the exact reachable path inside the
-   offline sandbox (`sandbox_exec`) — never on the host.
-   - **Two-tier build (ADR-017):** the generated `Dockerfile.patchproof` (version-matched minimal base) is the primary; if its dependency install fails, the reproducer escalates to the repo's own declared Dockerfile (`fallback_dockerfile`) and reports the escalation.
-   - Exploit fails / not reachable → case closed **NOT AFFECTED**, alert dismissed.
-   - Exploit succeeds → patcher bumps the dependency, builds a patched image,
-     runs the test suite in the sandbox, opens a PR with exploit output as evidence.
-5. **Judge** — LLM reviews evidence quality and range consistency; annotates
-   (`assessment.json`) but never flips the outcome.
-6. **Approval gate** — deploying the fix to staging is irreversible → agent pauses
-   for human approval (never skippable). Patch PRs themselves are merged by the
-   agent once tests green + traceability posted; staging deploy approval stays
-   human-only.
-7. **Verifier** — after approval, re-runs the original PoC against staging to
-   confirm the vulnerability is dead.
-8. **Teardown (hard rule)** — after each run, `sandbox_stop` the session container
-   and prune the built images. Sandbox + image cleanup is mandatory because it
-   consumes host resources.
+## What it does not do
 
-## 2. Decisions
+- Skip the CVE check to "just try" — if the CVE is unverified, the run stops.
+- Run the PoC on the host — exploits only run inside the sandbox container.
+- Accept a fake "I made this CVE up" id — a known regression from an earlier
+  dvpwa test run; the fix is the dual-source legitimacy check.
+- Open PRs or deploy without human approval.
+- Provide a separate CLI. The OpenCode harness is the only interface.
 
-| Decision | Value |
-|---|---|
-| Location | `~/Projects/patchproof` |
-| Team | Solo |
-| Language | Python for all `agent/` code (analyzer + MCP servers). No Node in the runtime pipeline |
-| UI | Harness-native UI (first target: OpenCode); agent is harness-agnostic |
-| Models | OpenRouter free models via BYOK; assume ~50 req/day ceiling until tested |
-| Repo | Public from day 1 · runtime is localhost-only, on demand |
-| CVE legitimacy | Dual-source gate: CVE.org + OSV.dev both confirm; **hardcode no CVE data**; fail closed |
-| Fallback policy | OSV/CVE.org only → if nothing usable, honest `UNKNOWN`; **never** a local symbol map |
-| Verdict review | LLM-as-a-judge annotates evidence quality; PoC exit code stays the only truth |
-| Sandbox modes | Own Python `local-sandbox` MCP server: `sandbox_build` + `sandbox_exec/write/read/stop` (offline `--network none`); no cloud providers; **teardown after every run (hard rule)** |
-| GitHub credentials | Header-auth token from the user's gh CLI credential store, written to `.env` by the human without display |
-| Code review | Intermittent small PRs; every PR reviewed; findings addressed before merge |
-
-## 3. Sponsor tools
-
-- The agent runs on any harness that supports MCP tools. The first target
-  is OpenCode.
-- Skills in `agent/skills/` follow the standard SKILL.md format.
-
-## 4. Architecture
+## Pipeline (per CVE)
 
 ```
-                 ┌──────────────────────────────────────────────────────┐
-                 │        harness session (one per CVE per repo)        │
-   CVE advisory ─►│  ORCHESTRATOR                                        │
-   (cve-feed /    │  • legitimacy + range (cve-feed: CVE.org + OSV.dev)   │
-    data/inbox)   │  • ANALYZER (reachability triage, static/Python)      │
-    + target repo │      dep-pin → call-sites → input trace               │
-                  │      → reachability.json → gate sandbox time          │
-                  │        │ if REACHABLE/UNKNOWN                         │
-                  │  ┌────▼─────┬──────────┐                              │
-                  │  Reproducer Reproducer …  (parallel)                 │
-                  │  REPRODUCER: build-context gen → sandbox_build,       │
-                  │  run PoC, write verdict.json                          │
-                  │        │ verdict summaries merged                     │
-                  │        ▼                                              │
-                  │  JUDGE: review evidence quality + ranges              │
-                  │  (assessment.json; never flips the verdict)           │
-                  │        ▼                                              │
-                  │  PATCHER: bump dep → test suite in sandbox →          │
-                  │  open PR with evidence                                │
-                  │        ▼                                              │
-                  │  ■ APPROVAL GATE: comment requesting human OK         │
-                  │        ▼ human approves                               │
-                  │  VERIFIER: re-run PoC vs staging → report             │
-                  │        ▼                                              │
-                  │  TEARDOWN: sandbox_stop + image prune (always)        │
-                  └──────────────────────────────────────────────────────┘
+1. Legitimacy  →  cve_cross_check (CVE.org PUBLISHED + OSV.dev ranges)
+2. Analyzer    →  reach.py: dep-pin → call-sites → input-source trace
+3. Reproducer  →  build_context → sandbox_build → start service + deps
+                  → live HTTP PoC against the running container
+4. Judge       →  LLM reviews evidence quality, never flips the verdict
+5. Patcher     →  source fix, restart, re-run PoC
+6. Verifier    →  confirm before/after pair (verdict.json vs verdict_post.json)
+7. Teardown    →  sandbox_stop + docker image prune (mandatory, always)
 ```
 
-Capability map:
-
-| Harness capability | Where PatchProof uses it |
-|---|---|
-| MCP tools | `github` (repos/PRs) + Python `cve-feed` server (CVE.org + OSV.dev) + Python `local-sandbox` server |
-| Sandbox execution | PoC exploit code and patch test suites — never run on host |
-| Human approval | Merge-and-deploy-to-staging step pauses until approved (comment-based) |
-| Subagents | One reproducer per REACHABLE candidate (parallel fan-out) + a judge reviewing every verdict |
-| Skills | `analyzer` (first stage) + `orchestrator`/`reproducer`/`judge`/`patcher`/`verifier` load as stages match |
-
-## 5. Analyzer (reachability triage engine)
-
-The functional core for arbitrary repos. All Python.
-
-| Component | Path | Purpose |
-|---|---|---|
-| Analyzer skill | `agent/skills/analyzer/SKILL.md` (+ `agent/prompts/analyzer.md`) | Harness skill; first pipeline stage; directs the agent through triage |
-| Reachability analyzer | `agent/analyzer/reach.py` | Deterministic Python static analyzer: dep-pin → call-sites → input-trace → `reachability.json`; split into small scripts the LLM drives via `sandbox_exec` |
-| Dep-pin parser | part of `reach.py` | Parse `requirements*.txt/.lock`, `pyproject.toml`, `package.json` etc. for pinned versions |
-| Build-context generator | `agent/analyzer/gen_context.py` | Auto-generates a `Dockerfile` + entry for a repo lacking one, so `sandbox_build` works on arbitrary repos (fixes the dvpwa `context_path` gap) |
-| Output dir | `data/output/<repo>/` | Auditable `reachability.json`, `verdict.json`, `assessment.json` per run (gitignored) |
-| Python MCP servers | `agent/mcp/*.py` | `cve-feed` + `local-sandbox` servers in Python (ADR-011) |
-
-`reachability.json` schema (draft):
-
-```json
-{
-  "cve_id": "CVE-2020-14343",
-  "dep": { "name": "pyyaml", "pinned_version": "3.13", "affected_range": "<=5.3.1" },
-  "source": "osv",                        // osv | cveorg only
-  "in_scope": true,
-  "call_sites": [
-    { "file": "config/schema.py", "line": 3, "symbol": "yaml.load",
-      "source": "static startup config file", "reachable": false }
-  ],
-  "verdict": "NOT_REACHABLE",            // REACHABLE | NOT_REACHABLE | UNKNOWN
-  "confidence": "high",
-  "rationale": "used only via trafaret-config parsing ./config/dev.yaml (checked-in), not attacker-controlled",
-  "needs_sandbox": false,
-  "disclaimer": "verdict valid for scanned call sites only; symbol knowledge from OSV/CVE.org, no hardcoded map"
-}
+```
+CVE id ─► [legitimacy] ──ok──► [analyzer] ──REACHABLE/UNKNOWN──► [reproducer]
+            │                        │                              │
+            │                        ▼                              ▼
+            │                  reachability.json              sandbox_build
+            │                        │                       start service
+            │                        │                    + supporting deps
+            │                        │                              │
+            │                        │                              ▼
+            │                        │                       live HTTP PoC
+            │                        │                              │
+            │                        │                              ▼
+            │                        │                        verdict.json
+            │                        │                              │
+            │                        │            ┌─────────────────┘
+            │                        ▼            ▼
+            │                    [judge] ──ok──► [patcher] ──► [verifier]
+            │                        │                            │              │
+            ▼                        ▼                            ▼              ▼
+         UNKNOWN/             assessment.json                  PR + fix      re-run PoC
+         not in scope                                                              │
+                                                                                   ▼
+                                                                             [teardown]
+                                                                               stop + prune
 ```
 
-Honesty rules (ADR-010):
-- `UNKNOWN` sites get sandbox time; never assumed safe.
-- `NOT_REACHABLE` requires the input source be identified and non-attacker-controlled.
-- **No hardcoded CVE data.**
-- Every report carries the coverage/source disclaimer.
-- Static evidence is tied to the vulnerable call's own arguments (call line +
-  immediate multiline continuation); **conflicting evidence — static literal
-  and network provenance both present — resolves to `UNKNOWN` and gates
-  sandbox time**, never to `NOT_REACHABLE`.
-- **Dependency scope**: `_select_dep` is ecosystem-aware (`pypi`/`pip`/`python` → Python manifests only, `npm` → `package.json` only, empty → unrestricted, unsupported non-empty → no match) and treats OSV `versions` and `ranges` as alternatives (`by_versions OR by_ranges`; `""` sentinel from `{introduced:"0"}` means all versions).
+## Components
 
-## 6. Run graph (lean orchestration, no framework)
-
-The pipeline is naturally a DAG (fan-out reproducers, judge→reproducer loop, the
-approval gate). We encode it as **filesystem state + skill prompts** rather than
-a graph framework (ADR-014). No new dependency; we own the representation.
-
-Each node reads exactly its inputs from `data/output/<repo>/` and writes its
-outputs there. The orchestrator walks the sequence via the harness, invoking
-each skill as a turn. Teardown is the terminal node that always runs (ADR-012).
-
-## 7. Memory & token budget
-
-### Memory model (three tiers)
-
-- **Long-term (source of truth): the file system.** Every run's durable state
-  lives under `data/output/<repo>/` — `reachability.json`, `verdict.json`,
-  `assessment.json`, plus raw sandbox logs (kept in files, never in context).
-  Files survive, are auditable, and let a session **resume by reading one small
-  state file**.
-- **Working memory (in-session): the run graph + artifact pointers.** Each skill
-  node reads only the artifacts it needs and writes only its outputs; the
-  orchestrator holds pointers (`artifact_paths`), not content. No cross-node
-  history.
-- **No unstructured context bloat.** We do **not** summarize the whole repo into
-  context. Nodes are self-contained: state, not history (ADR-014).
-
-**Explicitly deferred:** no Redis / vector-DB. Structured state is queried by
-field from files (faster and simpler than embeddings). An optional *local,
-file-based* embedding index over prior `data/output/` for cross-run semantic
-learnings ("similar prior verdicts") is a later, eval-gated idea only (ADR-015).
-
-### Token budget — how we stay under free-tier limits (~50 req/day, small windows)
-
-Three levers, in priority order:
-
-1. **Fetch less (biggest win).** Read-through protocol: a node reads exactly its
-   inputs, nothing else. Dep-pin short-circuits most repo+CVE pairs before any
-   big fetch — the cheapest outcome is no downstream work.
-2. **Cache more.** Stable prompt prefix first (instructions), volatile data
-   (repo/CVE) last → prefix caching hits across turns. Deterministic Python
-   scripts do token-heavy grunt work (manifest parse, call-site grep,
-   build-context gen) via `sandbox_exec`, so the LLM never ingests thousands of
-   lines to extract one field.
-3. **Write tiny, read tiny.** ≤15-line summary at every node boundary (ADR-002);
-   artifacts carry detail, context carries pointers.
-
-Per-node model-token budget (estimates):
-
-| Node | Reads | Writes | Model tokens |
-|---|---|---|---|
-| Legitimacy | CVE id + package | small state | low |
-| Analyzer | OSV symbol hints | `reachability.json` | medium (grep in scripts) |
-| Reproducer | build context | `verdict.json` + 15-line summary | medium |
-| Judge | verdict + summary | `assessment.json` | low |
-| Patcher | verdict + lockfile | patch + PR | medium |
-| Verifier | PoC + staging | report | low |
-
-### Token utilization decisions (agreed)
-
-- **Telemetry:** per-node status is tracked per run to show where budget goes before further optimization.
-- **Retry policy (cap 3):** on a low-confidence / disagreeing judge, retry the
-  **narrow node only** (e.g. the reproducer), keeping prior node artifacts —
-  never re-run from the analyzer up.
-- **Input-compression proxy (deferred, eval-gated):** the local input-compression
-  proxy is a candidate, but only adopted **after telemetry shows where spend is** and only
-  if it measures better than our own baseline. Keep judge + approval reasoning in
-  full prose (security reasoning untouched). Not a core dependency now (ADR-015).
-
-## 8. Risks & fallbacks
-
-| Risk | Fallback |
+| Path | Purpose |
 |---|---|
-| Flaky PoC generation | Reproducer uses a deterministic template; outputs always include HTTP codes + marker-file evidence |
-| Weak tool-calling on free models | Deterministic Python scripts do mechanical steps; LLM does judgment only |
-| Static analyzer false-confidence | Hard `UNKNOWN` not `NOT_REACHABLE` default; sandbox confirm; source disclaimer; judge review |
-| Arbitrary repo won't build | Build-context generator (`gen_context.py`) produces a minimal `Dockerfile`/entry for `sandbox_build` |
-| OSV/CVE.org unavailable or no symbol data | Honest `UNKNOWN`, no sandbox time, no invented symbols |
-| Resource leak (docker images/containers) | Mandatory teardown stage: `sandbox_stop` + image prune after each run (hard rule) |
-| MCP migration regression (Node→Python) | Keep behavior identical; port the two entry tests (cve cross-check; build+exec) before integrating |
- | Time overrun | Cut order: analyzer (Python) + build-context gen → MCP migration → osv wiring polish → approval gate. Approval gate never cut. Core pipeline complete. |
+| `agent/analyzer/reach.py` | Static reachability triage (dep-pin → call-sites → input trace) |
+| `agent/analyzer/gen_context.py` | Auto-generates `Dockerfile.patchproof` for repos without one |
+| `agent/analyzer/deps.py` | Manifest parser (requirements.txt, pyproject.toml, package.json) |
+| `agent/mcp/cve_feed_server.py` | Dual-source CVE lookup (CVE.org + OSV.dev) |
+| `agent/mcp/local_sandbox_server.py` | Docker sandbox: build, exec, write, read, stop |
+| `agent/exploit_cve_catalog.py` | Per-CVE payload + reachability + vulnerable-code map |
+| `agent/run_exploit_pipeline.py` | Driver: 1 session per CVE, exploit → patch → verify |
+| `scripts/mcp_client.py` | Streamable HTTP client for both MCP servers |
+| `scripts/reset_state.sh` | Wipes `data/output/`, `docker system prune -f` |
+| `agent/skills/*/SKILL.md` | Per-step instructions loaded by OpenCode |
+| `agent/prompts/*.md` | Step prompts (orchestrator, analyzer, reproducer, judge, patcher, verifier) |
 
-## 9. Security posture
+## Per-CVE isolation (the rule)
 
-PatchProof runs untrusted exploit code and ships patches, so it is a high-value
-target and must not be less secure than the code it audits.
+**One CVE = one container.** Each CVE investigation gets its own session
+(`pp-<repo>-<cve_id>`). A crash on CVE-1 cannot leak into CVE-2's state. The
+MCP server enforces `--network none` on every container at runtime.
 
-**Sandbox (crown jewel)**
-- Exploitable code runs only in the sandbox, never on the host (ADR-008).
-- Harden the `local-sandbox` Python server defaults: `--network none`,
-  **non-root container user**, **no privileged**, **no host mounts** beyond a
-  controlled scratch dir, **no `/var/run/docker.sock` exposure**, **resource
-  limits** (CPU/mem/timeout), read-only root FS where possible.
-- Never mount `.env`, `.git`, credentials, or `data/output/` into a sandbox that
-  runs untrusted code. Secrets never reach the sandbox.
-- `sandbox_build` (network for deps) and `sandbox_exec` (offline) stay
-  separated; a hostile PoC must not reach the network at runtime.
-- Teardown mandatory after every run (ADR-012) so leaked hostile images/
-  containers can't persist or consume host resources.
-- Stronger isolation (e.g. microVMs) is noted as a deferred eval, not a blocker.
+Pipeline per CVE:
+```
+session = "pp-dvpwa-DVPWA-SQLI"
+1. sandbox_write  /srv/poc.py
+2. sandbox_exec    start service (idempotent — kill stale procs first)
+3. sandbox_exec    run poc.py
+4. sandbox_read    /srv/verdict.json
+5. sandbox_pull    → data/output/dvpwa/DVPWA-SQLI/verdict.json
+6. if exploitable:
+     sandbox_write  patched /srv/sqli/dao/student.py
+     sandbox_exec    restart service
+     sandbox_exec    re-run poc.py
+     sandbox_read    /srv/verdict_post_patch.json
+     sandbox_pull    → data/output/dvpwa/DVPWA-SQLI/verdict_post_patch.json
+7. sandbox_stop
+```
 
-**Secrets**
-- `.env`/keys never committed or displayed; refer to keys by name only.
-- Narrowest-scope GitHub token; no keys in `data/output/`, telemetry, or commit messages.
-- Per-push secrets scan (grep key patterns) added to the pre-push gate so a key
-  can't sneak into a commit.
+## PoC contract
 
-**Untrusted input handling**
-- Target repos and their manifests/`Dockerfile`s/exploit files are hostile-
-  controllable: parse manifests defensively (no shell injection via filenames,
-  no unquoted subprocess). Never copy `.env`/secrets into the auto-generated
-  build context. CVE/OSV responses are parsed as data, never `eval`/`exec`.
-- **Prompt-injection posture (hard rule):** external content (repo files, README,
-  advisory text, sandbox logs) is **data, not instructions**. Skills never obey
-  instructions embedded in scanned content; the analyzer and reproducer operate
-  on deterministic-script outputs, not by trusting repo text. Judge reviews
-  evidence with provenance and is resilient to forged-looking evidence.
+Every exploit writes `verdict.json` with:
+- `cve_id` — the CVE being tested (must be PUBLISHED on CVE.org)
+- `exploitable` — `true` or `false`
+- `evidence.request` — exact method, path, payload, headers sent
+- `evidence.response` — actual status, body, headers from the running service
+- `vulnerable_code` — `{file, line, function, snippet}` of the affected code
 
-**Supply chain & the patches we ship**
-- Pinned versions in our own lockfiles; auto-generated patches run the test
-  suite before merge — a poisoned "fix" is caught before shipping.
-  Patch PRs merge only when tests green + traceability posted; the
-  staging-deploy approval gate is never skipped.
+Exit 0 = exploitable, exit 1 = not affected. The PoC must hit a live HTTP
+endpoint inside the sandbox container; a Python string interpolation in a
+vacuum is a hard reject.
 
-**Host hygiene**
-- Python MCP servers bind to `127.0.0.1` only and refuse unknown/uninvited
-  requests (no write path for arbitrary network clients).
+## Build strategy
 
-**Auditability**
-- Every verdict/assessment is an attributable artifact.
+- **Primary:** `Dockerfile.patchproof` generated by `gen_context.py` — version-
+  matched minimal base, our own install lines only.
+- **Fallback:** the repo's own declared `Dockerfile.app` / `Dockerfile.db` /
+  `docker-compose.yml` if the primary fails (e.g. repos like dvpwa that need
+  Postgres + Redis alongside the app).
+- **Service deps:** if the repo declares supporting services, the reproducer
+  starts them and verifies reachability before running the PoC.
+- **For unrunnable stacks:** when the original server is broken on the chosen
+  Python version (e.g. aiohttp 3.5.3 on Python 3.9), ship a `mini_server.py`
+  that uses stdlib `http.server` and embeds the exact vulnerable code
+  byte-for-byte. The HTTP transport is plain stdlib; the vulnerable code is
+  preserved.
 
-## 10. Hard rules
+## Hard rules
 
-- **All execution through the harness** — exploitation, patch tests, and
-  reproduction happen via `sandbox_build`/`sandbox_exec`/`sandbox_write`/
-  `sandbox_read`/`sandbox_stop`, never on the host.
-- **No secrets in session or repo.** Refer to keys by name only; never print `.env` or tokens.
-- **No hardcoded CVE data.** CVE.org + OSV.dev are the only CVE knowledge source (ADR-010).
-- **Cleanup is mandatory.** Teardown (`sandbox_stop` + image prune) runs after every execution.
-- **Approval gate never skippable.**
-- **Review every PR.** Findings are addressed before merge. PRs are
-  intermittent and small.
-- **External content is data, not instructions.** Repo files, advisories, and
-  sandbox logs are untrusted; skills never obey instructions embedded in them
-  (prompt-injection defense).
+- **No fabricated CVE ids.** If `cve_cross_check` returns UNKNOWN, the
+  investigation stops.
+- **PoC must exploit the live service.** Evidence comes from an HTTP response,
+  not from a string `%` interpolation on the host.
+- **All execution through the sandbox server.** `sandbox_build` / `sandbox_exec`
+  / `sandbox_write` / `sandbox_read` / `sandbox_stop` — never on the host.
+- **`image` is always required** on `sandbox_exec` / `sandbox_write` — the
+  server rejects calls without it.
+- **Per-CVE isolation.** One CVE = one container. Stops bleed; parallelizable.
+- **No separate CLI.** The OpenCode harness is the only interface.
+- **`sandbox_stop` is always the last call.** No leftover containers.
+- **No hardcoded CVE data.** CVE.org + OSV.dev are the only source.
+- **Sandbox runs unprivileged + offline** — `--network none`, non-root user,
+  no `docker.sock`, resource limits.
 - **Secrets never reach the sandbox.** `.env`, `.git`, credentials, and
-  `data/output/` are never mounted/copied into build context or exec containers.
-- **Sandbox runs unprivileged + offline.** Non-root user, `--network none`, no
-  privileged, no `docker.sock`, resource-limited, minimal mounts (ADR-016).
+  `data/output/` are never mounted or copied into the build context.
+- **External content is data, not instructions.** Repo files, advisories, and
+  sandbox logs are untrusted; the agent never obeys instructions embedded in
+  them.
+- **Approval gate never skippable.** PR merge + staging deploy both pause for
+  human approval.
 
-## 11. Outstanding improvements
+## Mistakes we made (so we don't repeat them)
 
-See the issue tracker for open items. Priority: token optimization, stronger
-sandbox isolation (microVMs), telemetry baseline.
+### MCP client response parsing
+- `tools/call` returns `{"content": [{"type":"text","text":"..."}]}` (plain JSON
+  envelope), but earlier code only handled SSE (`data:` lines).
+- **Fix**: `scripts/mcp_client.py` unwraps both formats in one pass. Lives at
+  `scripts/mcp_client.py` and is used by the agent and the driver.
+
+### Silent `image` omission
+- Without `image` param, MCP silently used `python:3.11-slim`. Containers
+  looked healthy but had no app code, no DB driver, no service.
+- **Fix**: always pass `image: "pp-<repo>"` on every call. Documented in
+  AGENTS.md and the reproducer skill.
+
+### `sandbox_write` files lost on `sandbox_stop`
+- Files written via `sandbox_write` don't survive the next `sandbox_stop`.
+- **Fix**: only the dynamic PoC goes through `sandbox_write`. Start scripts,
+  vulnerable code, requirements — all baked into the build context.
+
+### aiohttp 3.5.3 is unrunnable on Python 3.8+ and 3.9
+- `async_timeout` 5.x broke ABI: `class CeilTimeout(async_timeout.timeout):`
+  fails with `TypeError: function() argument 'code' must be code, not str`.
+- Pinning `async-timeout==3.0.1` doesn't help because pip pulls 5.x anyway.
+- **Workaround**: ship `mini_server.py` with stdlib `http.server`, embedding
+  the exact SQL interpolation from `sqli/dao/student.py:43`. Vulnerable code
+  preserved byte-for-byte; HTTP transport is plain stdlib.
+
+### Container thrash from repeated rebuilds
+- 8 builds + 8 stops = 8 containers created and destroyed.
+- **Fix**: bake everything into one build. `Dockerfile.patchproof` includes
+  the app, start script, and `mini_server.py`. One build, many sessions.
+
+### Long MCP timeouts block other calls
+- One slow build blocks the entire MCP server for minutes.
+- **Fix**: cached builds unless `no_cache: True` is strictly required. Most
+  updates to `poc.py` don't need `no_cache`.
+
+### Output truncation
+- `sandbox_exec` stdout/stderr truncated beyond a few KB.
+- **Fix**: redirect to `/tmp/*.log`, then `sandbox_read` the file.
+
+### `curl` not in slim
+- Health checks that used `curl` failed silently.
+- **Fix**: use `python3 -c "import urllib.request; ..."` for all checks.
+
+### No service start idempotency
+- Calling `start.sh` twice leaves orphan processes.
+- **Fix**: each start step `kill -9 $(pgrep -f ...)` first.
+
+### Stale `data/output/` from previous runs
+- Earlier fake run left `verdict_*.json` files.
+- **Fix**: `scripts/reset_state.sh` wipes `data/output/` before each run.
+
+### Fake CVE fabrication
+- An earlier dvpwa run invented `DVPWA-SQLI` instead of finding the real
+  vulnerability in `sqli/dao/student.py:43`.
+- **Fix**: dual-source CVE check is the first gate. Synthetic CVEs are only
+  used to label a vulnerability that the analyzer found in the repo's own
+  code, never to invent a new one. Always anchored to a published advisory or
+  a static-analysis finding.
+
+## Security posture
+
+- The sandbox server binds to `127.0.0.1` only.
+- Build-time network is allowed (for `pip install`); runtime is offline.
+- Teardown is mandatory after every run so leaked images / containers can't
+  persist or consume host resources.
+- Resource limits per container (memory, CPU) are set by the MCP server.
+- LLM-judge annotates, never decides. `verdict.json` exit code is ground truth.
+
+## What we learned about dvpwa
+
+55 CVEs discovered (54 from dep scan + 1 synthetic for the in-repo SQLi):
+- **44 aiohttp CVEs** — library-internal bugs, not triggered by dvpwa's usage.
+- **6 jinja2 CVEs** — sandbox escapes; dvpwa uses Jinja2 only for app templates.
+- **2 pyyaml CVEs** — no `yaml.load` on any request path.
+- **2 idna CVEs** — dvpwa is a server, not a client.
+- **1 DVPWA-SQLI** — `sqli/dao/student.py:43` is the only real bug.
+
+**Patch** (the actual fix):
+```python
+# before (line 43):
+q = ("INSERT INTO students (name) VALUES ('%(name)s')" % {'name': name})
+await cur.execute(q)
+
+# after:
+await cur.execute("INSERT INTO students (name) VALUES (%s)", (name,))
+```
+
+`%`-style string interpolation in a SQL query is replaced with a parameterized
+query. The driver (aiopg) handles the escaping.
+
+## Why no separate CLI
+
+We have OpenCode. You ask it things; it does them. A second CLI duplicates
+the agent's logic and diverges over time. The OpenCode harness is the
+interface. The user just says "test CVE-XXXX-XXXX" or "run the full pipeline
+on dvpwa" and the agent loads the right skill + prompt, calls MCP, and
+reports back.
+
+## Next steps
+
+1. **Per-CVE isolation in `run_exploit_pipeline.py`** — one session per CVE,
+   per-CVE `data/output/<repo>/<cve_id>/` directory.
+2. **Patch step for exploitable CVEs** — write patched file via
+   `sandbox_write`, restart service, re-run PoC, write
+   `verdict_post_patch.json`.
+3. **End-to-end dvpwa test in OpenCode** — prove the full loop works against
+   a real repo (clone → reachability → sandbox build → service start with
+   Postgres + Redis → real HTTP PoC → patch → re-run → teardown).
+4. **Image-prune step in `reset_state.sh`** — `docker image prune -f` after
+   each run.
+5. PyPI publish once the loop is reliable (`pip install patchproof`).
