@@ -13,7 +13,7 @@ For --discover, writes discovered_cves.json instead.
 
 Triage pipeline: dep-pin short-circuit -> call-site scan -> input-source trace.
 
-Honesty rules (ADR-010):
+Honesty rules:
   - All symbol/range knowledge comes from the advisory (file or OSV) at
     runtime; nothing is hardcoded into this tool.
   - NOT_REACHABLE requires identifying a non-attacker-controlled input source

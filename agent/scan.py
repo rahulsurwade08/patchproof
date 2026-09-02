@@ -12,6 +12,7 @@ Returns:
 """
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -41,6 +42,8 @@ def scan_repo(repo: Path, out_root: Path) -> dict:
     )
     disc = discover_dir / "discovered_cves.json"
     if not disc.exists():
+        print(f"scan: discover step produced no output (no packages or scan failed)",
+              file=sys.stderr)
         return {"repository": repo.name, "cves_discovered": 0,
                 "to_test": [], "not_reachable": [], "exploitable": [], "reachability": {}}
 

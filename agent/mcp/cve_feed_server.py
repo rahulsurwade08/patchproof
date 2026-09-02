@@ -14,10 +14,11 @@ harness (e.g. OpenCode MCP config).
 """
 
 import json
+import os
 import sys
 import urllib.parse
 import urllib.request
-import os
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CVE_API = "https://cveawg.mitre.org/api/cve"
@@ -223,12 +224,12 @@ def cross_check(args):
     cve = cve_get({"cveId": args["cveId"]})
     if not cve.get("found") or cve.get("state") != "PUBLISHED":
         return {"verdict": "UNKNOWN", "cve": cve}
-    osv, truncated = osv_query_all({
+    vulns, truncated = osv_query_all({
         "ecosystem": args["ecosystem"],
         "name": args["name"],
         "version": args.get("version"),
-    })
-    for v in osv:
+    }, max_pages=10)
+    for v in vulns:
         if args["cveId"] in [v.get("id"), *(v.get("aliases") or [])]:
             return {
                 "verdict": "CONFIRMED",
@@ -242,10 +243,10 @@ def cross_check(args):
     if truncated:
         return {"verdict": "UNKNOWN",
                 "reason": (f"osv results truncated at the page cap with "
-                           f"{len(osv)} entries checked; a match on a later "
+                           f"{len(vulns)} entries checked; a match on a later "
                            f"page cannot be ruled out"),
-                "cve": cve, "osv_entries_checked": len(osv)}
-    return {"verdict": "NOT_IN_SCOPE", "cve": cve, "osv_entries_checked": len(osv)}
+                "cve": cve, "osv_entries_checked": len(vulns)}
+    return {"verdict": "NOT_IN_SCOPE", "cve": cve, "osv_entries_checked": len(vulns)}
 
 
 def dispatch(method, params):
@@ -404,7 +405,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"cve-feed MCP listening on http://127.0.0.1:{PORT}/mcp "
-          f"(request-id: {os.getpid()})", file=sys.stderr)
+          f"(request-id: {uuid.uuid4().hex[:8]})", file=sys.stderr)
     server.serve_forever()
 
 
