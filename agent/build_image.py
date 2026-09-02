@@ -97,15 +97,13 @@ def build_image_for_repo(repo: Path) -> str:
     else:
         runtime, entrypoint, port = "python", "python3 -c 'import time; time.sleep(3600)'", 8080
 
+    # ponytail: each sandbox_exec starts a fresh container, so the kill loop
+    # was dead code (and a footgun: pgrep -f "main.py" would match anything on
+    # the line). Drop it. Upgrade path: add targeted pkill -f "$ENTRYPOINT"
+    # only if/when sandbox_exec supports in-place restart.
     start_sh = f"""#!/bin/bash
 set +e
-ENTRYPOINT="{entrypoint.strip()}"
-for p in $ENTRYPOINT app.py run.py main.py; do
-    pids=$(pgrep -f "$p" 2>/dev/null)
-    [ -n "$pids" ] && kill -9 $pids 2>/dev/null
-done
-sleep 1
-PATCHPROOF_PORT={port} bash -c "$ENTRYPOINT" >> /tmp/srv.log 2>&1 &
+PATCHPROOF_PORT={port} bash -c "{entrypoint.strip()}" >> /tmp/srv.log 2>&1 &
 for i in $(seq 1 20); do
     (echo > /dev/tcp/127.0.0.1/{port}) 2>/dev/null && {{
         echo READY

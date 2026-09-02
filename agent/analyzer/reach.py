@@ -178,10 +178,9 @@ def _derive_vuln_funcs(advisory, pkg):
     return sorted(funcs)
 
 
-_ESM_IMPORT_RE = re.compile(
-    r"import\s+(?:(?:\*\s+as\s+\w+\s+)?|(?:\{\s*[^}]*\})?\s*|(?:\w+\s+)?)from\s+['\"]([^'\"]+)['\"]"
-)
-
+# ponytail: ESM `import X from 'pkg'` and `import {X} from 'pkg'`. One
+# non-greedy regex; group(1) is the package name. Inline in _is_pkg_reference.
+# Upgrade path: parse AST if any npm CVE needs to resolve subpath imports.
 
 def _is_direct_call(line, funcs, pkg):
     """True if the line invokes one of the vulnerable functions or the package.
@@ -200,7 +199,7 @@ def _is_direct_call(line, funcs, pkg):
             return True
     if pkg:
         plow = pkg.lower()
-        if re.search(rf"import\s.+\sfrom\s+['\"]{re.escape(plow)}['\"]", low) or \
+        if re.search(rf"\bimport\s.+\sfrom\s+['\"]{re.escape(plow)}['\"]", low) or \
            re.search(rf"from\s+['\"]{re.escape(plow)}['\"]", low) or \
            re.search(rf"""require\(['"]{re.escape(plow)}['"]\)""", low) or \
            re.search(rf"""import\(['"]{re.escape(plow)}['"]\)""", low):
@@ -211,10 +210,7 @@ def _is_direct_call(line, funcs, pkg):
 def _is_pkg_reference(line, pkg):
     low = line.lower()
     plow = pkg.lower()
-    # ponytail: ESM default/destructuring/namespace imports like
-    # `import x from 'pkg'` or `import {foo} from 'pkg'` or
-    # `import * as x from 'pkg'`.
-    m = _ESM_IMPORT_RE.search(low)
+    m = re.search(r"""\bimport\s.+?\sfrom\s+['"]([^'"]+)['"]""", low)
     if m and m.group(1) == plow:
         return True
     return (f"from {plow}" in low or f"{plow}." in low or
