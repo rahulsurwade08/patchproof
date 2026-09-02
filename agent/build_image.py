@@ -108,10 +108,10 @@ CMD ["/srv/start.sh"]
 """
 
     # Build with a temp context dir to avoid embedding secrets.
-    # Skip symlinks to prevent following external content into the image.
+    # Copy repo contents first, then overwrite with our generated files
+    # (so any Dockerfile in the repo doesn't replace ours).
     ctx = Path(f"/tmp/pp-build-{sha}")
     ctx.mkdir(exist_ok=True)
-    (ctx / "Dockerfile").write_text(dockerfile)
     (ctx / "start.sh").write_text(start_sh)
     skip_names = {".git", ".venv", "venv", "__pycache__", "node_modules"}
     for item in repo.iterdir():
@@ -125,6 +125,8 @@ CMD ["/srv/start.sh"]
                             ignore=shutil.ignore_patterns(".env*", "__pycache__", "node_modules"))
         else:
             target.write_bytes(item.read_bytes())
+    # Must write AFTER copying so we overwrite any Dockerfile from the repo
+    (ctx / "Dockerfile").write_text(dockerfile)
 
     subprocess.run(
         ["docker", "build", "-t", tag, str(ctx)],
