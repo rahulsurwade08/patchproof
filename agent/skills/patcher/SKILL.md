@@ -78,8 +78,7 @@ changed.
      one-line dependency diff (Mode A). NOT a description of the change.
    - Test-suite result (pass/fail).
    - The original exploit evidence (one short quote from verdict.json).
-8. Update `state.json` → `STAGED_FOR_APPROVAL` with the PR URL.
-9. **Post a comment on the PR requesting human approval.** Do not merge until
+8. **Post a comment on the PR requesting human approval.** Do not merge until
    explicitly approved.
 
 ## Rules

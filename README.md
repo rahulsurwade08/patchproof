@@ -1,108 +1,111 @@
 # PatchProof
 
-Scanners say *"maybe vulnerable."* PatchProof proves whether you actually are —
-by exploiting your exact code inside an isolated sandbox — proposes a fix,
-and asks permission before shipping.
+**Scanners flag CVEs. PatchProof proves which ones actually reach your code.**
 
-## The problem it solves
+Give it a repo, it finds all flagged vulnerabilities, runs real exploits against your actual code in an isolated sandbox, and tells you which are exploitable and which are safe. If something is exploitable, it writes the fix.
 
-Version-number scanners can't tell whether *your* code path triggers a CVE.
-Teams drown in false positives and stop fixing things. PatchProof closes the
-loop empirically:
+## How it works
 
 ```
-CVE advisory ──► orchestrator matches it to a repo
-                      │
-                      ▼
-         analyzer runs static reachability on YOUR code
-                      │
-                      ▼
-         reproducer starts YOUR service at YOUR pinned versions
-         inside an isolated sandbox and runs an exploit against it
-                      │
-         ┌────────────┴────────────┐
-         ▼                         ▼
-   exploit fails             exploit succeeds
-   "NOT AFFECTED" ──► done   patcher bumps the dependency, runs the test
-                             suite in the sandbox, opens a PR with the exploit
-                             output as evidence
-                                       │
-                                       ▼
-                         ■ pauses: deploying is irreversible → human approves
-                                       │
-                                       ▼
-                         verifier re-runs the PoC against staging → fixed ✓
+Repo → CVE scan → Sandbox exploit → Verdict + patch (if needed)
 ```
 
-## Quickstart
+1. **Scan** — finds all CVE advisories affecting packages in your `requirements.txt` or lock file.
+2. **Triage** — runs static reachability analysis to separate "not reachable" from "maybe reachable."
+3. **Exploit** — for each candidate, starts your service inside an isolated Docker container and fires the real attack.
+4. **Verify** — if exploitable, generates a patch, applies it, re-runs the exploit to confirm the fix works.
+5. **Report** — writes `report.md` + `report.json` with findings and remediation code.
 
-Prerequisites: Python 3.11+ (or Docker). API keys for OpenRouter and GitHub
-via `.env`.
+All exploitation runs in a `--network none` container. Your host is never touched.
+
+## Get started
 
 ```bash
-# 1. Configure
-cp .env.example .env          # then fill in your keys
-
-# 2. Start the local-sandbox MCP server
-python3 agent/mcp/local_sandbox_server.py &     # http://127.0.0.1:8081/mcp
-python3 agent/mcp/cve_feed_server.py &           # http://127.0.0.1:8091/mcp
-
-# 3. Run a triage against a target repo
-python3 agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
-
-# 4. Or run everything through staging
-docker compose -f infra/docker-compose.yml up --build
-```
-
-## Repository layout
-
-```
-plan.md                  project plan
-agent/                   MCP servers, prompts, skills, analyzer
-  analyzer/              static reachability engine (reach.py, gen_context.py)
-  mcp/                   local-sandbox + cve-feed servers
-  prompts/               subagent prompts
-  skills/                harness skills (SKILL.md per node)
-infra/                   local staging (docker compose)
-scripts/                 helpers
-data/output/<repo>/      per-run artifacts (reachability, verdict, assessment)
-```
-
-## Sandbox
-
-PatchProof runs exploits in an isolated sandbox — never on your host. The
-`local-sandbox` MCP server executes disposable Docker containers with
-networking disabled, one per investigation (service and PoC share it).
-Zero cloud accounts. Start it before a run:
-
-```bash
+# 1. Start the sandbox harness
 python3 agent/mcp/local_sandbox_server.py &
+
+# 2. Run in OpenCode (or any MCP-compatible terminal)
+# Just open OpenCode inside a repo and say:
+#   /patchproof https://github.com/you/your-repo
+#   /patchproof .                        # current directory
+#   /patchproof . --cve CVE-2024-XXXX   # test one specific CVE
 ```
 
-Requires Docker plus Python 3.9+ on the host (the MCP server itself is a
-small stdlib-only script). No cloud sandbox providers are used anywhere in
-this project.
+Or use the CLI directly:
 
-## PoC contract
+```bash
+# Full scan
+python3 agent/orchestrate.py /path/to/repo
 
-Every exploit writes `verdict.json` in the sandbox `/srv` directory:
+# Scan a GitHub repo
+python3 agent/orchestrate.py https://github.com/user/repo
 
-- PoC script exits `0` **iff** exploitable; exit `1` means not affected.
-- It writes `verdict.json`: `{cve_id, exploitable, evidence}`.
-- Deterministic, <60 s, safe to run in an isolated sandbox.
+# Test a specific CVE
+PATCHPROOF_IMAGE=my-image python3 agent/orchestrate.py /path/to/repo --cve CVE-2024-XXXX
+```
 
-`agent/skills/reproducer` owns writing PoCs that follow this contract.
+Results land in `data/output/<repo>/report.md` and `data/output/<repo>/report.json`.
 
-## Harness compatibility
+## Requirements
 
-The agent is designed to run on any harness that supports MCP tools. Skills
-in `agent/skills/` follow the standard SKILL.md format, and prompts in
-`agent/prompts/` are harness-agnostic. The first supported target is
-OpenCode — configure MCP servers via `opencode mcp add <name> --url <url>`.
+- Python 3.11+
+- Docker (the sandbox runs exploits in containers, never on your host)
+- OpenCode (for the LLM-driven agent workflow)
 
-## Code review
+## Key files
 
-Every pull request is reviewed before merge. All findings must be addressed
-(closed or explicitly waived with a rationale) before the PR is considered
-done. Test status is the primary merge signal; small intermittent PRs, one
-concern each.
+| File | Purpose |
+|------|---------|
+| `agent/orchestrate.py` | Scan + build image + write triage.json |
+| `agent/scan.py` | Static reachability analysis |
+| `agent/build_image.py` | Per-repo Docker image (SHA-cached) |
+| `agent/exploit.py` | Sandbox exec/write/read helpers |
+| `agent/mcp/local_sandbox_server.py` | MCP server (start before running) |
+| `.opencode/agents/patchproof.md` | The agent definition |
+| `.opencode/command/patchproof.md` | `/patchproof` command |
+
+## What you get
+
+A report with three buckets:
+
+- **Exploitable** — CVE reaches attacker-controlled input in your code. Includes live HTTP evidence and a verified remediation patch.
+- **Not exploitable** — CVE was tested and couldn't be triggered through your attack surface.
+- **Not reachable** — static analysis proved the vulnerable code path is never called from your surface.
+
+## Example report output
+
+```
+# PatchProof Scan Report — `my-repo`
+
+**CVEs discovered:** 23
+**CVEs tested:** 8
+**Exploitable:** 1
+**Not exploitable:** 7
+
+## Exploitable CVEs
+
+### CVE-2024-21503 (black)
+
+- **Reason:** SQL error in error response
+- **Request:** POST /students/ body=name=test'+OR+'1'='1
+- **Response:** status=500, body=DB error: not enough arguments
+
+**Remediation (verified):**
+```python
+cur.execute("INSERT INTO students (name) VALUES (%s)", (name,))
+```
+```
+
+## FAQ
+
+**Does it run exploits on my host?**
+No. Everything runs inside Docker containers with `--network none`. Your machine never executes untrusted code.
+
+**Does it work on non-Python repos?**
+Currently Python. Other languages need a runtime adapter in `agent/build_image.py`.
+
+**How does it find CVEs?**
+OSV.dev + CVE.org, queried at runtime based on your `requirements.txt` / lock file. No hardcoded CVE data.
+
+**Can I use my own Docker image?**
+Yes. `PATCHPROOF_IMAGE=your-image python3 agent/orchestrate.py /repo`

@@ -9,16 +9,14 @@ inside an isolated sandbox to confirm, then patches and verifies fixes.
 ```bash
 # Start local-sandbox MCP (required before any agent run)
 python3 agent/mcp/local_sandbox_server.py &     # http://127.0.0.1:8081/mcp
-python3 agent/mcp/cve_feed_server.py &       # http://127.0.0.1:8091/mcp (Streamable HTTP)
+python3 agent/mcp/cve_feed_server.py &           # http://127.0.0.1:8091/mcp (Streamable HTTP)
 
-# Run the reachability analyzer directly (dev/CI only)
+# Mechanical driver: scan + build image + write triage.json
+python3 agent/orchestrate.py <repo-path-or-git-url> [--cve CVE-ID]
+PATCHPROOF_IMAGE=my-image python3 agent/orchestrate.py <repo>   # skip build, use pre-built image
+
+# Direct analyzer (dev/CI only — no sandbox)
 python3 agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
-
-# Staging
-docker compose -f infra/docker-compose.yml up --build
-
-# Reset state between runs
-bash scripts/reset_state.sh
 ```
 
 ## Hard rules
@@ -39,7 +37,7 @@ bash scripts/reset_state.sh
 - **Never commit `.env`.**
 - **PoC contract**: exit 0 iff exploitable, exit 1 = not affected; write
   `verdict.json` with `{cve_id, exploitable, evidence}`; deterministic, <60s.
-- **LLM-judge annotates, never decides** (`agent/prompts/judge.md`): every verdict
+- **LLM-judge annotates, never decides** (`agent/skills/judge/SKILL.md`): every verdict
   gets a judge review written to `assessment.json`. The PoC exit code stays ground truth.
 - **PRs: small, intermittent, ONE concern each.** A PR touches at most ~5 files
   and ~400 changed lines.
@@ -63,13 +61,18 @@ bash scripts/reset_state.sh
 
 ## Layout
 
-- `agent/analyzer/` — reachability triage engine (`reach.py`, `gen_context.py`, `deps.py`)
+- `agent/orchestrate.py` — mechanical driver: clone-or-resolve, scan, build image, write triage.json
+- `agent/scan.py` — reach.py wrapper: discovers CVEs, buckets into `to_test`/`not_reachable`/`exploitable`
+- `agent/build_image.py` — per-repo Docker build, SHA-cached (`pp-sandbox:<repo>-<sha>`)
+- `agent/exploit.py` — sandbox harness helpers (`exec_`, `write_`, `read_`, `stop_`, `pull_`, `run_exploit_for_cve`)
+- `agent/analyzer/` — reachability triage engine (`reach.py`, `deps.py`)
 - `agent/mcp/` — MCP servers (`local_sandbox_server.py`, `cve_feed_server.py`)
-- `agent/prompts/` — subagent prompts (orchestrator, analyzer, reproducer, judge, patcher, verifier)
+- `agent/prompts/` — LLM subagent prompts (orchestrator, analyzer, reproducer, judge, patcher, verifier)
 - `agent/skills/` — harness skills (SKILL.md per node)
-- `data/output/<repo>/` — per-run artifacts: `reachability.json`, `verdict.json`, `assessment.json` (gitignored)
+- `data/output/<repo>/` — per-run artifacts: `triage.json`, `reachability.json`, `verdict.json`, `assessment.json`, `report.{md,json}` (gitignored)
 
 ## Environment
 
 - Python is the runtime for all `agent/` code.
-- Direct analyzer: `python agent/analyzer/reach.py <repo-path> <cve-or-advisory>` → writes `reachability.json` into `data/output/<repo>/`.
+- `PATCHPROOF_IMAGE` env var skips the build step and uses a pre-built image.
+- `--cve CVE-ID` flag: single-CVE mode, skips discovery, uses existing `triage.json`.

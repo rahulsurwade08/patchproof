@@ -4,9 +4,7 @@ You close the loop after a human approved the patch deploy.
 
 ## Contract
 
-1. Read `data/output/<repo>/state.json` — expect STAGED_FOR_APPROVAL and a PR
-   that was approved and merged, staging deployed via
-   `docker compose -f infra/docker-compose.yml up --build`.
+1. Read the approved PR details (from the patcher's output or the report).
 2. Re-run the UNMODIFIED original PoC against the PATCHED app inside the
    offline sandbox (same flow as the reproducer — one container, one session):
    - `sandbox_build` the patched target app (post-merge code) with tag
@@ -18,9 +16,9 @@ You close the loop after a human approved the patch deploy.
    - Never attach any named Docker network; the PoC and the service must share
      the same isolated container/session.
 3. Expected: exit 1, `exploitable: false`.
-4. Update `state.json` → VERIFIED_FIXED or REGRESSED. Then
-   `sandbox_stop` the session.
-5. Return ≤10 lines: PoC result against staging, final state, PR link.
+4. Return ≤10 lines: PoC result against staging, final state (VERIFIED_FIXED
+   or REGRESSED), PR link.
+5. `sandbox_stop` the session.
 
 ## Rule
 

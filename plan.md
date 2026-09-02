@@ -1,95 +1,96 @@
 # PatchProof
 
 Scanners say *"maybe vulnerable."* PatchProof proves whether you actually are —
-by running the real exploit against your code inside an isolated sandbox.
+by running the real exploit against your code inside an isolated sandbox,
+producing a code-level fix, and verifying the fix holds.
 
-The agent lives inside the **OpenCode harness**. You ask it to triage a repo,
-exploit a single CVE, or run the full pipeline; it does the work, isolated from
-your host, and reports the verdict with live evidence. No separate CLI — the
-harness is the interface.
+The agent is the **OpenCode patchproof subagent** (`.opencode/agents/patchproof.md`)
+invoked through the `/patchproof` command. Mechanical bits (clone, scan, build
+image) live in Python; LLM-driven bits (PoC generation, verdict judgment, patch
+generation) live in the agent. The split is deliberate: anything deterministic
+is in Python so it doesn't depend on LLM quality.
 
 ## What it does
 
-Given a GitHub repo and a CVE id, PatchProof:
+Given a repo (local path or GitHub URL) and optionally a CVE id, PatchProof:
 
-1. **Checks the CVE is real** — dual-source (CVE.org + OSV.dev). No PUBLISHED
-   record → stop. No made-up CVE ids, no local symbol maps, no fixtures.
-2. **Triages reachability** — is the affected package pinned in your repo? Are
-   the vulnerable symbols called on attacker-controlled input? If not, you're
-   not affected; no sandbox time wasted.
-3. **Runs the real exploit** — if the vuln is reachable, builds your service
-   inside a Docker container (with its supporting services: Postgres, Redis,
-   etc.), starts it, and runs a PoC that hits a live endpoint. The verdict
+1. **Scans** — `agent/scan.py` queries OSV.dev for every package in the repo's
+   manifest, then runs static reachability (`agent/analyzer/reach.py`) for each
+   candidate CVE. Buckets into `to_test` (REACHABLE / UNKNOWN) or
+   `not_reachable` (NOT_REACHABLE).
+2. **Builds the image** — `agent/build_image.py` produces a SHA-cached
+   `pp-sandbox:<repo>-<sha>` Docker image that has the repo's app and
+   dependencies installed.
+3. **Writes `triage.json`** — `agent/orchestrate.py` outputs
+   `data/output/<repo>/triage.json`. The LLM agent reads this to know which
+   CVEs to test.
+4. **Runs real exploits** — for each CVE in `to_test`, the LLM writes a PoC,
+   injects it via `sandbox_write`, starts the service via `sandbox_exec`, runs
+   the PoC, and reads `/srv/verdict.json` from the container. The verdict
    comes from the actual server response, not static code analysis.
-4. **Patches and verifies** — when the verdict is exploitable, applies the
-   fix, restarts the service, and re-runs the same PoC. If the fix holds, the
-   post-patch verdict is `false`. The before/after pair is the report.
-5. **Reports** — `data/output/<repo>/<cve_id>/{verdict,verdict_post_patch,
-   assessment,patch.json}` plus a per-CVE summary in the agent thread.
+5. **Patches and verifies** — when the verdict is exploitable, the LLM applies
+   a code-level fix, restarts the service, and re-runs the same PoC. If the
+   fix holds, the post-patch verdict is `false`. The before/after pair is the
+   evidence.
+6. **Reports** — `data/output/<repo>/report.md` + `report.json` with the per-CVE
+   verdict, evidence, and (if applicable) the verified fix.
 
 ## What it does not do
 
-- Skip the CVE check to "just try" — if the CVE is unverified, the run stops.
+- Skip the CVE check to "just try" — `agent/scan.py` only emits CVEs that
+  OSV.dev reports as affecting the repo's pinned versions.
 - Run the PoC on the host — exploits only run inside the sandbox container.
-- Accept a fake "I made this CVE up" id — a known regression from an earlier
-  dvpwa test run; the fix is the dual-source legitimacy check.
+- Mark "exploitable" without a live HTTP response in the evidence.
+- Trust a package version to mean the code is reachable. Reachability is a
+  static check, sandbox is the ground truth.
 - Open PRs or deploy without human approval.
-- Provide a separate CLI. The OpenCode harness is the only interface.
 
-## Pipeline (per CVE)
-
-```
-1. Legitimacy  →  cve_cross_check (CVE.org PUBLISHED + OSV.dev ranges)
-2. Analyzer    →  reach.py: dep-pin → call-sites → input-source trace
-3. Reproducer  →  build_context → sandbox_build → start service + deps
-                  → live HTTP PoC against the running container
-4. Judge       →  LLM reviews evidence quality, never flips the verdict
-5. Patcher     →  source fix, restart, re-run PoC
-6. Verifier    →  confirm before/after pair (verdict.json vs verdict_post.json)
-7. Teardown    →  sandbox_stop + docker image prune (mandatory, always)
-```
+## Pipeline
 
 ```
-CVE id ─► [legitimacy] ──ok──► [analyzer] ──REACHABLE/UNKNOWN──► [reproducer]
-            │                        │                              │
-            │                        ▼                              ▼
-            │                  reachability.json              sandbox_build
-            │                        │                       start service
-            │                        │                    + supporting deps
-            │                        │                              │
-            │                        │                              ▼
-            │                        │                       live HTTP PoC
-            │                        │                              │
-            │                        │                              ▼
-            │                        │                        verdict.json
-            │                        │                              │
-            │                        │            ┌─────────────────┘
-            │                        ▼            ▼
-            │                    [judge] ──ok──► [patcher] ──► [verifier]
-            │                        │                            │              │
-            ▼                        ▼                            ▼              ▼
-         UNKNOWN/             assessment.json                  PR + fix      re-run PoC
-         not in scope                                                              │
-                                                                                   ▼
-                                                                             [teardown]
-                                                                               stop + prune
+User: /patchproof <repo>
+        │
+        ▼
+[orchestrate.py]   clone or resolve → scan.py → build_image.py
+        │                                    │
+        ▼                                    ▼
+   triage.json                    pp-sandbox:<repo>-<sha>
+        │
+        ▼
+[patchproof agent]   iterate to_test:
+   for each CVE:
+     write PoC
+     sandbox_write poc.py
+     sandbox_exec start service + run poc.py
+     sandbox_read /srv/verdict.json
+     sandbox_pull → data/output/<repo>/verdict.json
+     if exploitable:
+       write patch
+       sandbox_write patched file
+       sandbox_exec restart
+       sandbox_write same poc.py
+       sandbox_exec run poc.py
+       sandbox_pull → verdict_post_patch.json
+     sandbox_stop
+   write report.md + report.json
 ```
 
 ## Components
 
 | Path | Purpose |
 |---|---|
+| `agent/orchestrate.py` | Mechanical driver: clone-or-resolve, scan, build image, write triage.json |
+| `agent/scan.py` | reach.py wrapper: CVE discovery + reachability bucketing |
+| `agent/build_image.py` | Per-repo Docker build, SHA-cached by git commit |
+| `agent/exploit.py` | Sandbox harness helpers: exec, write, read, stop, pull, run_exploit_for_cve |
 | `agent/analyzer/reach.py` | Static reachability triage (dep-pin → call-sites → input trace) |
-| `agent/analyzer/gen_context.py` | Auto-generates `Dockerfile.patchproof` for repos without one |
-| `agent/analyzer/deps.py` | Manifest parser (requirements.txt, pyproject.toml, package.json) |
-| `agent/mcp/cve_feed_server.py` | Dual-source CVE lookup (CVE.org + OSV.dev) |
+| `agent/mcp/cve_feed_server.py` | CVE lookup (CVE.org + OSV.dev) |
 | `agent/mcp/local_sandbox_server.py` | Docker sandbox: build, exec, write, read, stop |
-| `agent/exploit_cve_catalog.py` | Per-CVE payload + reachability + vulnerable-code map |
-| `agent/run_exploit_pipeline.py` | Driver: 1 session per CVE, exploit → patch → verify |
+| `.opencode/agents/patchproof.md` | The LLM agent definition |
+| `.opencode/command/patchproof.md` | `/patchproof` command |
+| `agent/skills/*/SKILL.md` | Per-step instructions for the LLM agent |
 | `scripts/mcp_client.py` | Streamable HTTP client for both MCP servers |
-| `scripts/reset_state.sh` | Wipes `data/output/`, `docker system prune -f` |
-| `agent/skills/*/SKILL.md` | Per-step instructions loaded by OpenCode |
-| `agent/prompts/*.md` | Step prompts (orchestrator, analyzer, reproducer, judge, patcher, verifier) |
+| `scripts/reset_state.sh` | Wipes `data/output/`, kills containers |
 
 ## Per-CVE isolation (the rule)
 
@@ -97,27 +98,27 @@ CVE id ─► [legitimacy] ──ok──► [analyzer] ──REACHABLE/UNKNOWN�
 (`pp-<repo>-<cve_id>`). A crash on CVE-1 cannot leak into CVE-2's state. The
 MCP server enforces `--network none` on every container at runtime.
 
-Pipeline per CVE:
+Pipeline per CVE (inside the LLM agent loop):
 ```
 session = "pp-dvpwa-DVPWA-SQLI"
 1. sandbox_write  /srv/poc.py
 2. sandbox_exec    start service (idempotent — kill stale procs first)
 3. sandbox_exec    run poc.py
 4. sandbox_read    /srv/verdict.json
-5. sandbox_pull    → data/output/dvpwa/DVPWA-SQLI/verdict.json
+5. sandbox_pull    → data/output/<repo>/verdict.json
 6. if exploitable:
-     sandbox_write  patched /srv/sqli/dao/student.py
-     sandbox_exec    restart service
-     sandbox_exec    re-run poc.py
-     sandbox_read    /srv/verdict_post_patch.json
-     sandbox_pull    → data/output/dvpwa/DVPWA-SQLI/verdict_post_patch.json
+      sandbox_write  patched <vulnerable-file>
+      sandbox_exec    restart service
+      sandbox_exec    re-run poc.py
+      sandbox_read    /srv/verdict.json (post-patch)
+      sandbox_pull    → data/output/<repo>/verdict_post_patch.json
 7. sandbox_stop
 ```
 
 ## PoC contract
 
 Every exploit writes `verdict.json` with:
-- `cve_id` — the CVE being tested (must be PUBLISHED on CVE.org)
+- `cve_id` — the CVE being tested
 - `exploitable` — `true` or `false`
 - `evidence.request` — exact method, path, payload, headers sent
 - `evidence.response` — actual status, body, headers from the running service
@@ -129,23 +130,24 @@ vacuum is a hard reject.
 
 ## Build strategy
 
-- **Primary:** `Dockerfile.patchproof` generated by `gen_context.py` — version-
-  matched minimal base, our own install lines only.
-- **Fallback:** the repo's own declared `Dockerfile.app` / `Dockerfile.db` /
-  `docker-compose.yml` if the primary fails (e.g. repos like dvpwa that need
-  Postgres + Redis alongside the app).
-- **Service deps:** if the repo declares supporting services, the reproducer
-  starts them and verifies reachability before running the PoC.
-- **For unrunnable stacks:** when the original server is broken on the chosen
-  Python version (e.g. aiohttp 3.5.3 on Python 3.9), ship a `mini_server.py`
-  that uses stdlib `http.server` and embeds the exact vulnerable code
-  byte-for-byte. The HTTP transport is plain stdlib; the vulnerable code is
-  preserved.
+`agent/build_image.py` generates a `Dockerfile.patchproof` from the repo layout:
+- Detects the Python entrypoint (look for `app.py`, `main.py`, `server.py` in
+  common locations).
+- Writes a minimal Dockerfile using a Python base image.
+- The start command strips `python3 ` prefix and makes the script executable.
+
+For repos that need supporting services (Postgres, Redis), the Dockerfile
+installs them or the PoC ships a `mini_server.py` that uses stdlib `http.server`
+and embeds the exact vulnerable code byte-for-byte. The HTTP transport is
+stdlib; the vulnerable code is preserved.
+
+`PATCHPROOF_IMAGE=<tag>` env var bypasses the build and uses a pre-built image
+directly.
 
 ## Hard rules
 
-- **No fabricated CVE ids.** If `cve_cross_check` returns UNKNOWN, the
-  investigation stops.
+- **No fabricated CVE ids.** `agent/scan.py` only emits CVEs that OSV.dev
+  reports as affecting the repo's pinned packages.
 - **PoC must exploit the live service.** Evidence comes from an HTTP response,
   not from a string `%` interpolation on the host.
 - **All execution through the sandbox server.** `sandbox_build` / `sandbox_exec`
@@ -153,7 +155,6 @@ vacuum is a hard reject.
 - **`image` is always required** on `sandbox_exec` / `sandbox_write` — the
   server rejects calls without it.
 - **Per-CVE isolation.** One CVE = one container. Stops bleed; parallelizable.
-- **No separate CLI.** The OpenCode harness is the only interface.
 - **`sandbox_stop` is always the last call.** No leftover containers.
 - **No hardcoded CVE data.** CVE.org + OSV.dev are the only source.
 - **Sandbox runs unprivileged + offline** — `--network none`, non-root user,
@@ -168,12 +169,6 @@ vacuum is a hard reject.
 
 ## Mistakes we made (so we don't repeat them)
 
-### MCP client response parsing
-- `tools/call` returns `{"content": [{"type":"text","text":"..."}]}` (plain JSON
-  envelope), but earlier code only handled SSE (`data:` lines).
-- **Fix**: `scripts/mcp_client.py` unwraps both formats in one pass. Lives at
-  `scripts/mcp_client.py` and is used by the agent and the driver.
-
 ### Silent `image` omission
 - Without `image` param, MCP silently used `python:3.11-slim`. Containers
   looked healthy but had no app code, no DB driver, no service.
@@ -185,14 +180,6 @@ vacuum is a hard reject.
 - **Fix**: only the dynamic PoC goes through `sandbox_write`. Start scripts,
   vulnerable code, requirements — all baked into the build context.
 
-### aiohttp 3.5.3 is unrunnable on Python 3.8+ and 3.9
-- `async_timeout` 5.x broke ABI: `class CeilTimeout(async_timeout.timeout):`
-  fails with `TypeError: function() argument 'code' must be code, not str`.
-- Pinning `async-timeout==3.0.1` doesn't help because pip pulls 5.x anyway.
-- **Workaround**: ship `mini_server.py` with stdlib `http.server`, embedding
-  the exact SQL interpolation from `sqli/dao/student.py:43`. Vulnerable code
-  preserved byte-for-byte; HTTP transport is plain stdlib.
-
 ### Container thrash from repeated rebuilds
 - 8 builds + 8 stops = 8 containers created and destroyed.
 - **Fix**: bake everything into one build. `Dockerfile.patchproof` includes
@@ -203,10 +190,6 @@ vacuum is a hard reject.
 - **Fix**: cached builds unless `no_cache: True` is strictly required. Most
   updates to `poc.py` don't need `no_cache`.
 
-### Output truncation
-- `sandbox_exec` stdout/stderr truncated beyond a few KB.
-- **Fix**: redirect to `/tmp/*.log`, then `sandbox_read` the file.
-
 ### `curl` not in slim
 - Health checks that used `curl` failed silently.
 - **Fix**: use `python3 -c "import urllib.request; ..."` for all checks.
@@ -215,17 +198,11 @@ vacuum is a hard reject.
 - Calling `start.sh` twice leaves orphan processes.
 - **Fix**: each start step `kill -9 $(pgrep -f ...)` first.
 
-### Stale `data/output/` from previous runs
-- Earlier fake run left `verdict_*.json` files.
-- **Fix**: `scripts/reset_state.sh` wipes `data/output/` before each run.
-
 ### Fake CVE fabrication
 - An earlier dvpwa run invented `DVPWA-SQLI` instead of finding the real
   vulnerability in `sqli/dao/student.py:43`.
-- **Fix**: dual-source CVE check is the first gate. Synthetic CVEs are only
-  used to label a vulnerability that the analyzer found in the repo's own
-  code, never to invent a new one. Always anchored to a published advisory or
-  a static-analysis finding.
+- **Fix**: dual-source CVE check is the first gate. CVEs come only from
+  OSV.dev + CVE.org, never invented.
 
 ## Security posture
 
@@ -236,7 +213,7 @@ vacuum is a hard reject.
 - Resource limits per container (memory, CPU) are set by the MCP server.
 - LLM-judge annotates, never decides. `verdict.json` exit code is ground truth.
 
-## What we learned about dvpwa
+## What we learned from dvpwa
 
 55 CVEs discovered (54 from dep scan + 1 synthetic for the in-repo SQLi):
 - **44 aiohttp CVEs** — library-internal bugs, not triggered by dvpwa's usage.
@@ -245,7 +222,7 @@ vacuum is a hard reject.
 - **2 idna CVEs** — dvpwa is a server, not a client.
 - **1 DVPWA-SQLI** — `sqli/dao/student.py:43` is the only real bug.
 
-**Patch** (the actual fix):
+**Patch** (verified end-to-end):
 ```python
 # before (line 43):
 q = ("INSERT INTO students (name) VALUES ('%(name)s')" % {'name': name})
@@ -258,24 +235,23 @@ await cur.execute("INSERT INTO students (name) VALUES (%s)", (name,))
 `%`-style string interpolation in a SQL query is replaced with a parameterized
 query. The driver (aiopg) handles the escaping.
 
-## Why no separate CLI
+## Why both a CLI and an LLM agent
 
-We have OpenCode. You ask it things; it does them. A second CLI duplicates
-the agent's logic and diverges over time. The OpenCode harness is the
-interface. The user just says "test CVE-XXXX-XXXX" or "run the full pipeline
-on dvpwa" and the agent loads the right skill + prompt, calls MCP, and
-reports back.
+The mechanical parts (clone, scan, build image) are deterministic and
+live in Python (`agent/orchestrate.py`); the LLM-driven parts (PoC
+generation, verdict judgment, patch generation) live in the OpenCode
+patchproof subagent. The split is deliberate: anything deterministic
+goes in Python so it doesn't depend on LLM quality. The CLI is the
+audit-friendly path; the agent is the user-friendly path. Both share
+the same data contracts (`triage.json`, `verdict.json`,
+`reachability.json`).
 
 ## Next steps
 
-1. **Per-CVE isolation in `run_exploit_pipeline.py`** — one session per CVE,
-   per-CVE `data/output/<repo>/<cve_id>/` directory.
-2. **Patch step for exploitable CVEs** — write patched file via
-   `sandbox_write`, restart service, re-run PoC, write
-   `verdict_post_patch.json`.
-3. **End-to-end dvpwa test in OpenCode** — prove the full loop works against
-   a real repo (clone → reachability → sandbox build → service start with
-   Postgres + Redis → real HTTP PoC → patch → re-run → teardown).
-4. **Image-prune step in `reset_state.sh`** — `docker image prune -f` after
-   each run.
-5. PyPI publish once the loop is reliable (`pip install patchproof`).
+1. **Non-Python runtime adapters** — add language-specific build adapters
+   to `agent/build_image.py` so Node.js, Go, and Rust repos can be triaged.
+2. **Staging deploy** — the verifier step runs against the post-merge
+   code; staging deploy (`docker compose`) is the final human-gated step.
+3. **CI integration** — `agent/orchestrate.py` as a GitHub Action step so
+   repos can gate on zero exploitable CVEs in PRs.
+4. **PyPI publish** — `pip install patchproof` once the loop is reliable.
