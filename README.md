@@ -64,7 +64,7 @@ In OpenCode, invoke the `/patchproof` command:
 ```
 /patchproof https://github.com/user/repo
 /patchproof .                        # current directory
-/patchproof . --cve CVE-2024-XXXX   # test one specific CVE
+/patchproof . --cve CVE-2024-21503  # test one specific CVE
 ```
 
 Or use the CLI directly for a full scan:
@@ -139,7 +139,7 @@ cur.execute("INSERT INTO students (name) VALUES (%s)", (name,))
 No. Everything runs inside Docker containers with `--network none`. Your machine never executes untrusted code.
 
 **How does it find CVEs?**
-It queries OSV.dev at runtime for every package in your `requirements.txt` or lock file. No CVE data is hardcoded. Each CVE is cross-checked against CVE.org to confirm it is PUBLISHED before testing.
+It queries OSV.dev at runtime for every package in your `requirements.txt` or lock file. No CVE data is hardcoded. The cve_feed MCP server (port 8091) can also be used to cross-check CVEs against CVE.org.
 
 **Does it work on non-Python repos?**
 Currently Python only.
