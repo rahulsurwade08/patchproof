@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-rm -f /tmp/patchproof_pwned
+rm -f /tmp/ce_pwned
 rm -rf data/inbox
 mkdir -p data/inbox
 rm -rf data/output

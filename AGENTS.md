@@ -1,6 +1,6 @@
 # AGENTS.md
 
-PatchProof: agent that proves whether a scanner-flagged CVE is actually *reachable*
+CheckExploit: agent that proves whether a scanner-flagged CVE is actually *reachable*
 with attacker-controlled input in your repo (reachability triage), runs real exploits
 inside an isolated sandbox to confirm, then patches and verifies fixes.
 
@@ -13,7 +13,7 @@ python3 agent/mcp/cve_feed_server.py &           # http://127.0.0.1:8091/mcp (St
 
 # Mechanical driver: scan + build image + write triage.json
 python3 agent/orchestrate.py <repo-path-or-git-url> [--cve CVE-ID]
-PATCHPROOF_IMAGE=my-image python3 agent/orchestrate.py <repo>   # skip build, use pre-built image
+CE_IMAGE=my-image python3 agent/orchestrate.py <repo>   # skip build, use pre-built image
 
 # Direct analyzer (dev/CI only — no sandbox)
 python3 agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
@@ -63,7 +63,7 @@ python3 agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
 
 - `agent/orchestrate.py` — mechanical driver: clone-or-resolve, scan, build image, write triage.json
 - `agent/scan.py` — reach.py wrapper: discovers CVEs, buckets into `to_test`/`not_reachable`/`exploitable`
-- `agent/build_image.py` — per-repo Docker build, SHA-cached (`pp-sandbox:<repo>-<sha>`)
+- `agent/build_image.py` — per-repo Docker build, SHA-cached (`ce-sandbox:<repo>-<sha>`)
 - `agent/exploit.py` — sandbox harness helpers (`exec_`, `write_`, `read_`, `stop_`, `pull_`, `run_exploit_for_cve`)
 - `agent/analyzer/` — reachability triage engine (`reach.py`, `deps.py`)
 - `agent/mcp/` — MCP servers (`local_sandbox_server.py`, `cve_feed_server.py`)
@@ -75,5 +75,5 @@ python3 agent/analyzer/reach.py <repo-path> <cve-or-advisory> [--out <dir>]
 ## Environment
 
 - Python is the runtime for all `agent/` code.
-- `PATCHPROOF_IMAGE` env var skips the build step and uses a pre-built image.
+- `CE_IMAGE` env var skips the build step and uses a pre-built image.
 - `--cve CVE-ID` flag: single-CVE mode, skips discovery, uses existing `triage.json`.

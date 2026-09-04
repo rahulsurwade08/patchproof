@@ -25,3 +25,6 @@ skills-lock.json
 # Harness feedback loop (private, iterative review — do not commit)
 # Only the single root file feedback-issues.md is private; other feedback-*.md docs should remain visible
 /feedback-issues.md
+
+# Audit reports (never committed - operator reviews manually)
+audit-report.md

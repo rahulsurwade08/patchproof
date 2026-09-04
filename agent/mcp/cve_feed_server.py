@@ -27,7 +27,7 @@ OSV_API = "https://api.osv.dev/v1"
 PORT = int(os.environ.get("CVE_FEED_PORT", "8091"))
 MAX_BODY_BYTES = 1024 * 1024
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "patchproof-cve-feed", "version": "0.1.0"}
+SERVER_INFO = {"name": "check-exploit-cve-feed", "version": "0.1.0"}
 
 TOOLS = [
     {
@@ -155,7 +155,7 @@ def summarize_osv_list(vulns):
     """Display helper: full list for osv_query_package (no silent truncation).
 
     Returns all vulns, each trimmed to a compact display shape. The 10-item
-    cap was removed because PatchProof triage needs the COMPLETE CVE list —
+    cap was removed because CheckExploit triage needs the COMPLETE CVE list —
     a silent cap at 10 hid real vulnerabilities (e.g. jinja2 had 12 CVEs,
     aiohttp had 89 — the user only saw 6 and 10).
     """

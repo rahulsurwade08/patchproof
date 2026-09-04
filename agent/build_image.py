@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-IMAGE_PREFIX = "pp-sandbox"
+IMAGE_PREFIX = "ce-sandbox"
 
 
 def repo_sha(repo: Path) -> str:
@@ -84,7 +84,7 @@ def detect_runtime(repo: Path) -> tuple[str, str, int] | None:
 
     ponytail: no TypeScript build, no monorepo/workspace walk.
     Node port is always 3000 (Express convention); the app must read
-    PATCHPROOF_PORT env or bind to 0.0.0.0.
+    CE_PORT env or bind to 0.0.0.0.
     """
     # Check root first
     result = _detect_at(repo)
@@ -164,7 +164,7 @@ def build_image_for_repo(repo: Path, runtime: str | None = None) -> str:
     # only if/when sandbox_exec supports in-place restart.
     start_sh = f"""#!/bin/bash
 set +e
-PATCHPROOF_PORT={port} bash -c "{entrypoint.strip()}" >> /tmp/srv.log 2>&1 &
+CE_PORT={port} bash -c "{entrypoint.strip()}" >> /tmp/srv.log 2>&1 &
 for i in $(seq 1 20); do
     (echo > /dev/tcp/127.0.0.1/{port}) 2>/dev/null && {{
         echo READY
@@ -200,13 +200,13 @@ exit 1
             dockerfile_lines.append(
                 "RUN npm install --omit=dev --no-fund --no-audit 2>/dev/null || true"
             )
-    dockerfile_lines.extend([f"EXPOSE {port}", f"ENV PATCHPROOF_PORT={port}", 'CMD ["/srv/start.sh"]'])
+    dockerfile_lines.extend([f"EXPOSE {port}", f"ENV CE_PORT={port}", 'CMD ["/srv/start.sh"]'])
     dockerfile = "\n".join(dockerfile_lines) + "\n"
 
     # Build with a temp context dir to avoid embedding secrets.
     # Copy repo contents first, then overwrite with our generated files
     # (so any Dockerfile in the repo doesn't replace ours).
-    ctx = Path(f"/tmp/pp-build-{sha}")
+    ctx = Path(f"/tmp/ce-build-{sha}")
     ctx.mkdir(exist_ok=True)
     (ctx / "start.sh").write_text(start_sh)
     skip_names = {".git", ".venv", "venv", "__pycache__", "node_modules"}
