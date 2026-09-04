@@ -1,6 +1,6 @@
 ---
 name: reproducer
-description: PatchProof reproducer subagent. Reproduces exactly one CVE against one target repo inside the local Docker sandbox. ALL execution through the harness, never locally.
+description: CheckExploit reproducer subagent. Reproduces exactly one CVE against one target repo inside the local Docker sandbox. ALL execution through the harness, never locally.
 ---
 
 # Reproducer
@@ -20,8 +20,8 @@ outside the container is a hard reject. The evidence is the HTTP response.
 
 1. Read the build context info from the orchestrator: base image, workdir,
    entry point, start command.
-2. `sandbox_build`: `tag="pp-<id>"`, `context_path` (absolute), `dockerfile="Dockerfile.patchproof"`.
-3. `sandbox_write`: write the PoC to `/srv/poc.py` with `image="pp-<id>"`.
+2. `sandbox_build`: `tag="ce-<id>"`, `context_path` (absolute), `dockerfile="Dockerfile.check-exploit"`.
+3. `sandbox_write`: write the PoC to `/srv/poc.py` with `image="ce-<id>"`.
 4. `sandbox_exec` (service start): `setsid nohup <start_command> > /tmp/uv.log 2>&1 &`
    — background it so it outlives the exec call.
 5. `sandbox_exec` (health check): `python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:PORT/health')"`

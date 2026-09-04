@@ -1,4 +1,4 @@
-# PatchProof Audit & Code Review Plan
+# CheckExploit Audit & Code Review Plan
 
 **Branch:** `audit/code-review` (no PR, no merge — operator merges manually)
 **Date:** 2026-09-02

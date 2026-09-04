@@ -1,4 +1,4 @@
-"""PatchProof mechanical driver — scan + build image + emit triage.
+"""CheckExploit mechanical driver — scan + build image + emit triage.
 
 After this, the agent (LLM) picks up triage.json, generates PoCs,
 runs exploits, judges verdicts, generates patches, writes reports.
@@ -24,7 +24,7 @@ def clone_or_resolve(repo_arg: str) -> Path:
 
     - If already a local path with a .git, use it.
     - If a local path without .git, use it as-is.
-    - If a URL (github.com, gitlab.com, etc.), clone into /tmp/pp-clones/.
+    - If a URL (github.com, gitlab.com, etc.), clone into /tmp/ce-clones/.
     """
     p = Path(repo_arg).resolve()
     if p.exists() and (p / ".git").exists():
@@ -32,7 +32,7 @@ def clone_or_resolve(repo_arg: str) -> Path:
     if p.exists():
         return p
     if "://" in repo_arg or repo_arg.startswith("git@"):
-        clone_dir = Path(f"/tmp/pp-clones/{Path(urllib.parse.urlparse(repo_arg).path).stem}")
+        clone_dir = Path(f"/tmp/ce-clones/{Path(urllib.parse.urlparse(repo_arg).path).stem}")
         if not clone_dir.exists():
             clone_dir.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run(["git", "clone", "--quiet", repo_arg, str(clone_dir)], check=True)
@@ -57,11 +57,11 @@ def _ecosystems_in_repo(repo: Path) -> list[str]:
 
 
 def run():
-    p = argparse.ArgumentParser(description="PatchProof scan driver")
+    p = argparse.ArgumentParser(description="CheckExploit scan driver")
     p.add_argument("repo", help="local path or git URL")
     p.add_argument("--out", default=str(REPO_ROOT / "data" / "output"))
     p.add_argument("--skip-image", action="store_true",
-                   help="skip docker image build (use existing PATCHPROOF_IMAGE env var)")
+                   help="skip docker image build (use existing CE_IMAGE env var)")
     p.add_argument("--cve", help="test only this CVE (skip discovery scan)")
     args = p.parse_args()
 
@@ -101,14 +101,14 @@ def run():
     # CVE is tested in the image that can run the package. A CLI repo with
     # 100 npm deps still gets a node image so each npm CVE is tested.
     import os
-    env_image = os.environ.get("PATCHPROOF_IMAGE", "")
+    env_image = os.environ.get("CE_IMAGE", "")
     images: dict[str, str] = {}
     if not args.skip_image:
         ecosystems = _ecosystems_in_repo(repo)
         for eco in ecosystems:
             if env_image:
                 images[eco] = env_image
-                print(f"  image[{eco}]: {env_image} (from PATCHPROOF_IMAGE env)", file=sys.stderr)
+                print(f"  image[{eco}]: {env_image} (from CE_IMAGE env)", file=sys.stderr)
             else:
                 print(f"[2/2] building {eco} image ...", flush=True, end="", file=sys.stderr)
                 images[eco] = build_image_for_repo(repo, runtime=eco)
@@ -130,7 +130,7 @@ def run():
         print(f"  {args.cve}: {verdict} — {action}", file=sys.stderr)
 
     print(
-        f"\nPatchProof triage saved to {triage_path}\n"
+        f"\nCheckExploit triage saved to {triage_path}\n"
         f"Images: {images}\n"
         f"Repo: {repo}\n"
         f"\nThe agent should now:\n"

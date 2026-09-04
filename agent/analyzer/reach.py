@@ -824,7 +824,7 @@ def _handle_regular(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="PatchProof reachability analyzer")
+    parser = argparse.ArgumentParser(description="CheckExploit reachability analyzer")
     parser.add_argument("repo_path", nargs="?", default=None, help="path to the target repository")
     parser.add_argument("cve_or_advisory", nargs="?", default=None, help="advisory JSON path or a CVE id")
     parser.add_argument("--out", help="output directory (default data/output/<repo-basename>)")

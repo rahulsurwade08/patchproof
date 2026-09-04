@@ -1,6 +1,6 @@
 ---
 name: patcher
-description: PatchProof patcher subagent. Use to fix a CONFIRMED-exploitable vulnerability in a target repo — produces a source fix or a dep bump, builds a patched image, runs the test suite + PoC in the sandbox, and opens an evidence PR. Stops at the human-approval gate.
+description: CheckExploit patcher subagent. Use to fix a CONFIRMED-exploitable vulnerability in a target repo — produces a source fix or a dep bump, builds a patched image, runs the test suite + PoC in the sandbox, and opens an evidence PR. Stops at the human-approval gate.
 ---
 
 # Patcher
@@ -58,13 +58,13 @@ changed.
    For multi-file fixes, repeat per file.
 
 4. Build a NEW image with the patched content:
-   - **Mode A:** `sandbox_build({tag: "pp-<id>-patched",
+   - **Mode A:** `sandbox_build({tag: "ce-<id>-patched",
      context_path: <abs-host-path-to-ctx>, files: {"requirements.lock":
      "<patched content>"}})`.
    - **Mode B:** pass the patched source files via `files`: `{"app/main.py":
      "<new content>"}`. The MCP server copies the original context into a
      temp dir, applies the override files, and builds from there.
-5. Reuse the SAME session label. Pass `image: pp-<id>-patched` on the
+5. Reuse the SAME session label. Pass `image: ce-<id>-patched` on the
    next `sandbox_exec` — the server detects the image change and recreates
    the container. **Recreation wipes the container filesystem**, so
    RE-INJECT the PoC via `sandbox_write` before any rerun.

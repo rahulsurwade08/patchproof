@@ -1,25 +1,25 @@
-# PatchProof
+# CheckExploit
 
-Scanners say *"maybe vulnerable."* PatchProof proves whether you actually are —
+Scanners say *"maybe vulnerable."* CheckExploit proves whether you actually are —
 by running the real exploit against your code inside an isolated sandbox,
 producing a code-level fix, and verifying the fix holds.
 
-The agent is the **OpenCode patchproof subagent** (`.opencode/agents/patchproof.md`)
-invoked through the `/patchproof` command. Mechanical bits (clone, scan, build
+The agent is the **OpenCode check-exploit subagent** (`.opencode/agents/check-exploit.md`)
+invoked through the `/check-exploit` command. Mechanical bits (clone, scan, build
 image) live in Python; LLM-driven bits (PoC generation, verdict judgment, patch
 generation) live in the agent. The split is deliberate: anything deterministic
 is in Python so it doesn't depend on LLM quality.
 
 ## What it does
 
-Given a repo (local path or GitHub URL) and optionally a CVE id, PatchProof:
+Given a repo (local path or GitHub URL) and optionally a CVE id, CheckExploit:
 
 1. **Scans** — `agent/scan.py` queries OSV.dev for every package in the repo's
    manifest, then runs static reachability (`agent/analyzer/reach.py`) for each
    candidate CVE. Buckets into `to_test` (REACHABLE / UNKNOWN) or
    `not_reachable` (NOT_REACHABLE).
 2. **Builds the image** — `agent/build_image.py` produces a SHA-cached
-   `pp-sandbox:<repo>-<sha>` Docker image that has the repo's app and
+   `ce-sandbox:<repo>-<sha>` Docker image that has the repo's app and
    dependencies installed.
 3. **Writes `triage.json`** — `agent/orchestrate.py` outputs
    `data/output/<repo>/triage.json`. The LLM agent reads this to know which
@@ -48,16 +48,16 @@ Given a repo (local path or GitHub URL) and optionally a CVE id, PatchProof:
 ## Pipeline
 
 ```
-User: /patchproof <repo>
+User: /check-exploit <repo>
         │
         ▼
 [orchestrate.py]   clone or resolve → scan.py → build_image.py
         │                                    │
         ▼                                    ▼
-   triage.json                    pp-sandbox:<repo>-<sha>
+   triage.json                    ce-sandbox:<repo>-<sha>
         │
         ▼
-[patchproof agent]   iterate to_test:
+[check-exploit agent]   iterate to_test:
    for each CVE:
      write PoC
      sandbox_write poc.py
@@ -86,8 +86,8 @@ User: /patchproof <repo>
 | `agent/analyzer/reach.py` | Static reachability triage (dep-pin → call-sites → input trace) |
 | `agent/mcp/cve_feed_server.py` | CVE lookup (CVE.org + OSV.dev) |
 | `agent/mcp/local_sandbox_server.py` | Docker sandbox: build, exec, write, read, stop |
-| `.opencode/agents/patchproof.md` | The LLM agent definition |
-| `.opencode/command/patchproof.md` | `/patchproof` command |
+| `.opencode/agents/check-exploit.md` | The LLM agent definition |
+| `.opencode/command/check-exploit.md` | `/check-exploit` command |
 | `agent/skills/*/SKILL.md` | Per-step instructions for the LLM agent |
 | `scripts/mcp_client.py` | Streamable HTTP client for both MCP servers |
 | `scripts/reset_state.sh` | Wipes `data/output/`, kills containers |
@@ -95,12 +95,12 @@ User: /patchproof <repo>
 ## Per-CVE isolation (the rule)
 
 **One CVE = one container.** Each CVE investigation gets its own session
-(`pp-<repo>-<cve_id>`). A crash on CVE-1 cannot leak into CVE-2's state. The
+(`ce-<repo>-<cve_id>`). A crash on CVE-1 cannot leak into CVE-2's state. The
 MCP server enforces `--network none` on every container at runtime.
 
 Pipeline per CVE (inside the LLM agent loop):
 ```
-session = "pp-dvpwa-DVPWA-SQLI"
+session = "ce-dvpwa-DVPWA-SQLI"
 1. sandbox_write  /srv/poc.py
 2. sandbox_exec    start service (idempotent — kill stale procs first)
 3. sandbox_exec    run poc.py
@@ -130,7 +130,7 @@ vacuum is a hard reject.
 
 ## Build strategy
 
-`agent/build_image.py` generates a `Dockerfile.patchproof` from the repo layout:
+`agent/build_image.py` generates a `Dockerfile.check-exploit` from the repo layout:
 - Detects the Python entrypoint (look for `app.py`, `main.py`, `server.py` in
   common locations).
 - Writes a minimal Dockerfile using a Python base image.
@@ -141,7 +141,7 @@ installs them or the PoC ships a `mini_server.py` that uses stdlib `http.server`
 and embeds the exact vulnerable code byte-for-byte. The HTTP transport is
 stdlib; the vulnerable code is preserved.
 
-`PATCHPROOF_IMAGE=<tag>` env var bypasses the build and uses a pre-built image
+`CE_IMAGE=<tag>` env var bypasses the build and uses a pre-built image
 directly.
 
 ## Hard rules
@@ -172,7 +172,7 @@ directly.
 ### Silent `image` omission
 - Without `image` param, MCP silently used `python:3.11-slim`. Containers
   looked healthy but had no app code, no DB driver, no service.
-- **Fix**: always pass `image: "pp-<repo>"` on every call. Documented in
+- **Fix**: always pass `image: "ce-<repo>"` on every call. Documented in
   AGENTS.md and the reproducer skill.
 
 ### `sandbox_write` files lost on `sandbox_stop`
@@ -182,7 +182,7 @@ directly.
 
 ### Container thrash from repeated rebuilds
 - 8 builds + 8 stops = 8 containers created and destroyed.
-- **Fix**: bake everything into one build. `Dockerfile.patchproof` includes
+- **Fix**: bake everything into one build. `Dockerfile.check-exploit` includes
   the app, start script, and `mini_server.py`. One build, many sessions.
 
 ### Long MCP timeouts block other calls
@@ -240,7 +240,7 @@ query. The driver (aiopg) handles the escaping.
 The mechanical parts (clone, scan, build image) are deterministic and
 live in Python (`agent/orchestrate.py`); the LLM-driven parts (PoC
 generation, verdict judgment, patch generation) live in the OpenCode
-patchproof subagent. The split is deliberate: anything deterministic
+check-exploit subagent. The split is deliberate: anything deterministic
 goes in Python so it doesn't depend on LLM quality. The CLI is the
 audit-friendly path; the agent is the user-friendly path. Both share
 the same data contracts (`triage.json`, `verdict.json`,
@@ -254,4 +254,4 @@ the same data contracts (`triage.json`, `verdict.json`,
    code; staging deploy (`docker compose`) is the final human-gated step.
 3. **CI integration** — `agent/orchestrate.py` as a GitHub Action step so
    repos can gate on zero exploitable CVEs in PRs.
-4. **PyPI publish** — `pip install patchproof` once the loop is reliable.
+4. **PyPI publish** — `pip install check-exploit` once the loop is reliable.

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Install PatchProof into opencode.
+# Install CheckExploit into opencode.
 # Run once after cloning the repo.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "Installing PatchProof skill for opencode..."
+echo "Installing CheckExploit skill for opencode..."
 
 # 1. Copy the skill
-SKILL_DIR="$HOME/.agents/skills/patchproof"
+SKILL_DIR="$HOME/.agents/skills/check-exploit"
 mkdir -p "$SKILL_DIR"
 cp "$REPO_DIR/SKILL.md" "$SKILL_DIR/SKILL.md"
 echo "  skill -> $SKILL_DIR/SKILL.md"
@@ -47,9 +47,9 @@ else:
     print('  mcp config -> $OCCONF (unchanged)')
 "
 echo ""
-echo "PatchProof installed. To start the sandbox MCP servers:"
+echo "CheckExploit installed. To start the sandbox MCP servers:"
 echo ""
 echo "  python3 $REPO_DIR/agent/mcp/local_sandbox_server.py &"
 echo "  python3 $REPO_DIR/agent/mcp/cve_feed_server.py &"
 echo ""
-echo "Then opencode will use PatchProof when you say 'scan this repo for CVEs'."
+echo "Then opencode will use CheckExploit when you say 'scan this repo for CVEs'."

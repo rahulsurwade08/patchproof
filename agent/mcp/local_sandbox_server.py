@@ -9,7 +9,7 @@ Tools:
   sandbox_read   -- read a file out of a session container
   sandbox_stop   -- destroy a session container
   sandbox_build  -- build an image on the host (build-time network allowed)
-  gen_build_context -- synthesize Dockerfile.patchproof for a target repo
+  gen_build_context -- synthesize Dockerfile.check-exploit for a target repo
   clone_repo     -- git clone a GitHub repo to a local temp dir (host-side,
                     runs before sandbox). This lets the agent triage a GitHub URL
                     without requiring the user to clone first.
@@ -49,10 +49,10 @@ REPO_ROOT = os.environ.get(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 MAX_BODY_BYTES = 1024 * 1024
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "patchproof-local-sandbox", "version": "0.1.0"}
+SERVER_INFO = {"name": "check-exploit-local-sandbox", "version": "0.1.0"}
 # Ownership labels: every container we create carries these, so crash
 # recovery on startup can reclaim leftovers from ANY previous instance.
-LABELS = ["--label", "patchproof-sbx=1"]
+LABELS = ["--label", "check-exploit-sbx=1"]
 
 # Best-effort redaction of credential-looking strings in tool output.
 _REDACTIONS = [
@@ -112,7 +112,7 @@ def docker(args, timeout_ms=120000, input_text=None):
 def container_name(session):
     """Hash the RAW label: distinct labels can never collide, however similar."""
     digest = hashlib.sha256(str(session or "default").encode()).hexdigest()[:16]
-    return f"patchproof-sbx-{digest}"
+    return f"check-exploit-sbx-{digest}"
 
 
 def start_container(name, network="none", image=IMAGE):
@@ -205,7 +205,7 @@ def ensure_container(session, network="none", image=IMAGE):
 def cleanup_all_containers():
     """Label-filtered: removes every container ever created by this server
     (including orphans from crashed instances), touches nothing else."""
-    listed = docker(["ps", "-aq", "--filter", "label=patchproof-sbx=1"])
+    listed = docker(["ps", "-aq", "--filter", "label=check-exploit-sbx=1"])
     ids = [i for i in listed["stdout"].strip().split("\n") if i]
     for cid in ids:
         docker(["rm", "-f", cid])
@@ -239,12 +239,12 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "tag": {"type": "string", "description": "image tag, e.g. pp-s01"},
+                "tag": {"type": "string", "description": "image tag, e.g. ce-s01"},
                 "context_path": {"type": "string", "description": "absolute host path to build context"},
                 "files": {"type": "object", "description": "optional {rel-path: text} overrides applied to a temp context copy, e.g. {'requirements.lock': '<patched>'}",
                           "additionalProperties": {"type": "string"}},
                 "no_cache": {"type": "boolean", "description": "force fresh build (bypass Docker layer cache)"},
-                "dockerfile": {"type": "string", "description": "Dockerfile name RELATIVE to context (default 'Dockerfile'), e.g. 'Dockerfile.patchproof'"},
+                "dockerfile": {"type": "string", "description": "Dockerfile name RELATIVE to context (default 'Dockerfile'), e.g. 'Dockerfile.check-exploit'"},
             },
             "required": ["tag", "context_path"],
         },
@@ -312,13 +312,13 @@ TOOLS = [
     },
     {
         "name": "gen_build_context",
-        "description": "Synthesize Dockerfile.patchproof for an arbitrary repo. Returns build_context + tag. Call BEFORE sandbox_build.",
+        "description": "Synthesize Dockerfile.check-exploit for an arbitrary repo. Returns build_context + tag. Call BEFORE sandbox_build.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "repo_path": {"type": "string", "description": "absolute host path to the cloned target repo"},
                 "out_dir": {"type": "string", "description": "where to write the build context (default: temp dir)"},
-                "force": {"type": "boolean", "description": "overwrite an existing Dockerfile.patchproof"},
+                "force": {"type": "boolean", "description": "overwrite an existing Dockerfile.check-exploit"},
             },
             "required": ["repo_path"],
         },
@@ -369,7 +369,7 @@ def _clone_repo(args):
 
     # Clone target: /tmp/<repo-name>-<sha-short>
     # Use sha of the repo's default branch to make it unique per commit
-    clone_root = tempfile.mkdtemp(prefix="patchproof-clone-")
+    clone_root = tempfile.mkdtemp(prefix="check-exploit-clone-")
     target_dir = os.path.join(clone_root, repo_name)
 
     git_args = ["git", "clone"]
@@ -423,7 +423,7 @@ def tool_call(name, args=None):
         files = args.get("files") if isinstance(args.get("files"), dict) else None
         try:
             if files:
-                tmp_dir = tempfile.mkdtemp(prefix="patchproof-ctx-")
+                tmp_dir = tempfile.mkdtemp(prefix="check-exploit-ctx-")
                 shutil.copytree(context, tmp_dir, dirs_exist_ok=True)
                 ctx_root = os.path.realpath(tmp_dir)
                 for rel, content in files.items():
@@ -547,7 +547,7 @@ def tool_call(name, args=None):
         docker(["rm", "-f", cname])
         return {"stopped": cname}
     if name == "gen_build_context":
-        # Synthesize Dockerfile.patchproof for an arbitrary target repo. This
+        # Synthesize Dockerfile.check-exploit for an arbitrary target repo. This
         # is the bridge from a GitHub URL (or local clone) to a sandbox image:
         # the LLM calls gen_build_context first, then sandbox_build with the
         # returned build_context path, then sandbox_exec for the reproducer.
@@ -562,7 +562,7 @@ def tool_call(name, args=None):
         out_dir = args.get("out_dir")
         force = bool(args.get("force"))
         if not out_dir:
-            out_dir = tempfile.mkdtemp(prefix="patchproof-ctx-")
+            out_dir = tempfile.mkdtemp(prefix="check-exploit-ctx-")
         os.makedirs(out_dir, exist_ok=True)
         # Import lazily so the analyzer module is only loaded when needed.
         sys.path.insert(0, REPO_ROOT)
