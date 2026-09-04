@@ -7,10 +7,10 @@ Give it a repo, it finds all flagged vulnerabilities, runs real exploits against
 ## Install in your opencode
 
 ```bash
-git clone https://github.com/rahulsurwade08/check-exploit.git ~/check-exploit
-~/check-exploit/scripts/install.sh                # copies skill + MCP config
-python3 ~/check-exploit/agent/mcp/local_sandbox_server.py &   # :8081
-python3 ~/check-exploit/agent/mcp/cve_feed_server.py &         # :8091
+git clone https://github.com/rahulsurwade08/checkexploit.git ~/checkexploit
+~/checkexploit/scripts/install.sh                # copies skill + MCP config
+python3 ~/checkexploit/agent/mcp/local_sandbox_server.py &   # :8081
+python3 ~/checkexploit/agent/mcp/cve_feed_server.py &         # :8091
 ```
 
 Then in opencode, say "scan this repo for CVEs" and CheckExploit takes over.
@@ -22,7 +22,7 @@ CheckExploit runs entirely inside Docker containers with `--network none` — yo
 The flow has two parts: a mechanical driver (Python) that clones, scans, and builds images, and an LLM agent that generates PoCs, runs exploits, judges verdicts, and produces patches.
 
 ```
-User invokes /check-exploit
+User invokes /checkexploit
         │
         ▼
 ┌─────────────────────────────────────────────────────────┐
@@ -75,12 +75,12 @@ python3 agent/mcp/cve_feed_server.py &        # CVE tools: cve_get_cve, osv_quer
 
 ### 2. Run the agent
 
-In OpenCode, invoke the `/check-exploit` command:
+In OpenCode, invoke the `/checkexploit` command:
 
 ```
-/check-exploit https://github.com/user/repo
-/check-exploit .                        # current directory
-/check-exploit . --cve CVE-2024-21503  # test one specific CVE
+/checkexploit https://github.com/user/repo
+/checkexploit .                        # current directory
+/checkexploit . --cve CVE-2024-21503  # test one specific CVE
 ```
 
 Or use the CLI directly for a full scan:
@@ -117,8 +117,8 @@ Results are written to `data/output/<repo>/report.md` and `data/output/<repo>/re
 | `agent/mcp/cve_feed_server.py` | MCP server — CVE tools (cve_get_cve, osv_query_package, etc.) |
 | `SKILL.md` | opencode skill (installed via `scripts/install.sh`) |
 | `scripts/install.sh` | Idempotent installer — copies skill + MCP config into `~/.config/opencode/` |
-| `.opencode/agents/check-exploit.md` | The LLM agent definition |
-| `.opencode/command/check-exploit.md` | `/check-exploit` command |
+| `.opencode/agents/checkexploit.md` | The LLM agent definition |
+| `.opencode/command/checkexploit.md` | `/checkexploit` command |
 
 ## What you get
 

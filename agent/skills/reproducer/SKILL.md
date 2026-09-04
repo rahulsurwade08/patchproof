@@ -20,7 +20,7 @@ outside the container is a hard reject. The evidence is the HTTP response.
 
 1. Read the build context info from the orchestrator: base image, workdir,
    entry point, start command.
-2. `sandbox_build`: `tag="ce-<id>"`, `context_path` (absolute), `dockerfile="Dockerfile.check-exploit"`.
+2. `sandbox_build`: `tag="ce-<id>"`, `context_path` (absolute), `dockerfile="Dockerfile.checkexploit"`.
 3. `sandbox_write`: write the PoC to `/srv/poc.py` with `image="ce-<id>"`.
 4. `sandbox_exec` (service start): `setsid nohup <start_command> > /tmp/uv.log 2>&1 &`
    — background it so it outlives the exec call.

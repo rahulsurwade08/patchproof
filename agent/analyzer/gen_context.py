@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build-context generator: version-matched minimal sandbox image.
 
-Synthesizes `Dockerfile.check-exploit` — built via sandbox_build's -f
+Synthesizes `Dockerfile.checkexploit` — built via sandbox_build's -f
 argument — from the repo's OWN runtime version, keeping the sandbox base
 as small as possible:
 
@@ -573,7 +573,7 @@ def _derive_start_command(entry, repo_path):
 
 
 def generate(repo_path, out_dir=None, force=False):
-    """Write a minimal, version-matched `Dockerfile.check-exploit` into the
+    """Write a minimal, version-matched `Dockerfile.checkexploit` into the
     build context. The repo's own Dockerfile* files are never overwritten
     and never executed."""
     repo_path = os.path.abspath(repo_path)
@@ -646,7 +646,7 @@ def generate(repo_path, out_dir=None, force=False):
         lines += install_lines + ["COPY . /srv"]
     lines.append(f"CMD {json.dumps(start_command)}")
 
-    _write_file(os.path.join(out_dir, "Dockerfile.check-exploit"),
+    _write_file(os.path.join(out_dir, "Dockerfile.checkexploit"),
                 "\n".join(lines) + "\n", force)
     _write_file(os.path.join(out_dir, ".dockerignore"),
                 "\n".join((".git", ".env", ".env.*", "*.pem", "*.key", "*.p12",
@@ -666,8 +666,8 @@ def generate(repo_path, out_dir=None, force=False):
     fallback_workdir = _final_workdir(
         os.path.join(repo_path, fallback)) if fallback else None
     context_record = {
-        "dockerfile": os.path.join(out_dir, "Dockerfile.check-exploit"),
-        "dockerfile_name": "Dockerfile.check-exploit",
+        "dockerfile": os.path.join(out_dir, "Dockerfile.checkexploit"),
+        "dockerfile_name": "Dockerfile.checkexploit",
         "fallback_dockerfile": fallback,
         "fallback_workdir": fallback_workdir,
         "base_image": base,
@@ -680,7 +680,7 @@ def generate(repo_path, out_dir=None, force=False):
         "source": "synthesized",
         "generated": True,
     }
-    _write_file(os.path.join(out_dir, "check-exploit-build-context.json"),
+    _write_file(os.path.join(out_dir, "checkexploit-build-context.json"),
                 json.dumps(context_record, indent=2, ensure_ascii=False) + "\n",
                 force)
 
@@ -692,7 +692,7 @@ def main(argv=None):
     parser.add_argument("repo_path", help="path to the target repository")
     parser.add_argument("--out", help="write a complete build context here (default: repo path)")
     parser.add_argument("--force", action="store_true",
-                        help="replace an existing generated Dockerfile.check-exploit/.dockerignore")
+                        help="replace an existing generated Dockerfile.checkexploit/.dockerignore")
     args = parser.parse_args(argv)
 
     result = generate(args.repo_path, args.out, args.force)
