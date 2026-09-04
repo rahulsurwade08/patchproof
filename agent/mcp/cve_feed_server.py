@@ -27,7 +27,7 @@ OSV_API = "https://api.osv.dev/v1"
 PORT = int(os.environ.get("CVE_FEED_PORT", "8091"))
 MAX_BODY_BYTES = 1024 * 1024
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "check-exploit-cve-feed", "version": "0.1.0"}
+SERVER_INFO = {"name": "checkexploit-cve-feed", "version": "0.1.0"}
 
 TOOLS = [
     {

@@ -4,8 +4,8 @@ Scanners say *"maybe vulnerable."* CheckExploit proves whether you actually are 
 by running the real exploit against your code inside an isolated sandbox,
 producing a code-level fix, and verifying the fix holds.
 
-The agent is the **OpenCode check-exploit subagent** (`.opencode/agents/check-exploit.md`)
-invoked through the `/check-exploit` command. Mechanical bits (clone, scan, build
+The agent is the **OpenCode checkexploit subagent** (`.opencode/agents/checkexploit.md`)
+invoked through the `/checkexploit` command. Mechanical bits (clone, scan, build
 image) live in Python; LLM-driven bits (PoC generation, verdict judgment, patch
 generation) live in the agent. The split is deliberate: anything deterministic
 is in Python so it doesn't depend on LLM quality.
@@ -48,7 +48,7 @@ Given a repo (local path or GitHub URL) and optionally a CVE id, CheckExploit:
 ## Pipeline
 
 ```
-User: /check-exploit <repo>
+User: /checkexploit <repo>
         │
         ▼
 [orchestrate.py]   clone or resolve → scan.py → build_image.py
@@ -57,7 +57,7 @@ User: /check-exploit <repo>
    triage.json                    ce-sandbox:<repo>-<sha>
         │
         ▼
-[check-exploit agent]   iterate to_test:
+[checkexploit agent]   iterate to_test:
    for each CVE:
      write PoC
      sandbox_write poc.py
@@ -86,8 +86,8 @@ User: /check-exploit <repo>
 | `agent/analyzer/reach.py` | Static reachability triage (dep-pin → call-sites → input trace) |
 | `agent/mcp/cve_feed_server.py` | CVE lookup (CVE.org + OSV.dev) |
 | `agent/mcp/local_sandbox_server.py` | Docker sandbox: build, exec, write, read, stop |
-| `.opencode/agents/check-exploit.md` | The LLM agent definition |
-| `.opencode/command/check-exploit.md` | `/check-exploit` command |
+| `.opencode/agents/checkexploit.md` | The LLM agent definition |
+| `.opencode/command/checkexploit.md` | `/checkexploit` command |
 | `agent/skills/*/SKILL.md` | Per-step instructions for the LLM agent |
 | `scripts/mcp_client.py` | Streamable HTTP client for both MCP servers |
 | `scripts/reset_state.sh` | Wipes `data/output/`, kills containers |
@@ -130,7 +130,7 @@ vacuum is a hard reject.
 
 ## Build strategy
 
-`agent/build_image.py` generates a `Dockerfile.check-exploit` from the repo layout:
+`agent/build_image.py` generates a `Dockerfile.checkexploit` from the repo layout:
 - Detects the Python entrypoint (look for `app.py`, `main.py`, `server.py` in
   common locations).
 - Writes a minimal Dockerfile using a Python base image.
@@ -182,7 +182,7 @@ directly.
 
 ### Container thrash from repeated rebuilds
 - 8 builds + 8 stops = 8 containers created and destroyed.
-- **Fix**: bake everything into one build. `Dockerfile.check-exploit` includes
+- **Fix**: bake everything into one build. `Dockerfile.checkexploit` includes
   the app, start script, and `mini_server.py`. One build, many sessions.
 
 ### Long MCP timeouts block other calls
@@ -240,7 +240,7 @@ query. The driver (aiopg) handles the escaping.
 The mechanical parts (clone, scan, build image) are deterministic and
 live in Python (`agent/orchestrate.py`); the LLM-driven parts (PoC
 generation, verdict judgment, patch generation) live in the OpenCode
-check-exploit subagent. The split is deliberate: anything deterministic
+checkexploit subagent. The split is deliberate: anything deterministic
 goes in Python so it doesn't depend on LLM quality. The CLI is the
 audit-friendly path; the agent is the user-friendly path. Both share
 the same data contracts (`triage.json`, `verdict.json`,
@@ -254,4 +254,4 @@ the same data contracts (`triage.json`, `verdict.json`,
    code; staging deploy (`docker compose`) is the final human-gated step.
 3. **CI integration** — `agent/orchestrate.py` as a GitHub Action step so
    repos can gate on zero exploitable CVEs in PRs.
-4. **PyPI publish** — `pip install check-exploit` once the loop is reliable.
+4. **PyPI publish** — `pip install checkexploit` once the loop is reliable.

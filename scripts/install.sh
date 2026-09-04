@@ -8,7 +8,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 echo "Installing CheckExploit skill for opencode..."
 
 # 1. Copy the skill
-SKILL_DIR="$HOME/.agents/skills/check-exploit"
+SKILL_DIR="$HOME/.agents/skills/checkexploit"
 mkdir -p "$SKILL_DIR"
 cp "$REPO_DIR/SKILL.md" "$SKILL_DIR/SKILL.md"
 echo "  skill -> $SKILL_DIR/SKILL.md"

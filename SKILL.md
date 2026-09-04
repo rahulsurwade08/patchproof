@@ -1,6 +1,6 @@
 ---
 name: CheckExploit
-description: CheckExploit — proves whether a scanner-flagged CVE is actually reachable in a repo, runs real exploits in an isolated sandbox to confirm, then patches and verifies fixes. Use when the user asks to "scan a repo for CVEs", "check exploitability", "verify a CVE is real", "patch my repo", or runs /check-exploit.
+description: CheckExploit — proves whether a scanner-flagged CVE is actually reachable in a repo, runs real exploits in an isolated sandbox to confirm, then patches and verifies fixes. Use when the user asks to "scan a repo for CVEs", "check exploitability", "verify a CVE is real", "patch my repo", or runs /checkexploit.
 ---
 
 # CheckExploit
@@ -10,20 +10,20 @@ You have access to CheckExploit. It is an **agent** (you, the LLM) plus **mechan
 ## Install (one-time, in the user's shell)
 
 ```bash
-git clone https://github.com/rahulsurwade08/check-exploit.git ~/check-exploit
-~/check-exploit/scripts/install.sh
+git clone https://github.com/rahulsurwade08/checkexploit.git ~/checkexploit
+~/checkexploit/scripts/install.sh
 ```
 
 Then start the MCP servers (also one-time per session):
 
 ```bash
-python3 ~/check-exploit/agent/mcp/local_sandbox_server.py &     # :8081
-python3 ~/check-exploit/agent/mcp/cve_feed_server.py &           # :8091
+python3 ~/checkexploit/agent/mcp/local_sandbox_server.py &     # :8081
+python3 ~/checkexploit/agent/mcp/cve_feed_server.py &           # :8091
 ```
 
 ## When to invoke
 
-User says: "scan this repo", "is this CVE real?", "check for exploitable vulns", "/check-exploit".
+User says: "scan this repo", "is this CVE real?", "check for exploitable vulns", "/checkexploit".
 
 ## Workflow
 

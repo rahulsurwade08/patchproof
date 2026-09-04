@@ -55,7 +55,7 @@ def mcp_init(url):
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"protocolVersion": "2024-11-05",
                    "capabilities": {},
-                   "clientInfo": {"name": "check-exploit-client", "version": "0.1"}}},
+                   "clientInfo": {"name": "checkexploit-client", "version": "0.1"}}},
     ))
     _initialized_urls.add(url)
 
